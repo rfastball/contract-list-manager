@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>계약 목록에 저장</title><link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main id="collector" aria-label="계약 목록 수집기">
+    <header>
+      <h1>계약 목록 <span id="environment" class="badge"></span></h1>
+      <span id="compact-status" class="compact" hidden></span>
+      <span class="tools">
+        <button id="settings" class="quiet" type="button">설정</button>
+        <button id="collapse" class="quiet" type="button" aria-expanded="true" aria-controls="content" hidden>접기</button>
+      </span>
+    </header>
+    <div id="content">
+      <section class="export" aria-label="화면 엑셀 내보내기">
+        <button id="export" type="button">현재 화면 엑셀로 내보내기</button>
+        <p id="export-status" class="note" role="status" aria-live="polite">현재 화면의 필드와 로딩된 표를 .xlsx로 저장합니다. 앱 연결 없이 사용할 수 있습니다.</p>
+      </section>
+      <p id="destination" class="destination">저장 대상 확인 중</p>
+      <section id="target" aria-label="수집 대상" hidden>
+        <p id="previous" class="scope" hidden>이전 저장 요청의 대상입니다. 현재 화면을 새로 저장하지 않습니다.</p>
+        <p id="entity" class="number"></p>
+        <h2 id="title"></h2>
+        <p id="scope" class="scope"></p>
+        <details id="details"><summary>저장할 정보 보기</summary><dl id="preview"></dl></details><div id="changes"></div>
+      </section>
+      <div class="feedback">
+        <p id="status" role="status" aria-live="polite">현재 화면을 확인하고 있습니다.</p>
+        <details id="help" hidden><summary>연결 도움말</summary>
+          <p>업무 DB 준비와 확장 연결 등록을 확인한 뒤 다시 확인해 주세요. 앱 창의 실행 여부와 저장 연결은 별개입니다.</p>
+          <ol><li>계약 목록을 실행해 업무 DB를 준비합니다. 개발 환경은 <code>--erp-dev</code>로 분리합니다.</li><li>확장 관리 화면에서 확장 ID와 사이트 접근 권한을 확인하고 Host 등록 절차를 완료합니다.</li><li>확장과 나라장터 탭을 새로고침한 뒤 아래 확인 버튼을 누릅니다.</li></ol>
+        </details>
+        <details id="error" hidden><summary>오류 상세</summary><p id="error-text"></p></details>
+      </div>
+      <footer>
+        <button id="action" class="primary" type="button" disabled>확인 중…</button>
+        <button id="inspect" class="quiet" type="button" hidden>다시 확인</button>
+      </footer>
+      <p class="note">접수·공고·계약의 활성 매핑을 사용합니다.<br>미수집 범위와 변경값을 확인한 후 저장하세요.</p>
+      <p id="shortcut" class="note shortcut">단축키 확인 중</p>
+    </div>
+  </main>
+  <script src="export.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

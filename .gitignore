@@ -1,0 +1,25 @@
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+
+# 산출 DB — 개인정보가 들어가므로 저장소에 올리지 않는다
+*.db
+*.db-wal
+*.db-shm
+
+# 실제 조달 문서와 그 파싱 결과 — 개인정보가 들어 있어 저장소에 올리지 않는다.
+# PDF 입구를 걷은 뒤(ADR-028) 쓰지 않지만, 옛 작업 폴더에 남은 실물이 올라가지 않게 막아 둔다.
+corpus/
+tests/Pclm.Core.Tests/golden/
+
+# 배포 산출물
+dist/
+
+# 프론트
+node_modules/
+src/Pclm.App/wwwroot/
+
+# 이 기계의 Claude Code 로컬 권한 — 사람마다 다르고 절대경로가 박힌다
+.claude/settings.local.json

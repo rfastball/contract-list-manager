@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>확장 개발 미리보기 · 계약 목록</title>
+<link rel="stylesheet" href="/css/tokens.css">
+<style>
+  body { margin: 24px; background: var(--a-window); color: var(--a-ink); font: 14px/1.6 "Malgun Gothic", sans-serif; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  form { display: flex; flex-wrap: wrap; gap: 16px; margin: 24px 0; }
+  select, button { font: inherit; padding: 6px; }
+  iframe { display: block; max-width: 100%; height: 720px; border: 1px solid var(--a-border); background: var(--a-card); }
+  #fixture { max-width: 720px; margin-top: 24px; }
+  #fixture input { display: block; width: 90%; margin: 8px 0; }
+  :focus-visible { outline: 3px solid var(--a-primary); outline-offset: 2px; }
+</style>
+<h1>확장 개발 미리보기</h1>
+<p>원본 확장 UI와 수집·중계 코드를 실행합니다. 예시 자료와 메모리 저장만 사용하며 실제 나라장터·Native Host·DB에는 연결하지 않습니다.</p>
+<form>
+  <label>화면 <select name="view"><option value="popup">팝업</option><option value="page">페이지 수집기</option></select></label>
+  <label>상황 <select name="scenario">
+    <option value="success">저장 성공</option><option value="duplicate">동일 내용</option>
+    <option value="connection">초기 연결 실패</option><option value="lost-after">저장 후 응답 단절</option>
+    <option value="lost-before">저장 전 연결 단절 → 재시도</option><option value="conflict">저장 충돌</option>
+  </select></label>
+  <label>너비 <select name="width"><option>360</option><option>280</option><option>960</option></select></label>
+  <button>적용 / 초기화</button>
+</form>
+<p id="instructions">확인 중…</p>
+<iframe title="원본 확장 화면"></iframe>
+<section id="fixture" aria-label="수집할 예시 원문"></section>
+<script type="module">
+  import popupHtml from '../extension/popup.html?raw';
+  import popupCss from '../extension/popup.css?raw';
+  import popupSource from '../extension/popup.js?raw';
+  import captureSource from '../extension/capture.js?raw';
+  import backgroundSource from '../extension/background.js?raw';
+  import exportSource from '../extension/export.js?raw';
+
+  if (!import.meta.env.DEV) throw new Error('개발 서버에서만 실행하는 미리보기입니다.');
+  const params = new URLSearchParams(location.search);
+  for (const select of document.querySelectorAll('select')) {
+    if ([...select.options].some(option => option.value === params.get(select.name))) select.value = params.get(select.name);
+  }
+  const form = document.querySelector('form');
+  const mode = form.elements.view.value, scenario = form.elements.scenario.value;
+  const frame = document.querySelector('iframe');
+  frame.style.width = form.elements.width.value + 'px';
+  const loaded = new Promise(resolve => frame.onload = resolve);
+  frame.srcdoc = mode === 'popup' ? popupHtml.replace(/<link[^>]*>/, '').replace(/<script[\s\S]*?<\/script>/g, '')
+    : '<!doctype html><html lang="ko"><meta charset="utf-8"><title>예시 공고 화면</title><body style="font:14px/1.6 sans-serif;margin:20px"><p>페이지 수집기 예시 · 실제 나라장터 아님</p><section id="fixture"></section></body></html>';
+  await loaded;
+  const doc = frame.contentDocument, win = frame.contentWindow;
+  const style = doc.createElement('style'); style.textContent = popupCss;
+  if (mode === 'popup') doc.head.append(style);
+  const sourceDoc = mode === 'page' ? doc : document;
+  const fixture = sourceDoc.getElementById('fixture');
+  fixture.innerHTML = '<h2 id="mf_wfm_cntsHeader_spnHeaderTitle">입찰공고상세[내자]</h2><div id="mf_wfm_container_mainWframe"><table><tr><td data-title="공고명"><span class="w2textbox" id="preview-title">개발 예시 — 긴 공고명이 여러 줄로 표시되는지 확인하는 사무용 물품 구매 공고</span></td></tr></table></div>';
+  const values = { 입찰공고번호: 'R26BK00000001 - 001', 공고종류: '실공고', 게시일시: '2026/09/24 10:00:00',
+    입찰방식: '전자입찰', 낙찰방법: '적격심사제', 계약방법: '제한경쟁', 공고기관: '예시기관' };
+  Object.entries(values).forEach(([label, value], index) => {
+    const input = sourceDoc.createElement('input');
+    input.title = input.ariaLabel = label; input.value = value; input.readOnly = true; input.id = 'preview-field-' + index;
+    fixture.querySelector('#mf_wfm_container_mainWframe').append(input);
+  });
+  // 실제 origin이나 Chrome 권한을 변경하지 않는다. 기존 단위 테스트와 같은 함수 인자 대역이다.
+  const fakeLocation = { origin: 'https://www.g2b.go.kr', pathname: '/preview' }, fakeWindow = {};
+  fakeWindow.top = fakeWindow;
+  const profiles = [{ id: 'preview-notice', identitySource: 'pointInfo', baseField: 'reference', seqField: 'reference', tables: [],
+    fields: [{ source: 'title' }], selectors: { reference: '#preview-field-0', title: '#preview-title' } }];
+  const read = () => new Function('document', 'window', 'location', 'profiles', captureSource + ';return pclmReadMapped(profiles);')(sourceDoc, fakeWindow, fakeLocation, profiles);
+  const exportPage = () => new Function('document', 'window', 'location', exportSource + ';return pclmExportPage();')(sourceDoc, fakeWindow, fakeLocation);
+  const session = {}, receipts = new Map(), listeners = [];
+  let command, interrupted = false;
+  const chrome = {
+    runtime: {
+      id: 'preview', getURL: file => 'chrome-extension://preview/' + file,
+      onMessage: { addListener: fn => listeners.push(fn) },
+      // 중계기와 페이지 수집기가 같은 창에 산다. 각 수신자는 자기 종류의 메시지만 받는다.
+      sendMessage: message => new Promise(resolve => listeners.forEach(fn => fn(message, mode === 'popup'
+        ? { id: 'preview', url: chrome.runtime.getURL('popup.html') }
+        : { id: 'preview', url: fakeLocation.origin + '/', frameId: 0, tab: { id: 1 }, documentId: 'preview' }, resolve))),
+      openOptionsPage: () => { document.getElementById('instructions').textContent = '설정 창 열기 요청 (미리보기에서는 열지 않음)'; },
+      sendNativeMessage: async (_host, request) => {
+        await new Promise(resolve => setTimeout(resolve, 180));
+        if (scenario === 'connection') throw new Error('예시: Native Host 연결 실패');
+        const { method, params } = request;
+        let result;
+        if (method === 'hello') result = { datasetId: 'preview-memory-only', mapping: { profiles }, mappingRevision: 'v1', destination: '미리보기 메모리', environment: 'development' };
+        if (method === 'inspect') result = { baseToken: 'preview', entity: params.snapshot.data.pointInfo.reference, entityType: 'notice', itemCount: 0, changes: [], unmatched: [], document: { rows: [{ values: params.snapshot.data.pointInfo }] } };
+        if (method === 'captureStatus') result = receipts.get(params.captureId) || { status: 'not_found' };
+        if (method === 'capture') {
+          if (scenario === 'conflict') return { protocolVersion: 2, requestId: request.requestId, ok: false,
+            error: { code: 'conflict', message: '예시: 자료가 바뀌었습니다. 다시 확인해 주세요.' } };
+          result = { status: 'stored', entity: params.snapshot.data.pointInfo.reference, changed: scenario !== 'duplicate' };
+          if (!interrupted && scenario.startsWith('lost-')) {
+            interrupted = true;
+            if (scenario === 'lost-after') receipts.set(params.captureId, result);
+            throw new Error('예시: 응답 연결 단절');
+          }
+          receipts.set(params.captureId, result);
+        }
+        return { protocolVersion: 2, requestId: request.requestId, ok: true, result };
+      },
+    },
+    tabs: { get: async () => ({ url: fakeLocation.origin + '/' }), query: async () => [{ id: 1 }],
+      sendMessage: message => new Promise((resolve, reject) => {
+        const inPage = listeners.slice(1);
+        if (!inPage.length) return reject(new Error('수신자 없음'));
+        inPage.forEach(fn => fn(message, { id: 'preview' }, resolve));
+      }) },
+    commands: { getAll: async () => [{ name: 'save-current', shortcut: 'Alt+Shift+S' }], onCommand: { addListener: fn => command = fn } },
+    action: { setBadgeText: async ({ tabId, text }) => { if (tabId && text !== null) document.getElementById('instructions').textContent = `툴바 배지: ${text}`; },
+      setBadgeBackgroundColor: async () => {}, openPopup: async () => { throw new Error('미리보기에는 툴바가 없음'); } },
+    scripting: { executeScript: async args => {
+      if (args.files) return [];
+      try { return [{ documentId: 'preview', result: args.args ? { snapshot: read() } : { workbook: exportPage() } }]; }
+      catch (error) { return [{ documentId: 'preview', result: { error: error.message } }]; }
+    } },
+    storage: { onChanged: { addListener() {} }, local: { get: async () => ({}), set: async () => {} }, session: {
+      get: async () => structuredClone(session),
+      set: async value => Object.assign(session, structuredClone(value)),
+      remove: async keys => keys.forEach(key => delete session[key]),
+    } },
+  };
+  new Function('chrome', backgroundSource)(chrome);
+  const fetchFile = async url => ({ ok: true, text: async () => url.endsWith('popup.css') ? popupCss : popupHtml });
+  await new Function('chrome', 'document', 'window', 'location', 'fetch', exportSource + '; return ' + popupSource)(
+    chrome, doc, win, mode === 'page' ? fakeLocation : { origin: 'chrome-extension://preview' }, fetchFile);
+  const root = mode === 'page' ? doc.getElementById('pclm-collector').shadowRoot : doc;
+  if (root.getElementById('collector').dataset.state !== (scenario === 'connection' ? 'blocked' : 'ready'))
+    throw new Error('미리보기 초기 연결 실패: 브라우저 콘솔을 확인하세요.');
+  document.getElementById('instructions').textContent = '준비됨. 원본 버튼을 직접 눌러 저장·상세·복구를 확인하세요. 상황 변경 후 적용하면 메모리 기록이 초기화됩니다.';
+  const press = document.createElement('button');
+  press.type = 'button'; press.textContent = '단축키(Alt+Shift+S) 누름';
+  press.onclick = () => command('save-current', { id: 1, url: fakeLocation.origin + '/' });
+  document.getElementById('instructions').after(press);
+</script>
+</html>

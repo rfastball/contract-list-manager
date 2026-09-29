@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
+  </ItemGroup>
+
+  <ItemGroup><EmbeddedResource Include="Erp/mapping.json" /></ItemGroup>
+  <!-- Store 의 업서트는 프로덕션 호출자가 없고 시험 픽스처만 쓴다(ADR-028). -->
+  <ItemGroup><InternalsVisibleTo Include="Pclm.Core.Tests" /></ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../extension/*.json;../../extension/*.js;../../extension/*.html;../../extension/*.css"
+                      LogicalName="extension/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

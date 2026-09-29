@@ -1,0 +1,60 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "//": "배포본과 같은 모양. 지어 둔 wwwroot 를 가상 호스트로 연다.",
+      "name": "창",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "빌드 (화면 포함)",
+      "program": "${workspaceFolder}/src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe",
+      "cwd": "${workspaceFolder}/src/Pclm.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "//": "화면은 개발 서버에서, 다리와 DB 는 진짜. 화면을 고치면 창 안에서 곧바로 바뀐다.",
+      "name": "창 · 개발 서버",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "개발 서버",
+      "program": "${workspaceFolder}/src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe",
+      "args": ["--ui", "http://localhost:5173/"],
+      "cwd": "${workspaceFolder}/src/Pclm.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "//": "실제 자료를 건드리지 않고 띄운다. 판올림이나 넣기를 시험할 때.",
+      "name": "창 · 시험용 자료",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "빌드 (화면 포함)",
+      "program": "${workspaceFolder}/src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe",
+      "args": ["--db", "${workspaceFolder}/artifacts/debug.db"],
+      "cwd": "${workspaceFolder}/src/Pclm.App",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "명령줄",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "빌드",
+      "program": "${workspaceFolder}/src/Pclm.Cli/bin/Debug/net8.0/pclm.exe",
+      "args": ["${input:명령}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "명령",
+      "type": "pickString",
+      "description": "무엇을 돌릴까요",
+      "options": ["status", "link", "set", "export", "help"],
+      "default": "status"
+    }
+  ]
+}

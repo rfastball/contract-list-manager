@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>계약목록</AssemblyName>
+    <RootNamespace>Pclm.App</RootNamespace>
+    <StartupObject>Pclm.App.Program</StartupObject>
+  </PropertyGroup>
+
+  <!-- 프론트 빌드 산출물을 exe 안에 넣는다. 폴더 매핑
+       (SetVirtualHostNameToFolderMapping) 은 디스크의 진짜 폴더를 요구하지만,
+       WebResourceRequested 로 요청을 가로채면 메모리에서 바로 내줄 수 있다
+       (MainWindow.xaml.cs). 그래서 배포 단위가 폴더가 아니라 파일 하나다.
+
+       Link 로 논리 이름을 고정한다 — 이것이 없으면 리소스 이름에 빌드 경로가 섞여
+       기계마다 달라진다. 이름은 "wwwroot/assets/index-abc.js" 꼴이 되고,
+       요청 경로에서 그대로 찾아 쓴다. -->
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+                      LogicalName="wwwroot/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- 앱의 라이선스와 제3자 고지. 배포물은 exe 하나라 옆에 둘 수 없으니 안에 박고
+       설정 → 정보에서 보인다(Bridge 의 about). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\LICENSE;..\..\THIRD-PARTY-NOTICES.txt"
+                      Link="%(Filename)%(Extension)" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pclm.Core\Pclm.Core.csproj" />
+  </ItemGroup>
+
+</Project>

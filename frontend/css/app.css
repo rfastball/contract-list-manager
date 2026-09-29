@@ -1,0 +1,594 @@
+/* hwpx-filler 와 같은 토큰 위에 짓는다 — 두 앱이 한 벌로 보이게. */
+@font-face {
+  font-family: "Pretendard GOV Variable";
+  src: url("../fonts/PretendardGOVVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--a-window);
+  color: var(--a-ink);
+  font-family: "Pretendard GOV Variable", "Malgun Gothic", system-ui, sans-serif;
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.app { display: grid; grid-template-columns: 11rem minmax(0, 1fr); height: 100vh; height: 100dvh; }
+.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+::selection { background: var(--a-sel); color: var(--a-ink); }
+input { caret-color: var(--a-primary); }
+input::placeholder { color: var(--a-muted); opacity: 1; }
+button { touch-action: manipulation; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }
+
+.sidebar { display: flex; flex-direction: column; padding: var(--sp-24) var(--sp-12) var(--sp-16); background: var(--n-header-bg); border-right: 1px solid var(--a-border); overflow: auto; }
+.brand { display: flex; align-items: center; gap: var(--sp-8); padding: 0 var(--sp-8) var(--sp-24); font-size: var(--fs-strong); white-space: nowrap; }
+.brand svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: var(--a-primary); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.nav-label { margin: var(--sp-16) var(--sp-12) var(--sp-8); font-size: var(--fs-caption); color: var(--n-ink-soft); }
+.nav-link { display: flex; align-items: center; justify-content: space-between; appearance: none; border: 1px solid transparent; border-radius: var(--rad-control); padding: var(--sp-10) var(--sp-12); background: transparent; color: var(--n-ink-control); font: inherit; cursor: pointer; text-align: left; }
+.nav-link:hover { background: var(--n-hover); }
+.nav-link[aria-pressed="true"] { background: var(--a-sel); color: var(--a-primary); font-weight: 600; }
+.sidebar-bottom { margin-top: auto; padding-top: var(--sp-24); display: flex; flex-direction: column; gap: var(--sp-8); }
+.sidebar-bottom .action { text-align: left; }
+.page-heading { flex: 1; min-width: 0; }
+.page-heading h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -.025em; }
+.page-heading p { margin: var(--sp-4) 0 0; font-size: var(--fs-dense); color: var(--n-ink-soft); }
+.view-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-12); min-height: 3rem; padding: var(--sp-6) var(--sp-24); background: var(--a-card); border-bottom: 1px solid var(--a-border); }
+.plan-setup { margin-left: auto; }
+.workspace-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8); padding: var(--sp-6) var(--sp-24); border-top: 1px solid var(--a-border); font-size: var(--fs-caption); color: var(--n-ink-soft); background: var(--a-card); }
+.result-count { flex: none; font-size: var(--fs-caption); font-variant-numeric: tabular-nums; font-weight: 600; }
+.result-count span { color: var(--n-ink-soft); font-weight: 400; }
+
+/* ── 머리 ─────────────────────────────────────────── */
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-12);
+  padding: var(--sp-24);
+  background: var(--a-card);
+  border-bottom: 1px solid var(--a-border);
+}
+/* 한 묶음 안은 붙이고 묶음 사이는 선으로 가른다 — 평평하게 늘어놓으면 넷이 같은
+   무게로 읽혀, 자료를 넣는 일과 앱을 설정하는 일이 나란히 선다. */
+.top-group { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
+/* 읽는 중에는 라벨이 "읽는 중…" 으로 짧아진다. 폭을 잡아 두지 않으면 누를 때마다
+   묶음이 줄었다 늘며 옆 단추가 흔들린다 — rem 이라 글꼴 크기 설정을 따라간다. */
+.top-group > button.action.primary { min-width: 6.5rem; }
+.stat { display: flex; gap: var(--sp-16); color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.stat b { color: var(--a-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .warn { color: var(--a-danger); }
+
+/* ── 탭 ───────────────────────────────────────────── */
+.tabs { display: flex; flex-direction: column; gap: var(--sp-4); }
+.tab {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  padding: var(--sp-10) var(--sp-12); font: inherit; color: var(--n-ink-soft);
+  border-radius: var(--rad-control); text-align: left;
+}
+.tab:hover { background: var(--n-hover); }
+.tab[aria-selected="true"] { color: var(--a-primary); background: var(--a-sel); font-weight: 600; }
+.tab:focus-visible { outline: 2px solid var(--a-primary); outline-offset: -2px; }
+
+/* 같은 것을 다른 눈으로 보는 자리라 탭이 아니라 낮은 위계의 알약으로 둔다. */
+.shape { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-left: auto; align-items: center; }
+.chip {
+  appearance: none; cursor: pointer; font: inherit; font-size: var(--fs-caption);
+  padding: var(--sp-4) var(--sp-10); margin: 0; min-height: 1.875rem;
+  border: 1px solid var(--a-border); border-radius: var(--rad-control);
+  background: var(--a-card); color: var(--n-ink-soft);
+}
+.chip:hover { background: var(--n-hover); }
+.chip[aria-pressed="true"] {
+  background: var(--a-sel); border-color: var(--a-primary); color: var(--a-primary); font-weight: 600;
+}
+.chip:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+
+/* ── 단추 ─────────────────────────────────────────── */
+button.action {
+  appearance: none; cursor: pointer; font: inherit;
+  padding: var(--sp-8) var(--sp-12);
+  border: 1px solid var(--n-border-strong);
+  border-radius: var(--rad-control);
+  background: var(--a-card); color: var(--a-ink);
+}
+button.action:hover { background: var(--n-hover); }
+button.action:disabled { opacity: .5; cursor: default; }
+button.action.primary { background: var(--a-primary); border-color: var(--a-primary); color: var(--a-on-accent); }
+button.action.primary:hover { background: var(--a-primary-h); }
+/* 앱 수준의 유틸리티. 자료를 다루는 단추와 같은 무게로 서지 않는다. */
+button.action.quiet { background: transparent; border-color: transparent; color: var(--n-ink-soft); }
+button.action.quiet:hover { background: var(--n-hover); color: var(--a-ink); }
+button.action:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+
+/* 판정이 밀린 건수. 라벨 옆의 괄호가 아니라 알약이라, 0 이 아닐 때만 눈에 걸린다.
+   이름을 .count 로 두면 안 된다 — Outline 의 '계약 3'·'품목 2' 가 그 이름을 쓴다. */
+.badge {
+  display: inline-block; margin-left: var(--sp-6);
+  min-width: 1.25em; padding: 0 var(--sp-4);
+  border-radius: var(--rad-pill);
+  background: var(--a-primary); color: var(--a-on-accent);
+  font-size: var(--fs-caption); font-weight: 600; line-height: 1.5;
+  font-variant-numeric: tabular-nums; text-align: center;
+}
+/* 눌리면 바탕이 --a-sel 이라 배지 글자가 묻힌다 — 배지만 진한 파랑을 지킨다. */
+
+/* 쌓이는 자리. 경로는 길어서 접히므로 줄바꿈을 허용하고 숫자를 고정폭으로 읽는다. */
+.path {
+  margin: var(--sp-6) 0; padding: var(--sp-6) var(--sp-8);
+  background: var(--n-surface-alt); border-radius: var(--rad-control);
+  font-size: var(--fs-caption); color: var(--n-ink-control);
+  word-break: break-all; font-variant-numeric: tabular-nums;
+}
+
+/* ── 표 ───────────────────────────────────────────── */
+.grid-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+.grid-toolbar {
+  display: flex; align-items: center; gap: var(--sp-8);
+  flex-wrap: wrap; padding: var(--sp-12) var(--sp-24); border-bottom: 1px solid var(--a-border); background: var(--a-card);
+}
+.grid-toolbar .spacer { flex: 1; }
+.grid-find {
+  width: min(25rem, 100%); min-width: 0; font: inherit; padding: var(--sp-8) var(--sp-12);
+  border: 1px solid var(--n-border-control); border-radius: var(--rad-control);
+  background: var(--a-card); color: inherit;
+}
+
+/* 표만 구르게 한다 — 머리글이 붙어 있으려면 구르는 상자가 표를 감싸야 한다. */
+.grid-board { flex: 1; overflow: auto; outline: 0; }
+
+.grid-status {
+  display: flex; gap: var(--sp-6); align-items: center;
+  padding: var(--sp-4) var(--sp-12); border-top: 1px solid var(--a-border);
+  color: var(--n-ink-soft); font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+.grid-status .hint { color: var(--a-muted); margin-left: auto; }
+.grid-status .fixed { color: var(--a-warn); }
+
+table.grid { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; }
+
+/* 층. 붙박이 머리글이 z-index 를 쓰므로, 그 위에 뜨는 것들은 층을 밝혀야 한다 —
+   밝히지 않으면 머리글이 설정 창을 뚫고 올라온다. */
+table.grid th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--n-header-bg); color: var(--n-header-ink);
+  font-size: var(--fs-caption); font-weight: 600; text-align: left; white-space: nowrap;
+  padding: var(--sp-6) var(--sp-10);
+  border-bottom: 1px solid var(--n-border-strong);
+  border-right: 1px solid var(--a-border);
+}
+/* 사람이 채우는 열은 머리글부터 다르게 — 무엇을 고칠 수 있는지 한눈에 보이도록. */
+table.grid th.editable { background: var(--fb-fill-bg); color: var(--a-ok); border-bottom-color: var(--fb-fill-bd); }
+table.grid th { cursor: pointer; user-select: none; }
+table.grid th .sort { color: var(--a-primary); }
+
+table.grid td {
+  padding: 0; white-space: nowrap;
+  border-bottom: 1px solid var(--a-border);
+  border-right: 1px solid var(--a-border);
+  background: var(--a-card);
+}
+table.grid tr:hover td { background: var(--n-hover); }
+
+/* 칸에는 너비 상한을 둔다. 접수의 조달요구번호처럼 한 칸이 줄줄이 이어진 값이면
+   그 열 하나가 목록을 다 차지해 옆 열이 화면 밖으로 밀려났다. 잘린 값은 커서를 올리면
+   칸 위에 펼쳐진다(.cell-full). */
+.cell {
+  padding: var(--sp-6) var(--sp-10); min-height: 2rem;
+  max-width: 24rem; overflow: hidden; text-overflow: ellipsis;
+}
+.cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cell.empty { color: var(--a-muted); }
+
+/* 고칠 수 있는 칸은 입력처럼 보이게 한다. */
+td.editable { background: var(--fb-fill-bg); }
+table.grid tr:hover td.editable { background: var(--fb-fill-bg); }
+td.editable input, td.editable select {
+  width: 100%; border: 0; background: transparent; font: inherit; color: inherit;
+  padding: var(--sp-6) var(--sp-10);
+}
+td.editable input:focus, td.editable select:focus {
+  outline: 2px solid var(--a-primary); outline-offset: -2px; background: var(--a-card);
+}
+td.saving { background: var(--a-unconf); }
+
+/* 사람이 고친 칸.
+   무엇이 문서에서 읽은 값이고 무엇이 사람이 적은 것인지 보이지 않으면, 고칠 수 있다는 것
+   자체가 안전하지 않다 — 그래서 바탕색만이 아니라 모서리 표시까지 붙인다. 색은 사람이
+   채우는 열(초록)과 갈라 둔다. 저쪽은 원래 비어 있던 칸이고 이쪽은 읽은 값을 덮은 칸이다. */
+td.overridden { background: var(--fb-blank-bg); }
+table.grid tr:hover td.overridden { background: var(--fb-blank-bg); }
+td.overridden .cell { position: relative; }
+td.overridden .cell::after {
+  content: ""; position: absolute; top: 0; right: 0;
+  border-top: 6px solid var(--a-warn);
+  border-left: 6px solid transparent;
+}
+
+/* 지금 커서가 놓인 칸. 표에 초점이 없을 때는 옅게 — 어디였는지는 남기되 시끄럽지 않게. */
+td.cur { outline: 2px solid var(--a-primary); outline-offset: -2px; }
+.grid-board:not(:focus) td.cur { outline-color: var(--a-border); }
+
+/* 잘린 칸의 전체 값. 칸 자리에서 아래·옆으로 펼쳐 이웃 칸을 덮는다 — 붙박이 머리글
+   (z-index 1)보다 위에 떠야 첫 줄에서도 가려지지 않는다. 표에 초점이 없으면 거둔다. */
+td.cur { position: relative; }
+.cell-full {
+  position: absolute; top: 0; left: 0; z-index: 2;
+  min-width: 100%; width: max-content; max-width: 36rem;
+  padding: var(--sp-6) var(--sp-10);
+  white-space: normal; overflow-wrap: anywhere; user-select: text; cursor: text;
+  background: var(--a-card); color: var(--a-ink);
+  border: 2px solid var(--a-primary); border-radius: var(--rad-control);
+  box-shadow: 0 6px 16px var(--a-shadow);
+}
+.cell-full.flip { left: auto; right: 0; }
+.grid-board:not(:focus-within) .cell-full { display: none; }
+
+/* ── 링크 화면 ────────────────────────────────────── */
+.panel { padding: var(--sp-16); overflow: auto; flex: 1; }
+.card {
+  background: var(--a-card); border: 1px solid var(--a-border);
+  border-radius: var(--rad-surface); padding: var(--sp-12) var(--sp-16); margin-bottom: var(--sp-12);
+}
+.card h3 { margin: 0 0 var(--sp-8); font-size: var(--fs-body); }
+.card .sub { color: var(--n-ink-soft); font-size: var(--fs-caption); }
+
+.score { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 3.5rem; }
+.score.high { color: var(--a-ok); }
+.score.mid { color: var(--a-warn); }
+
+/* ── 대사 화면 ────────────────────────────────────── */
+/* 왼쪽에 아직 맞추지 못한 것을 세우고, 고르면 오른쪽에 짝 후보를 편다 — 계정 대사의 얼개. */
+.reconcile { flex: 1; display: grid; grid-template-columns: minmax(14rem, 28%) minmax(0, 1fr); min-height: 0; outline: 0; }
+
+.reconcile-list { border-right: 1px solid var(--a-border); overflow: auto; display: flex; flex-direction: column; }
+/* 거르개 세 알을 머리에 담는다 — 탭을 새로 세우지 않고 이미 있는 알약 어휘를 쓴다. */
+.reconcile-head {
+  padding: var(--sp-4) var(--sp-8); position: sticky; top: 0;
+  display: flex; gap: var(--sp-4); align-items: center;
+  background: var(--n-header-bg); color: var(--n-header-ink);
+  font-size: var(--fs-caption); font-weight: 600;
+  border-bottom: 1px solid var(--n-border-strong);
+}
+.reconcile-head .chip { margin: var(--sp-2) 0; }
+.reconcile-list ul { list-style: none; margin: 0; padding: 0; }
+.reconcile-list li {
+  padding: var(--sp-8) var(--sp-12); cursor: pointer;
+  border-bottom: 1px solid var(--a-border);
+}
+.reconcile-list li:hover { background: var(--n-hover); }
+.reconcile-list li[aria-selected="true"] {
+  background: var(--a-sel);
+}
+.reconcile-list .title { font-size: var(--fs-body); }
+.reconcile-list .sub { color: var(--n-ink-soft); font-size: var(--fs-caption); }
+
+.reconcile-detail { overflow: auto; padding: var(--sp-16); }
+
+/* 지금 이어진 짝. 고를 후보가 아니라 이미 선 결정이라 바탕을 달리해 격을 갈라 둔다. */
+.card.current { background: var(--n-header-bg); }
+
+/* 추천 밖으로 나가는 길. 후보 밑에 두어 먼저 볼 것을 먼저 보게 한다. */
+.reconcile-search { margin-top: var(--sp-24); border-top: 1px solid var(--a-border); padding-top: var(--sp-16); }
+.reconcile-search h3 { margin: 0; font-size: var(--fs-body); }
+.reconcile-search input { margin-top: var(--sp-8); }
+.reconcile-search ul {
+  list-style: none; margin: var(--sp-8) 0 0; padding: 0;
+  max-height: 18rem; overflow: auto;
+  border: 1px solid var(--a-border); border-radius: var(--rad-control);
+}
+.reconcile-search li { padding: var(--sp-6) var(--sp-12); cursor: pointer; border-bottom: 1px solid var(--a-border); }
+.reconcile-search li:last-child { border-bottom: 0; }
+.reconcile-search li:hover { background: var(--n-hover); }
+.reconcile-search li[aria-selected="true"] { background: var(--a-sel); }
+.reconcile-search .title { font-size: var(--fs-body); }
+.reconcile-search .sub { color: var(--n-ink-soft); font-size: var(--fs-caption); }
+
+.reconcile .hint { margin: var(--sp-8) 0 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }
+
+.cand-head { display: flex; align-items: center; gap: var(--sp-12); }
+.cand-head .why { color: var(--n-ink-soft); font-size: var(--fs-caption); margin-left: auto; }
+
+/* 자동으로 잇지 않은 까닭. 근거와 구별돼야 눈이 먼저 여기로 간다. */
+.blocker { color: var(--a-warn); font-size: var(--fs-caption); margin: var(--sp-8) 0 0; }
+
+/* 나란히 견주기. 같은 줄과 다른 줄을 색으로 갈라 3초에 판단하게 한다. */
+table.facets { width: 100%; border-collapse: collapse; margin-top: var(--sp-8); }
+table.facets th, table.facets td {
+  text-align: left; padding: var(--sp-4) var(--sp-8);
+  border-top: 1px solid var(--a-border); font-size: var(--fs-caption);
+  vertical-align: top; word-break: break-all;
+}
+table.facets thead th { color: var(--n-ink-soft); font-weight: 600; border-top: 0; }
+table.facets tbody th { width: 8rem; color: var(--n-ink-soft); font-weight: 400; white-space: nowrap; }
+table.facets tr.agree td { background: var(--fb-fill-bg); color: var(--a-ok); }
+table.facets tr.differ td { background: var(--a-unconf); color: var(--a-warn); }
+table.facets tr.unknown td { color: var(--a-muted); }
+
+/* ── 구조 보기 ────────────────────────────────────── */
+/* 조달 건은 한 줄, 단계는 세 칸. 중첩된 카드 대신 한 판에서 관계를 읽는다. */
+.outline-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+/* 초점은 그릇이 쥐고 커서는 칸에 그린다. 그릇의 초점 테두리는 지운다(outline: 0) —
+   두면 구르는 자리 전체에 큰 테두리가 한 겹 더 생겨, 정작 어느 칸에 서 있는지를 말하는
+   칸의 표시와 겹쳐 시끄러워진다. 표의 .grid-board 도 같은 까닭으로 지운다. */
+.outline {
+  flex: 1; overflow: auto; outline: 0;
+  padding: var(--sp-16) var(--sp-24) var(--sp-24);
+  display: flex; flex-direction: column; gap: var(--sp-12);
+}
+
+/* 조달 건 한 장. 사슬 사이는 선이 아니라 빈자리로 가른다. */
+.outline-node {
+  display: flex; align-items: stretch; gap: var(--sp-8); padding: var(--sp-12);
+  background: var(--a-card);
+  border: 1px solid var(--a-border);
+  border-radius: var(--rad-surface);
+  flex-shrink: 0;
+}
+.flow-arrow { width: 1rem; height: 1rem; flex: none; align-self: center; stroke: var(--a-muted); stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+/* 건 안의 한 칸 — 접수·공고·계약. 판 위에 옴폭 들어간 자리로 보이게 한다. */
+.outline-cell {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--rad-control);
+  padding: var(--sp-10);
+}
+
+/* 아직 들어오지 않은 칸. 자리는 지키되 <b>채워진 칸과 한눈에 갈린다</b> —
+   흐리게(opacity) 두면 글자 대비까지 함께 떨어져, 무엇이 비었는지 읽으려면 눈을 붙여야 했다.
+   바닥을 비우고 테두리를 점선으로 바꾸면 대비는 그대로 두고 "빈 자리" 만 말할 수 있다. */
+.outline-cell.empty {
+  background: var(--a-window);
+  border-style: dashed;
+  border-color: var(--n-border-strong);
+}
+.outline-cell.empty .title { color: var(--a-muted); }
+
+/* 지금 커서가 놓인 칸. 표의 td.cur 와 <b>같은 규칙</b>을 쓴다 — 같은 자료를 보는 두 눈이
+   커서만 다르게 생기면 탭을 옮길 때마다 어느 것이 커서인지 다시 배워야 한다.
+   격자에 초점이 없을 때 옅어지는 것도 표와 같다: 어디였는지는 남기되 시끄럽지 않게. */
+.outline-cell.cur { outline: 2px solid var(--a-primary); outline-offset: -2px; }
+.outline:not(:focus) .outline-cell.cur { outline-color: var(--a-border); }
+
+.outline-cell .kind {
+  flex: none; font-size: var(--fs-caption); font-weight: 600;
+  color: var(--n-header-ink); background: var(--a-card);
+  border: 1px solid var(--n-border-strong); border-radius: var(--rad-pill);
+  padding: 0 var(--sp-6);
+}
+.outline-cell.empty .kind { background: transparent; color: var(--a-muted); }
+
+.outline-cell .number {
+  flex: none; font-variant-numeric: tabular-nums; color: var(--n-ink-soft);
+  font-size: var(--fs-dense);
+}
+.outline-cell .title { font-weight: 600; margin: var(--sp-4) 0; overflow-wrap: anywhere; }
+.outline-cell .meta { color: var(--n-ink-soft); font-size: var(--fs-caption); overflow-wrap: anywhere; }
+.outline-cell .money {
+  margin-left: auto; flex: none; text-align: right;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+
+/* 차수는 접어서 이름표로. 세 차수가 세 줄로 서면 건수가 부풀어 보인다. */
+.outline-cell .revisions {
+  flex: none; font-size: var(--fs-caption); font-weight: 600;
+  color: var(--fb-ack-fg); background: var(--fb-ack-bg);
+  border: 1px solid var(--fb-ack-bd); border-radius: var(--rad-pill); padding: 0 var(--sp-6);
+}
+
+/* 칸 안에 다시 드는 표라 바닥을 한 단 더 밝힌다 — 판과 같은 색이면 칸에서 떨어져 나간다. */
+table.outline-items {
+  border-collapse: collapse; width: 100%; margin: var(--sp-4) 0 var(--sp-2);
+  background: var(--a-card); border-radius: var(--rad-control); overflow: hidden;
+}
+table.outline-items th, table.outline-items td {
+  border-top: 1px solid var(--a-border); padding: var(--sp-4) var(--sp-8);
+  font-size: var(--fs-caption); text-align: left;
+}
+table.outline-items thead th { border-top: 0; color: var(--n-ink-soft); font-weight: 600; }
+table.outline-items .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── 설정 ─────────────────────────────────────────── */
+.scrim {
+  position: fixed; inset: 0; z-index: 20; background: var(--a-scrim);
+  display: flex; align-items: center; justify-content: center;
+  border: 0; margin: 0; padding: 0; width: 100%; height: 100%;
+  max-width: none; max-height: none; color: var(--a-ink);
+}
+.scrim:not([open]) { display: none; }
+.scrim::backdrop { background: transparent; }
+.sheet:focus { outline: none; }
+.outline-actions { display: flex; flex-wrap: wrap; gap: var(--sp-8); align-items: center; padding: var(--sp-8) var(--sp-24); font-size: var(--fs-caption); color: var(--n-ink-soft); border-bottom: 1px solid var(--a-border); }
+.outline-actions > span:first-child { margin-right: auto; }
+.revisions summary { cursor: pointer; }
+.revisions > span { display: block; white-space: normal; overflow-wrap: anywhere; }
+.sheet {
+  background: var(--a-card); border-radius: var(--rad-overlay);
+  box-shadow: 0 8px 32px var(--a-shadow);
+  padding: var(--sp-24); width: min(46rem, calc(100vw - 4rem));
+  max-height: calc(100vh - 4rem); overflow: auto;
+}
+.sheet h2 { margin: 0 0 var(--sp-16); font-size: var(--fs-section); }
+
+.field { display: block; margin-bottom: var(--sp-16); }
+.field .label { display: block; font-weight: 600; margin-bottom: var(--sp-6); }
+/* 구역 안에서 칸 하나에 다시 이름을 다는 자리. 구역 머리와 같은 굵기로 서면 둘 중 무엇이
+   머리인지 흐려진다 — 옆에 세우므로 아래 여백도 걷는다. */
+.field .label.sub {
+  flex: 0 0 auto; margin-bottom: 0; font-weight: 400; color: var(--n-ink-soft);
+}
+.field .hint { margin: var(--sp-6) 0 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.field .hint .warn { color: var(--a-warn); }
+
+.row { display: flex; gap: var(--sp-8); align-items: center; }
+.row.end { justify-content: flex-end; margin-top: var(--sp-24); }
+.row .spacer { flex: 1; }
+
+input.text {
+  flex: 1; min-width: 0; font: inherit;
+  padding: var(--sp-6) var(--sp-8);
+  border: 1px solid var(--n-border-control); border-radius: var(--rad-control);
+  background: var(--a-card); color: var(--a-ink);
+}
+input.text:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+
+.sheet select {
+  font: inherit; padding: var(--sp-4) var(--sp-6);
+  border: 1px solid var(--n-border-control); border-radius: var(--rad-control);
+  background: var(--a-card); color: var(--a-ink);
+}
+
+/* ── 열 고치기 ────────────────────────────────────── */
+/* 고치면 곧바로 반영된다. 저장 단추 뒤로 미루면 화면과 DB 가 갈라져 있는 동안이 생긴다. */
+.columns { border: 1px solid var(--a-border); border-radius: var(--rad-surface); padding: var(--sp-12); }
+.columns-group + .columns-group { margin-top: var(--sp-16); }
+.columns-group h3 {
+  margin: 0 0 var(--sp-6); font-size: var(--fs-caption); font-weight: 600;
+  color: var(--n-ink-soft);
+}
+
+.columns-row { display: flex; gap: var(--sp-6); align-items: center; margin-bottom: var(--sp-6); }
+.columns-row input.text { flex: 1 1 8rem; min-width: 0; }
+.columns-row .spacer { flex: 1 1 8rem; }
+
+/* 지우면 무엇이 사라지는가. 수를 오른쪽에 붙여 눈이 한 줄로 훑게 한다. */
+.tally { list-style: none; margin: var(--sp-6) 0 0; padding: 0; }
+.tally li {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: var(--sp-4) var(--sp-8);
+  border-bottom: 1px solid var(--a-border);
+}
+.tally li:last-child { border-bottom: 0; }
+.tally b { font-variant-numeric: tabular-nums; }
+
+button.action.icon { padding: var(--sp-4) var(--sp-8); line-height: 1; }
+button.action.danger { border-color: var(--a-danger); color: var(--a-danger); }
+button.action.danger:hover { background: var(--fb-missing-bg); }
+
+/* 설정 창 위에서도 보여야 한다 — 열 이름을 물리치는 알림이 거기서 뜬다. */
+.toast {
+  position: fixed; left: 50%; bottom: var(--sp-24); transform: translateX(-50%); z-index: 30;
+  background: var(--log-surface); color: var(--log-ink);
+  padding: var(--sp-12) var(--sp-16); border-radius: var(--rad-surface); max-width: min(50rem, calc(100vw - 2rem)); overflow-wrap: anywhere;
+  box-shadow: 0 4px 16px var(--a-shadow);
+}
+.toast.bad { background: var(--a-danger); color: #fff; }
+
+/* ── 현황 ─────────────────────────────────────────── */
+/* 무엇이 몇 묶음으로 올지 화면은 알지 못한다 — 오는 대로 세우는 것이 전부라 배치가 단순하다.
+   깔때기도 그림도 색도 넣지 않는다: 지표 자체가 아직 가상이라 꾸미는 것이 이르다. */
+.status-board {
+  flex: 1; overflow: auto;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: var(--sp-16);
+  padding: var(--sp-16);
+}
+.status-group {
+  min-width: 16rem;
+  background: var(--a-card); border: 1px solid var(--a-border);
+  border-radius: var(--rad-surface); padding: var(--sp-12) var(--sp-16);
+}
+.status-group h3 { margin: 0 0 var(--sp-8); font-size: var(--fs-strong); }
+.status-group ul { list-style: none; margin: 0; padding: 0; }
+.status-group li {
+  display: flex; align-items: baseline; gap: var(--sp-8);
+  padding: var(--sp-4) 0; border-top: 1px solid var(--a-border);
+}
+.status-group li:first-child { border-top: 0; }
+.status-name { flex: 1; color: var(--n-ink-soft); }
+.status-count { font-variant-numeric: tabular-nums; font-weight: 600; font-size: var(--fs-strong); }
+.status-open {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; color: var(--a-primary); padding: var(--sp-6) var(--sp-4);
+  display: flex; align-items: baseline; gap: var(--sp-8); width: 100%; text-align: left;
+}
+.status-open:hover { color: var(--a-primary-h); }
+.status-open:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+
+/* 무엇으로 걸렸는지. 걷는 단추가 그 옆에 선다. */
+.filter-tag {
+  font-size: var(--fs-caption); color: var(--a-primary);
+  background: var(--a-sel); border-radius: var(--rad-pill);
+  padding: var(--sp-2) var(--sp-10); align-self: center;
+}
+
+.empty-state { flex: 1; padding: var(--sp-40) var(--sp-24); text-align: center; color: var(--n-ink-soft); white-space: normal; }
+.empty-state h2 { margin: 0 0 var(--sp-8); color: var(--a-ink); font-size: var(--fs-section); }
+.empty-state p { margin: 0 auto var(--sp-24); max-width: 42rem; }
+.empty-state .action { margin-top: var(--sp-4); }
+
+@media (max-width: 1100px) {
+  .top { align-items: flex-start; flex-wrap: wrap; }
+  .page-heading { flex-basis: 100%; }
+  .grid-toolbar .spacer { display: none; }
+  .outline-cell .number { overflow-wrap: anywhere; flex-shrink: 1; }
+}
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .sidebar { flex-direction: row; flex-wrap: wrap; gap: var(--sp-8); padding: var(--sp-8) var(--sp-12); border-right: 0; border-bottom: 1px solid var(--a-border); overflow: visible; }
+  .brand { padding: 0; margin-right: auto; }
+  .nav-label { display: none; }
+  .tabs { order: 3; flex-basis: 100%; flex-direction: row; overflow-x: auto; }
+  .tab { flex: 1; min-width: max-content; padding: var(--sp-8); text-align: center; }
+  .nav-link { padding: var(--sp-8); }
+  .sidebar-bottom { margin: 0; padding: 0; }
+  .top { padding: var(--sp-8) var(--sp-16); gap: var(--sp-8); }
+  .page-heading p { margin-top: var(--sp-4); }
+  .outline-actions { padding: var(--sp-8) var(--sp-16); }
+  .page-heading h1 { font-size: var(--fs-section); }
+  .view-bar, .grid-toolbar { padding: var(--sp-8) var(--sp-16); }
+  .grid-find { width: 100%; }
+  .outline { padding: var(--sp-12); }
+  .outline-node { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); }
+  .outline-items { display: block; overflow-x: auto; }
+  .workspace-footer { padding: var(--sp-6) var(--sp-12); }
+  .footer-shortcut { display: none; }
+  .reconcile { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(8rem, 35%) minmax(0, 1fr); }
+  .reconcile-list { border-right: 0; border-bottom: 1px solid var(--a-border); }
+  .sheet { width: calc(100vw - 1.5rem); max-height: calc(100dvh - 1.5rem); padding: var(--sp-16); }
+  .sheet .row { flex-wrap: wrap; }
+  .status-group { min-width: 0; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+@media (min-width: 600px) and (max-width: 1100px) {
+  .top { flex-wrap: nowrap; align-items: center; }
+  .page-heading { flex-basis: auto; }
+  .outline-wrap .grid-find { width: auto; flex: 1 1 16rem; }
+}
+
+.erp-tools { margin-block: var(--sp-8); }
+/* 파일 칸은 단추 모양 이름표 안에 숨긴다. 치우기만 하고 없애지 않아 Tab 으로 닿는다. */
+.erp-tools label.action { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.erp-tools label.action input[type="file"] { position: absolute; inset: 0; opacity: 0; width: 1px; height: 1px; }
+.erp-tools label.action:focus-within { outline: 2px solid var(--a-primary); outline-offset: 2px; }
+.erp-tools summary { cursor: pointer; padding-block: .5rem; font-weight: 600; }
+.erp-tools fieldset { margin-block: 1rem; padding: 1rem; border: 1px solid var(--a-border); min-width: 0; }
+.erp-tools textarea { width: 100%; box-sizing: border-box; font: var(--fs-caption)/1.5 monospace; color: var(--a-ink); background: var(--a-card); }
+.erp-tools .row { flex-wrap: wrap; gap: .5rem; }
+.erp-table-wrap { overflow: auto; max-height: 24rem; margin-block: 1rem; }
+.erp-tools table { border-collapse: collapse; width: 100%; font-size: var(--fs-caption); }
+.erp-tools th, .erp-tools td { padding: .5rem; border-bottom: 1px solid var(--a-border); text-align: left; overflow-wrap: anywhere; }
+.erp-tools input, .erp-tools select { max-width: 100%; }
+.erp-tools [role=alert] { color: var(--a-danger); }
+/* 라이선스 전문. 줄바꿈은 원문대로 두고 긴 줄만 접는다 — 고지가 길어 높이를 막고 안에서 굴린다. */
+.notice-text {
+  margin-block: var(--sp-8); padding: var(--sp-6) var(--sp-8); max-height: 18rem; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere; font: var(--fs-caption)/1.5 monospace;
+  color: var(--n-ink-control); background: var(--n-surface-alt); border-radius: var(--rad-control);
+}
+/* 라이선스 정보로 가는 길. 일하면서 볼 것이 아니라 설정 바닥에 작은 글씨로만 둔다. */
+.quiet-link {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: var(--fs-caption); color: var(--n-ink-soft);
+}
+.quiet-link:hover { text-decoration: underline; }
+.quiet-link:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }
+.sheet > .hint { margin: 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }

@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "빌드",
+      "type": "shell",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/Pclm.sln"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "화면 짓기",
+      "type": "shell",
+      "command": "npx",
+      "args": ["vite", "build"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "//": "창을 지어 둔 화면으로 띄우기 전에 도는 것. 화면부터 짓고 그다음 빌드다 — 순서를 건너뛰면 옛 화면을 본다.",
+      "label": "빌드 (화면 포함)",
+      "dependsOrder": "sequence",
+      "dependsOn": ["화면 짓기", "빌드"],
+      "problemMatcher": []
+    },
+    {
+      "//": "개발 서버. isBackground 라 계속 도는데, VS Code 가 '언제 준비됐나'를 알아야 창을 띄우므로 vite 가 찍는 줄로 그것을 잡는다.",
+      "label": "개발 서버",
+      "type": "shell",
+      "command": "npx",
+      "args": ["vite", "--port", "5173", "--strictPort"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "^$", "file": 1, "location": 2, "message": 3 },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "시험 (전부)",
+      "dependsOn": ["시험 (닷넷)", "시험 (화면)"],
+      "problemMatcher": []
+    },
+    {
+      "label": "시험 (닷넷)",
+      "type": "shell",
+      "command": "dotnet",
+      "args": ["test", "${workspaceFolder}/tests/Pclm.Core.Tests"],
+      "group": "test",
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "시험 (화면)",
+      "type": "shell",
+      "command": "npm",
+      "args": ["test"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
