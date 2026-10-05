@@ -30,8 +30,7 @@ public class FieldOverrideTests : IDisposable
 
     public FieldOverrideTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -39,11 +38,11 @@ public class FieldOverrideTests : IDisposable
     public void 고친_값이_계약면에_뜬다()
     {
         _store.UpsertContract(Contract("00"));
-        Assert.Equal("164,872,340", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("164,872,340", Cell("v_계약", "계약금액"));
 
         _store.SetOverride(계약, "계약금액", "164,872,341");
 
-        Assert.Equal("164,872,341", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("164,872,341", Cell("v_계약", "계약금액"));
     }
 
     /// <summary>통합은 계약 뷰를 통째로 받으므로 저절로 따라와야 한다 — 두 번 씌우면 열이 둘이 된다.</summary>
@@ -53,7 +52,7 @@ public class FieldOverrideTests : IDisposable
         _store.UpsertContract(Contract("00"));
         _store.SetOverride(계약, "계약건명", "수질측정기 구매(정정)");
 
-        Assert.Equal("수질측정기 구매(정정)", Cell("v_통합_v1", "계약건명"));
+        Assert.Equal("수질측정기 구매(정정)", Cell("v_통합", "계약건명"));
     }
 
     [Fact]
@@ -64,7 +63,7 @@ public class FieldOverrideTests : IDisposable
 
         _store.ClearOverride(계약, "계약금액");
 
-        Assert.Equal("164,872,340", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("164,872,340", Cell("v_계약", "계약금액"));
         Assert.Empty(_store.Overrides("contract"));
     }
 
@@ -78,7 +77,7 @@ public class FieldOverrideTests : IDisposable
         _store.UpsertContract(Contract("00"));
         _store.SetOverride(계약, "계약금액", "");
 
-        Assert.Equal("", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("", Cell("v_계약", "계약금액"));
         Assert.Single(_store.Overrides("contract"));
     }
 
@@ -106,8 +105,8 @@ public class FieldOverrideTests : IDisposable
 
         _store.UpsertContract(Contract("01"));
 
-        Assert.Equal("01", Cell("v_계약_v1", "차수"));
-        Assert.Equal("164,872,340", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("01", Cell("v_계약", "차수"));
+        Assert.Equal("164,872,340", Cell("v_계약", "계약금액"));
     }
 
     /// <summary>고친 것은 옛 차수 자리에 그대로 남는다. 새지 않는 것과 잃는 것은 다르다.</summary>
@@ -120,8 +119,8 @@ public class FieldOverrideTests : IDisposable
 
         _store.Delete(new EntityRef("contract", "R26TA09110507", "01"), wholeSeries: false);
 
-        Assert.Equal("00", Cell("v_계약_v1", "차수"));
-        Assert.Equal("999,999,999", Cell("v_계약_v1", "계약금액"));
+        Assert.Equal("00", Cell("v_계약", "차수"));
+        Assert.Equal("999,999,999", Cell("v_계약", "계약금액"));
     }
 
     /// <summary>
@@ -142,11 +141,11 @@ public class FieldOverrideTests : IDisposable
             });
 
         // 세부품명이 두 가지라 뷰는 비운다 — 첫 물건의 값을 공고 전체의 값처럼 낼 수 없어서다.
-        Assert.Equal("", Cell("v_공고_v1", "세부품명"));
+        Assert.Equal("", Cell("v_공고", "세부품명"));
 
         _store.SetOverride(공고, "세부품명", "수질측정기 외 1종");
 
-        Assert.Equal("수질측정기 외 1종", Cell("v_공고_v1", "세부품명"));
+        Assert.Equal("수질측정기 외 1종", Cell("v_공고", "세부품명"));
     }
 
     /// <summary>
@@ -162,12 +161,12 @@ public class FieldOverrideTests : IDisposable
 
         var 사람열 = _store.UserColumns("notice").Select(c => c.FieldName).ToHashSet();
 
-        foreach (var column in ViewColumns("v_공고_v1"))
+        foreach (var column in ViewColumns("v_공고"))
         {
             if (Views.KeyColumns.Contains(column) || 사람열.Contains(column)) continue;
 
             _store.SetOverride(공고, column, "고침");
-            Assert.Equal("고침", Cell("v_공고_v1", column));
+            Assert.Equal("고침", Cell("v_공고", column));
         }
     }
 
@@ -209,8 +208,8 @@ public class FieldOverrideTests : IDisposable
     {
         _store.UpsertNotice(지은(method, kind));
 
-        Assert.Equal(expected, Cell("v_공고_v1", "입찰방법"));
-        Assert.Equal(expected, Cell("v_공고차수_v1", "입찰방법"));
+        Assert.Equal(expected, Cell("v_공고", "입찰방법"));
+        Assert.Equal(expected, Cell("v_공고차수", "입찰방법"));
     }
 
     /// <summary>한쪽이라도 모르면 「제한()」 도 코드 그대로도 아니라 빈 문자열 — NULL 도 아니다.</summary>
@@ -225,7 +224,7 @@ public class FieldOverrideTests : IDisposable
 
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 입찰방법 FROM v_공고_v1;";
+        command.CommandText = "SELECT 입찰방법 FROM v_공고;";
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
 
@@ -241,7 +240,7 @@ public class FieldOverrideTests : IDisposable
 
         _store.SetOverride(지은공고, "계약방법", "일반경쟁");
 
-        Assert.Equal("일반(총액)", Cell("v_공고_v1", "입찰방법"));
+        Assert.Equal("일반(총액)", Cell("v_공고", "입찰방법"));
     }
 
     [Fact]
@@ -252,7 +251,7 @@ public class FieldOverrideTests : IDisposable
 
         _store.SetOverride(지은공고, "입찰방법", "지명(총액)");
 
-        Assert.Equal("지명(총액)", Cell("v_공고_v1", "입찰방법"));
+        Assert.Equal("지명(총액)", Cell("v_공고", "입찰방법"));
     }
 
     private static NoticeRecord 지은(string? method, string? kind) => new()
@@ -318,11 +317,11 @@ public class FieldOverrideTests : IDisposable
     public void 접수의_고친_값이_계약면에_뜬다()
     {
         _store.UpsertRequest(Request("000"));
-        Assert.Equal("181,725,200", Cell("v_접수_v1", "품대"));
+        Assert.Equal("181,725,200", Cell("v_접수", "품대"));
 
         _store.SetOverride(접수, "품대", "181,725,201");
 
-        Assert.Equal("181,725,201", Cell("v_접수_v1", "품대"));
+        Assert.Equal("181,725,201", Cell("v_접수", "품대"));
     }
 
     /// <summary>
@@ -336,12 +335,12 @@ public class FieldOverrideTests : IDisposable
 
         var 사람열 = _store.UserColumns("request").Select(c => c.FieldName).ToHashSet();
 
-        foreach (var column in ViewColumns("v_접수_v1"))
+        foreach (var column in ViewColumns("v_접수"))
         {
             if (Views.KeyColumns.Contains(column) || 사람열.Contains(column)) continue;
 
             _store.SetOverride(접수, column, "고침");
-            Assert.Equal("고침", Cell("v_접수_v1", column));
+            Assert.Equal("고침", Cell("v_접수", column));
         }
     }
 
@@ -354,7 +353,7 @@ public class FieldOverrideTests : IDisposable
 
         _store.UpsertRequest(Request("001"));
 
-        Assert.Equal("181,725,200", Cell("v_접수_v1", "품대"));
+        Assert.Equal("181,725,200", Cell("v_접수", "품대"));
     }
 
     private List<string> ViewColumns(string view)

@@ -12,24 +12,12 @@
         <legend>페이지 수집기 표시</legend>
         <label><input type="radio" name="panelMode" value="always"> 나라장터 화면 오른쪽 아래에 항상 표시</label>
         <label><input type="radio" name="panelMode" value="button"> 툴바 확장 버튼으로만 열기</label>
-        <p class="note">버튼으로만 열면 나라장터 화면을 관찰하지 않습니다. 저장 결과를 확인하지 못한 요청이 있으면 툴바 버튼에 ! 가 붙습니다. 바꾸면 열린 나라장터 탭에 바로 반영됩니다.</p>
+        <p class="note">버튼으로만 열면 나라장터 화면을 관찰하지 않습니다. 저장 결과를 확인하지 못한 요청이 있으면 툴바 버튼에 ! 가 붙습니다. 바꾸면 열린 나라장터 탭에 바로 반영됩니다. 수집기의 「숨기기」 와 툴바 버튼 팝업에서도 바꿀 수 있습니다.</p>
       </fieldset>
       <fieldset>
         <legend>연결 환경</legend>
         <label><input id="development" type="checkbox"> 개발 DB 사용</label>
         <p class="note">개발용 앱(<code>--erp-dev</code>)과 함께 쓸 때만 켭니다. 업무 DB에 저장하려면 끕니다.</p>
-      </fieldset>
-      <fieldset id="location">
-        <legend>저장 위치</legend>
-        <p id="locationStatus" class="note" role="status">저장 위치 확인 중</p>
-        <div id="locationBody" hidden>
-          <label class="stacked">현재 DB 경로 <input id="locationPath" type="text" readonly></label>
-          <p id="locationPending" class="note" hidden></p>
-          <label class="stacked">옮길 폴더 <input id="locationFolder" type="text" placeholder="예: D:\업무" spellcheck="false"></label>
-          <button id="locationMove" type="button">이 폴더로 옮기기 예약</button>
-          <p id="locationTarget" class="note" role="status" aria-live="polite"></p>
-          <p class="note">그 안에 <code id="locationFolderName"></code> 폴더를 만들어 옮깁니다. 실제 이동은 계약 목록 앱을 다음에 실행할 때 이루어지며, 그때까지는 지금 자리에 저장됩니다.</p>
-        </div>
       </fieldset>
       <fieldset>
         <legend>단축키</legend>

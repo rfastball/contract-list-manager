@@ -48,8 +48,7 @@ public class PlanImportTests : IDisposable
 
     public PlanImportTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _import = new PlanImport(_database);
         Directory.CreateDirectory(_folder);
     }

@@ -3,6 +3,21 @@
   const labels = { title: "공고명", notice_kind: "공고종류", posted_at: "게시일시",
     award_method: "낙찰방법", contract_method: "계약방법", notice_agency: "공고기관" };
 
+  // 현재 화면 엑셀로 내보내기. 수집기의 단추와 앱의 「지금 보는 화면」(ADR-036)이 같은 길을 쓴다 — 앱이 부르면
+  // 중계기가 이 탭의 수집기에 알리고, 내려받기는 이 탭에서 일어난다.
+  async function exportPage() {
+    const result = await chrome.runtime.sendMessage({ type: "pclm-capture", action: "export" });
+    if (result.kind !== "exported") throw new Error(result.message || "화면을 읽지 못했습니다.");
+    const bytes = pclmWorkbook(result.sheets);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${result.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 80)}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return result;
+  }
+
   // 수집기 한 벌. 팝업은 문서 자체에, 페이지 수집기는 shadow DOM 안에 그린다.
   async function collector(root, panel) {
     const byId = id => root.getElementById(id);
@@ -16,11 +31,21 @@
       for (const change of view.changes || []) {
         if (!change.conflict) continue;
         const label = document.createElement("label");
-        label.textContent = `${change.table} ${change.line || ""} ${change.override || change.field}: ${change.before ?? "빈값"} → ${change.after ?? "빈값"}`;
+        // 덮개는 이번 수집이 그 아래 값을 바꿀 때만 온다. 사람이 고친 값과 새로 읽은 값을 나란히 보인다.
+        label.textContent = change.override
+          ? `${change.table} ${change.override}: 정정값 ${change.before || "빈값"} · 새 수집값 ${change.after || "빈값"}`
+          : `${change.table} ${change.line || ""} ${change.field}: ${change.before ?? "빈값"} → ${change.after ?? "빈값"}`;
         const select = document.createElement("select");
+        const plain = !change.override && change.field !== "__row";
         for (const [value, text] of [["", "선택 필요"], ["keep", "기존값 유지"], ["apply", change.override ? "수집 원값으로 복원" : change.field === "__row" ? "행 삭제" : "수집값 적용"]]) {
           const option = document.createElement("option"); option.value = value; option.textContent = text; select.append(option);
         }
+        // 화면에서 방금 읽은 값을 담으려고 수집하는 것이라 「수집값 적용」 이 기본이다. 사람이 고친 값을
+        // 버리는 복원과 줄을 지우는 삭제는 되돌릴 수 없어 여전히 사람이 고른다.
+        // 있던 값을 빈 값으로 바꾸는 것만은 「기존값 유지」 가 기본이다 — 늦게 그려지는 탭을 빈 칸으로
+        // 읽은 것이 대부분이라, 한 번 누름에 멀쩡한 값이 지워졌다. 단축키도 같은 기본을 쓴다(background.js wipes).
+        const wipe = plain && (change.after ?? "") === "" && (change.before ?? "") !== "";
+        if (plain) { select.value = wipe ? "keep" : "apply"; choices[change.id] = select.value; }
         select.onchange = () => { choices[change.id] = select.value; };
         label.append(select); byId("changes").append(label);
       }
@@ -80,15 +105,7 @@
       button.disabled = true; button.textContent = "엑셀 파일 만드는 중…";
       status.textContent = "현재 화면의 필드와 표를 읽고 있습니다.";
       try {
-        const result = await chrome.runtime.sendMessage({ type: "pclm-capture", action: "export" });
-        if (result.kind !== "exported") throw new Error(result.message || "화면을 읽지 못했습니다.");
-        const bytes = pclmWorkbook(result.sheets);
-        const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${result.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 80)}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-        document.body.append(link); link.click(); link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        const result = await exportPage();
         status.textContent = `${result.sheets.length - 1}개 자료 시트의 다운로드를 요청했습니다. 현재 로딩된 범위만 포함합니다.` +
           (result.warnings.length ? ` 미수집 ${result.warnings.length}건은 파일의 ‘수집 정보’를 확인하세요.` : "");
       } catch (error) { status.textContent = `${error.message} 다시 시도해 주세요.`; }
@@ -109,7 +126,37 @@
       : chrome.commands.getAll().then(all => all.find(c => c.name === "save-current")?.shortcut)).then(shortcut => {
       byId("shortcut").textContent = shortcut ? `단축키 ${shortcut} — 현재 화면 바로 저장` : "단축키 없음 — 설정에서 지정";
     }, () => { byId("shortcut").textContent = "단축키 없음 — 설정에서 지정"; });
-    if (!inPage) { await request("inspect"); return; }
+    // 페이지 수집기를 띄울지는 설정 창의 표시 방식 하나가 정한다. 여기서는 그 값을 바꾸기만 하고,
+    // 패널을 걷고 세우는 것은 아래 storage 변경 감시가 한다 — 길이 둘이면 설정 창과 어긋난다.
+    const pin = byId("pin");
+    if (inPage) {
+      pin.textContent = "숨기기";
+      pin.title = "화면에서 수집기를 숨깁니다. 툴바의 확장 아이콘에서 다시 띄울 수 있습니다.";
+      pin.setAttribute("aria-label", "숨기기 — 툴바의 확장 아이콘에서 다시 띄울 수 있습니다");
+      pin.hidden = false;
+      // 페이지 스크립트가 합성한 클릭으로 수집기를 치우지 못하게 한다.
+      pin.onclick = event => { if (event.isTrusted) chrome.storage.local.set({ panelMode: "button" }); };
+    } else {
+      // 툴바 팝업은 간결한 모양이다(popup.css). 내보내기 안내는 누른 뒤의 결과만 보인다.
+      byId("collector").dataset.surface = "popup";
+      byId("export-status").textContent = "";
+      let mode =(await chrome.storage.local.get("panelMode")).panelMode === "button" ? "button" : "always";
+      const label = () => {
+        pin.textContent = mode === "button" ? "화면에 항상 띄우기" : "화면에서 숨기기";
+        pin.title = mode === "button" ? "나라장터 화면 오른쪽 아래에 수집기를 항상 띄웁니다."
+          : "나라장터 화면에서 수집기를 숨깁니다. 이 버튼으로 다시 띄울 수 있습니다.";
+      };
+      label(); pin.hidden = false;
+      pin.onclick = async event => {
+        if (!event.isTrusted) return;
+        mode = mode === "button" ? "always" : "button";
+        await chrome.storage.local.set({ panelMode: mode });
+        label();
+        byId("status").textContent = mode === "button" ? "나라장터 화면에서 수집기를 숨겼습니다."
+          : "나라장터 화면 오른쪽 아래에 수집기를 띄웁니다.";
+      };
+      await request("inspect"); return;
+    }
 
     byId("collapse").hidden = false;
     byId("collapse").onclick = () => {
@@ -125,7 +172,7 @@
       panel.hidden = false;
       if (!supported) {
         observed = fingerprint = undefined;
-        render({ kind: "blocked", message: "현재 화면은 엑셀로 내보낼 수 있습니다. DB 저장은 업무 상세 화면에서 확인하세요." });
+        render({ kind: "blocked", message: "이 화면은 저장하지 않습니다. 접수·공고·계약 상세 화면을 열거나, 엑셀로 내보내세요." });
         return;
       }
       // 페이지 원문은 MAIN world 수집기에서 읽는다. 상태가 바뀔 때에만 사용자가 검토를 이어간다.
@@ -243,7 +290,10 @@
   }
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     // 중계기(서비스 워커)만 보낸다. 다른 탭의 콘텐츠 스크립트는 탭으로 메시지를 보낼 수 없다.
-    if (retired || message?.type !== "pclm-command-result" || sender.id !== chrome.runtime.id || sender.tab) return;
+    if (retired || sender.id !== chrome.runtime.id || sender.tab) return;
+    // 앱의 「지금 보는 화면」 에서 고른 내보내기. 결과는 브라우저의 내려받기가 보인다.
+    if (message?.type === "pclm-export") { exportPage().then(() => respond(true), () => respond(false)); return true; }
+    if (message?.type !== "pclm-command-result") return;
     toast(message.view);
     // 패널이 없으면 중계기가 배지를 붙이고, 검토가 필요하면 팝업을 연다.
     if (!mounted) { respond(false); return; }

@@ -154,7 +154,7 @@ public sealed class Outline(Database database)
         var contracts = Rows(connection,
                 """
                 SELECT 계약본번호, 계약번호, 계약건명, 계약일자, 계약금액, 계약상대자, 수요기관
-                FROM v_계약_v1;
+                FROM v_계약;
                 """)
             .Select(row =>
             {
@@ -175,7 +175,7 @@ public sealed class Outline(Database database)
         var 공고줄 = Rows(connection,
                 """
                 SELECT 공고본번호, 입찰공고번호, 공고명, 게시일시, 공고기관, 추정가격, 공고건, 현행공고
-                FROM v_공고_v1;
+                FROM v_공고;
                 """)
             .Select(row =>
             {
@@ -218,7 +218,7 @@ public sealed class Outline(Database database)
         var requests = Rows(connection,
                 """
                 SELECT 접수본번호, 접수번호, 요청명, 접수일자, 품대, 예산금액, 수요기관, 조달요구번호
-                FROM v_접수_v1;
+                FROM v_접수;
                 """)
             .Select(row =>
             {
@@ -344,7 +344,7 @@ public sealed class Outline(Database database)
         Rows(connection,
                 """
                 SELECT 계약번호, 순번, 품명, 규격, 수량, 단위, 단가, 금액
-                FROM v_품목_v1 ORDER BY 계약번호, 순번;
+                FROM v_계약품목 ORDER BY 계약번호, 순번;
                 """)
             .GroupBy(row => Text(row, "계약번호"))
             .ToDictionary(

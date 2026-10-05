@@ -56,15 +56,34 @@ function worker() {
       native.mockImplementation(original); return action(host, request);
     });
   };
+  // 상시 연결 포트 대역. 호스트 쪽 끊김은 시험이 drop() 으로 일으킨다 — 확장이 스스로 disconnect() 한 것은
+  // 브라우저가 그 포트의 onDisconnect 로 알리지 않는다.
+  const ports: { host: string; posted: any[]; disconnect: () => void; drop: () => void; closed: boolean;
+    onMessage: { addListener: ReturnType<typeof vi.fn> } }[] = [];
+  const connectNative = vi.fn((host: string) => {
+    const listeners: (() => void)[] = [];
+    const port = { host, posted: [] as any[], closed: false,
+      postMessage: (message: any) => { port.posted.push(message); },
+      onMessage: { addListener: vi.fn() }, onDisconnect: { addListener: (fn: () => void) => listeners.push(fn) },
+      disconnect: vi.fn(() => { port.closed = true; }),
+      drop: () => { port.closed = true; listeners.forEach(fn => fn()); } };
+    ports.push(port);
+    return port;
+  });
   const chrome = {
     runtime: { id: "extension", getURL: (file: string) => "chrome-extension://extension/" + file,
-      sendNativeMessage: native, onMessage: { addListener: vi.fn() }, onInstalled: { addListener: vi.fn() }, openOptionsPage: vi.fn(),
+      sendNativeMessage: native, connectNative, lastError: undefined, onStartup: { addListener: vi.fn() },
+      onMessage: { addListener: vi.fn() }, onInstalled: { addListener: vi.fn() }, openOptionsPage: vi.fn(),
       getManifest: () => ({ version: "0.4.1" }), reload: vi.fn() },
-    tabs: { get: async () => ({ url: "https://www.g2b.go.kr/" }), query: vi.fn(async (_?: object) => [{ id: 1 }]),
-      onRemoved: { addListener: vi.fn() }, sendMessage: vi.fn(async (..._: any[]): Promise<any> => { throw new Error("수신자 없음"); }) },
+    tabs: { get: async () => ({ url: "https://www.g2b.go.kr/" }), query: vi.fn(async (_?: object): Promise<any[]> => [{ id: 1 }]),
+      onRemoved: { addListener: vi.fn() }, onActivated: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() },
+      update: vi.fn(async (..._: any[]) => ({})), create: vi.fn(async (..._: any[]) => ({})),
+      sendMessage: vi.fn(async (..._: any[]): Promise<any> => { throw new Error("수신자 없음"); }) },
+    windows: { WINDOW_ID_NONE: -1, update: vi.fn(async (..._: any[]) => ({})), create: vi.fn(async (..._: any[]) => ({})), onFocusChanged: { addListener: vi.fn() } },
     commands: { getAll: async () => [{ name: "save-current", shortcut: "Alt+Shift+S" }], onCommand: { addListener: vi.fn() } },
+    permissions: { contains: vi.fn(async (_: object) => true), onAdded: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } },
     action: { setBadgeText: vi.fn(async (_: object) => {}), setBadgeBackgroundColor: vi.fn(async (_: object) => {}), openPopup: vi.fn(async () => {}) },
-    scripting: { executeScript: vi.fn(async (args: any) => args.files ? [] : [{ documentId, result: { snapshot } }]) },
+    scripting: { executeScript: vi.fn(async (args: any): Promise<any[]> => args.files ? [] : [{ documentId, result: { snapshot } }]) },
     storage: { onChanged: { addListener: vi.fn() }, local: { get: vi.fn(async (): Promise<Record<string, unknown>> => ({ ...local })),
       set: vi.fn(async (value: object) => { Object.assign(local, value); }) }, session: {
       get: vi.fn(async () => ({ ...stored })),
@@ -79,7 +98,7 @@ function worker() {
   const send = (action: string, from: any = sender, captureId?: string): Promise<any> =>
     new Promise(resolve => chrome.runtime.onMessage.addListener.mock.lastCall![0]({ type: "pclm-capture", action, captureId, preview }, from,
       (view: any) => { preview = view.preview; resolve(view); }));
-  return { chrome, sender, native, stored, local, start, send, nextCapture,
+  return { chrome, sender, native, ports, connectNative, stored, local, start, send, nextCapture,
     change: () => { snapshot = { ...snapshot, seq: "002" }; },
     navigate: () => { documentId = "doc2"; } };
 }
@@ -114,7 +133,158 @@ it("임의 업무 화면은 이름과 ID를 보존하고 원천 표만 내보내
   expect(() => read(document, fakeWindow, location)).toThrow("내보낼 필드나 표가 없습니다");
   screen();
   const mapped = new Function("document", "window", "location", captureSource + "; return pclmReadMapped([]);");
-  expect(() => mapped(document, fakeWindow, location)).toThrow("번호를 찾지 못했습니다");
+  expect(() => mapped(document, fakeWindow, location)).toThrow("앱을 새 판으로 바꿔 주세요");
+});
+
+it("상시 연결은 포트 하나로 인사하고, 끊기면 물러서며 다시 잇고, 개발 전환이 바뀌면 그쪽 호스트로 옮긴다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  await vi.advanceTimersByTimeAsync(0);
+  // 워커가 뜰 때와 브라우저 시작 알림이 겹쳐도 포트는 하나다.
+  w.chrome.runtime.onStartup.addListener.mock.lastCall![0]();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.ports.map(p => p.host)).toEqual(["kr.rfastball.pclm.erp"]);
+  const [hello] = w.ports[0].posted;
+  expect(hello).toMatchObject({ protocolVersion: 2, method: "presence", params: { extensionVersion: "0.4.1", browser: "기타" } });
+  expect(hello.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(w.native).not.toHaveBeenCalled(); // 수집 RPC 는 따로 간다.
+
+  // 호스트가 죽으면 1초 → 2초 → 5초로 물러서며 다시 잇는다.
+  for (const [index, delay] of [[0, 1000], [1, 2000], [2, 5000]] as const) {
+    w.ports[index].drop();
+    await vi.advanceTimersByTimeAsync(delay - 1);
+    expect(w.ports).toHaveLength(index + 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(w.ports).toHaveLength(index + 2);
+    expect(w.ports[index + 1].posted[0].method).toBe("presence");
+  }
+  // 한동안(60초) 버틴 포트가 끊기면 다시 1초부터.
+  await vi.advanceTimersByTimeAsync(60_000);
+  w.ports[3].drop();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(w.ports).toHaveLength(5);
+
+  // 개발 호스트로 바꾸면 지금 포트를 놓고 그쪽에 잇는다.
+  w.local.erpDevelopment = true;
+  for (const [listener] of w.chrome.storage.onChanged.addListener.mock.calls)
+    listener({ erpDevelopment: { newValue: true } }, "local");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.ports[4].disconnect).toHaveBeenCalled();
+  expect(w.ports.map(p => p.host).slice(5)).toEqual(["kr.rfastball.pclm.erp.dev"]);
+  expect(w.ports[5].posted[0].method).toBe("presence");
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(w.ports).toHaveLength(6); // 놓은 포트는 다시 잇지 않는다.
+});
+
+it("지금 보는 화면: 포트가 열린 동안 나라장터 탭을 알고 읽어 묶어 보고하고, 앞 탭만 지문으로 다시 읽으며, 앱의 명령을 따른다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  // Chrome 의 탭 셋 — 앞(1, 계약 상세)과 뒤(2, 개찰 결과), 그리고 나라장터가 아닌 탭 하나.
+  const g2b = [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a", title: "나라장터" },
+    { id: 2, windowId: 11, url: "https://www.g2b.go.kr/b", title: "나라장터" }];
+  let active: any = g2b[0];
+  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [active] : [...g2b, { id: 3, url: "https://other.example/" }]);
+  const prints: Record<number, string> = { 1: "계약 상세|R26TA00000001", 2: "개찰 결과|R26BK00000001" };
+  const reads: number[] = [];
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => {
+    const tabId = args.target.tabId;
+    if (args.files) return [];
+    if (!args.args) return [{ result: prints[tabId] }]; // 지문
+    reads.push(tabId);
+    return [{ documentId: "doc" + tabId, result: tabId === 1
+      ? { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: { ctrtNoOrd: "R26TA00000001-00" }, tables: {} }, scope: "live", rowMatches: {} } }
+      : { screen: "개찰 결과", menu: "01175", error: "메뉴 01175 화면은 수집하지 않습니다. 화면 자료는 엑셀로 내보낼 수 있습니다.", unsupported: true } }];
+  });
+  const reports = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs");
+
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(300);
+  // 처음 한 번 둘 다 읽는다. 수집 규칙은 한 번만 묻는다.
+  expect(reads.sort()).toEqual([1, 2]);
+  expect(w.native.mock.calls.filter(([, r]) => r.method === "hello")).toHaveLength(1);
+  const last = reports().at(-1)!;
+  expect(last).toMatchObject({ protocolVersion: 2, method: "tabs", params: { front: 1 } });
+  expect(last.params.tabs.map((t: any) => [t.tabId, t.windowId, t.state, t.screen])).toEqual(
+    [[1, 10, "supported", "계약 상세"], [2, 11, "unsupported", "개찰 결과"]]);
+  expect(last.params.tabs[0].snapshot).toMatchObject({ profile: "g2b-contract-v1", mappingRevision: "v1" });
+  expect(last.params.tabs[0].readAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d$/);
+  // 바뀌지 않으면 다시 보내지 않는다. 묶음 사이의 여러 변화는 한 번으로 간다.
+  const sent = reports().length;
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(reports()).toHaveLength(sent);
+  expect(reads).toHaveLength(2); // 지문이 그대로면 앞 탭도 다시 읽지 않는다.
+
+  // 앞 탭의 화면이 주소 없이 바뀌면 지문으로 알고 다시 읽는다. 뒤 탭은 지문이 바뀌어도 읽지 않는다.
+  prints[1] = "계약 상세|R26TA00000002"; prints[2] = "개찰 결과|바뀜";
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(reads).toEqual([1, 2, 1]);
+
+  // 다른 탭이 앞으로 오면 그 탭을 읽고 앞을 옮긴다.
+  active = g2b[1];
+  w.chrome.tabs.onActivated.addListener.mock.lastCall![0]({ tabId: 2, windowId: 11 });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reads.at(-1)).toBe(2);
+  expect(reports().at(-1)!.params.front).toBe(2);
+  // 나라장터가 아닌 탭이 앞이면 앞은 없다.
+  active = { id: 3, windowId: 10, url: "https://other.example/" };
+  w.chrome.windows.onFocusChanged.addListener.mock.lastCall![0](10);
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reports().at(-1)!.params.front).toBeNull();
+  // 탭을 닫으면 보고에서 빠진다.
+  w.chrome.tabs.onRemoved.addListener.mock.calls.forEach(([fn]: any) => fn(2));
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reports().at(-1)!.params.tabs.map((t: any) => t.tabId)).toEqual([1]);
+
+  // 앱의 명령. 확장이 아는 나라장터 탭에만 닿는다.
+  const command = (message: object) => w.ports[0].onMessage.addListener.mock.calls[0][0](message);
+  command({ protocolVersion: 2, command: "focusTab", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.chrome.tabs.update).toHaveBeenCalledWith(1, { active: true });
+  expect(w.chrome.windows.update).toHaveBeenCalledWith(10, { focused: true });
+  const before = reads.length;
+  command({ protocolVersion: 2, command: "read", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(reads).toHaveLength(before + 1);
+  command({ protocolVersion: 2, command: "export", tabId: 1 });
+  expect(w.chrome.tabs.sendMessage).toHaveBeenLastCalledWith(1, { type: "pclm-export" }, { frameId: 0 });
+  command({ protocolVersion: 2, command: "focusTab", tabId: 3 });
+  command({ protocolVersion: 2, command: "read", tabId: 99 });
+  command({ command: "read", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.chrome.tabs.update).toHaveBeenCalledTimes(1);
+  expect(reads).toHaveLength(before + 1);
+
+  // 포트가 끊기면 읽지도 보고하지도 않는다.
+  w.ports[0].drop();
+  const settled = reads.length;
+  w.chrome.tabs.onUpdated.addListener.mock.lastCall![0](1, { status: "complete" }, g2b[0]);
+  prints[1] = "또 바뀜";
+  await vi.advanceTimersByTimeAsync(900);
+  expect(reads).toHaveLength(settled);
+});
+
+it("앱이 부른 내보내기는 그 탭의 수집기가 단추와 같은 길로 내려받고, 다른 탭이 보낸 것은 듣지 않는다", async () => {
+  screen();
+  const messages: any[] = [];
+  const result = { kind: "exported", title: "시험 화면", sheets: [{ name: "필드", rows: [["번호"], ["001"]] }], warnings: [] };
+  const chrome = { storage: { local: { get: async () => ({ panelMode: "button" }) }, onChanged: { addListener: vi.fn() } },
+    runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: (fn: any) => messages.push(fn) },
+      sendMessage: vi.fn(async (message: any): Promise<any> => message.action === "export" ? result : "") } };
+  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, async () => ({ ok: false }));
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:export") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toMatch(/^시험 화면_.*\.xlsx$/);
+  });
+  const forged = vi.fn();
+  expect(messages[0]({ type: "pclm-export" }, { id: "extension", tab: { id: 2 } }, forged)).toBeUndefined();
+  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
+  const respond = vi.fn();
+  expect(messages[0]({ type: "pclm-export" }, { id: "extension" }, respond)).toBe(true);
+  await waitFor(() => expect(respond).toHaveBeenCalledWith(true));
+  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: "pclm-capture", action: "export" });
+  expect(download).toHaveBeenCalledTimes(1);
+  delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL;
 });
 
 it("중계기는 발신자와 확인한 화면을 검증하고 동시 클릭·세션 저장 실패·충돌을 차단한다", async () => {
@@ -234,6 +404,10 @@ it("팝업은 자동 확인 뒤 한 번의 저장으로 대상을 유지하고 �
   expect(document.getElementById("title")!.textContent).toBe("시험 공고");
   expect(document.getElementById("shortcut")!.textContent).toContain("Alt+Shift+S");
   expect(document.getElementById("development")).toBeNull(); // 연결 환경은 설정 창으로 옮겼다.
+  // 툴바 팝업은 간결한 모양이다 — 내보내기 안내는 누르기 전엔 비어 있고, 폭은 뷰포트에 눌리지 않는다.
+  expect(document.getElementById("collector")!.dataset.surface).toBe("popup");
+  expect(document.getElementById("export-status")!.textContent).toBe("");
+  expect(popupCss).not.toMatch(/body\s*\{[^}]*max-width/);
   const settings = document.getElementById("settings")!;
   settings.click(); expect(chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
   settings.onclick!.call(settings, { isTrusted: true } as MouseEvent);
@@ -271,6 +445,7 @@ it("페이지 수집기는 접기와 상세를 제공하고 SPA 전환·값 대�
   const root = panel.shadowRoot!;
   expect(panel.hidden).toBe(false);
   expect(root.getElementById("title")!.textContent).toBe("시험 공고");
+  expect(root.getElementById("collector")!.dataset.surface).toBeUndefined(); // 페이지 수집기는 다 보인다.
   root.getElementById("collapse")!.click();
   expect(root.getElementById("content")!.hidden).toBe(true);
   expect(root.getElementById("collapse")!.getAttribute("aria-expanded")).toBe("false");
@@ -294,7 +469,7 @@ it("페이지 수집기는 접기와 상세를 제공하고 SPA 전환·값 대�
   await vi.advanceTimersByTimeAsync(1000);
   expect(root.getElementById("target")!.hidden).toBe(true);
   expect(panel.hidden).toBe(false);
-  expect(root.getElementById("status")!.textContent).toContain("엑셀로 내보낼 수 있습니다");
+  expect(root.getElementById("status")!.textContent).toContain("엑셀로 내보내세요");
 });
 
 it("「툴바 버튼으로만」이면 페이지 수집기도 관찰도 두지 않고, 설정을 바꾸면 열린 탭에 바로 반영한다", async () => {
@@ -344,6 +519,73 @@ it("「툴바 버튼으로만」이면 페이지 수집기도 관찰도 두지 �
   document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")!.textContent = "계약 상세";
   await vi.advanceTimersByTimeAsync(3000);
   expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(calls); // 1초 관찰도 함께 멈췄다.
+});
+
+it("충돌은 「수집값 적용」 을 미리 고르되 빈 값으로 지우기는 유지를 고르고, 사람 값 복원과 행 삭제만 사람이 고르게 둔다", async () => {
+  const conflicts = [
+    { id: "c1", conflict: true, table: "notice", field: "title", before: "옛 제목", after: "새 제목" },
+    { id: "c2", conflict: true, table: "notice", field: "__override", override: "공고명", before: "고친 값", after: "새 제목" },
+    { id: "c3", conflict: true, table: "notice_item", line: 2, field: "__row", before: "지어낸 품목", after: null },
+    { id: "c4", conflict: false, table: "notice", field: "posted_at", before: null, after: "2026/09/24" },
+    // 늦게 그려진 탭을 빈 칸으로 읽었다. 한 번 누름에 멀쩡한 값을 지우지 않는다.
+    { id: "c5", conflict: true, table: "notice", field: "award_method", before: "적격심사제", after: null },
+    { id: "c6", conflict: true, table: "notice", field: "notice_agency", before: "시험기관", after: "" },
+  ];
+  const sendMessage = vi.fn(async (message: any): Promise<any> => message.action === "inspect"
+    ? { kind: "ready", message: "검토가 필요합니다.", entity: "R26BK00000001-001", fields: { title: "시험 공고" }, changes: conflicts }
+    : { kind: "stored", message: "검토한 자료를 저장했습니다." });
+  const chrome = { storage: { local: { get: async () => ({}), set: vi.fn(async () => {}) } },
+    commands: { getAll: async () => [] }, runtime: { sendMessage, openOptionsPage: vi.fn() } };
+  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
+  await runUi(chrome, document, { origin: "chrome-extension://extension" });
+  const selects = [...document.querySelectorAll<HTMLSelectElement>("#changes select")];
+  expect(selects.map(s => s.value)).toEqual(["apply", "", "", "keep", "keep"]);
+  // 덮개는 사람이 고친 값과 새로 읽은 값을 나란히 보인다.
+  expect(document.getElementById("changes")!.textContent).toContain("notice 공고명: 정정값 고친 값 · 새 수집값 새 제목");
+  const button = document.getElementById("action")!;
+  button.onclick!.call(button, { isTrusted: true } as MouseEvent);
+  await waitFor(() => expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ action: "save", choices: { c1: "apply", c5: "keep", c6: "keep" } })));
+});
+
+it("페이지 수집기의 「숨기기」 는 툴바 버튼으로만 열기로 바꾸고, 툴바 팝업은 표시 방식을 오간다", async () => {
+  vi.useFakeTimers();
+  screen();
+  const local: Record<string, any> = { panelMode: "always" }, changed: any[] = [];
+  const storage = { local: { get: async () => ({ ...local }), set: vi.fn(async (value: object) => {
+    const changes = Object.fromEntries(Object.entries(value).map(([key, newValue]) => [key, { newValue, oldValue: local[key] }]));
+    Object.assign(local, value); changed.forEach(fn => fn(changes, "local"));
+  }) }, onChanged: { addListener: (fn: any) => changed.push(fn) } };
+  const chrome = { storage, runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: vi.fn() },
+    sendMessage: vi.fn(async (message: any): Promise<any> => message.type === "pclm-capture"
+      ? { kind: "ready", message: "저장 대상 확인됨", entity: "R26BK00000001-001", fields: { title: "시험 공고" } } : "") } };
+  const fetchFile = async (file: string) => ({ ok: true, text: async () => file === "popup.html" ? popupHtml : popupCss });
+  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, fetchFile);
+  const pin = document.getElementById("pclm-collector")!.shadowRoot!.getElementById("pin")!;
+  expect(pin.hidden).toBe(false);
+  expect(pin.textContent).toBe("숨기기");
+  expect(pin.title).toContain("툴바의 확장 아이콘에서 다시 띄울 수 있습니다");
+  pin.click(); // 페이지 스크립트가 만든 합성 클릭은 수집기를 치우지 못한다.
+  expect(storage.local.set).not.toHaveBeenCalled();
+  pin.onclick!.call(pin, { isTrusted: true } as MouseEvent);
+  expect(local.panelMode).toBe("button");
+  await vi.waitFor(() => expect(document.getElementById("pclm-collector")).toBeNull());
+  vi.useRealTimers();
+  changed.length = 0; // 그 탭은 닫았다 — 아래 전환이 수집기를 다시 세우지 않게 한다.
+
+  // 툴바 팝업: 지금 값의 반대로 가는 버튼이다.
+  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
+  const popup = { storage, commands: { getAll: async () => [] }, runtime: { openOptionsPage: vi.fn(),
+    sendMessage: vi.fn(async () => ({ kind: "blocked", message: "현재 화면 확인 필요" })) } };
+  await runUi(popup, document, { origin: "chrome-extension://extension" });
+  const toggle = document.getElementById("pin")!;
+  expect(toggle.textContent).toBe("화면에 항상 띄우기");
+  await toggle.onclick!.call(toggle, { isTrusted: true } as MouseEvent);
+  expect(local.panelMode).toBe("always");
+  expect(toggle.textContent).toBe("화면에서 숨기기");
+  expect(document.getElementById("status")!.textContent).toContain("띄웁니다");
+  await toggle.onclick!.call(toggle, { isTrusted: true } as MouseEvent);
+  expect(local.panelMode).toBe("button");
+  expect(toggle.textContent).toBe("화면에 항상 띄우기");
 });
 
 it("확장을 다시 불러오면 열린 나라장터 탭에 수집기를 다시 넣고, 새 수집기가 끊긴 옛 것을 물러나게 한다", async () => {
@@ -406,14 +648,29 @@ it("단축키는 고를 것이 없을 때만 저장하고, 결과를 페이지 �
   expect(tabBadges().at(-1)?.text).toBe("!");
   expect(count("capture")).toBe(1); // 충돌은 사람이 고른다.
 
+  // 빈 값으로 지우는 변경만 남았으면 팝업의 기본과 같이 유지를 골라 저장한다 — 지우지 않는다.
+  w.native.mockImplementation(async (host, request) => {
+    const response = await original(host, request);
+    if (request.method === "inspect") response.result.changes = [{ id: "w1", table: "공고", field: "award_method", before: "적격심사제", after: null, conflict: true }];
+    return response;
+  });
+  press();
+  await waitFor(() => expect(count("capture")).toBe(2));
+  expect(w.native.mock.calls.filter(([, request]) => request.method === "capture").at(-1)![1].params.choices).toEqual({ w1: "keep" });
+  w.native.mockImplementation(async (host, request) => {
+    const response = await original(host, request);
+    if (request.method === "inspect") response.result.changes = [{ id: "c1", table: "공고", field: "title", before: "갑", after: "을", conflict: true }];
+    return response;
+  });
+
   w.chrome.tabs.sendMessage.mockResolvedValueOnce(true); // 페이지 수집기가 떠 있으면 거기에 그린다.
   const badges = tabBadges().length;
   press();
-  await waitFor(() => expect(w.chrome.tabs.sendMessage).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(w.chrome.tabs.sendMessage).toHaveBeenCalledTimes(4));
   expect(w.chrome.tabs.sendMessage.mock.lastCall![1].view).toMatchObject({ kind: "ready", message: expect.stringContaining("검토가 필요합니다") });
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(tabBadges()).toHaveLength(badges);
-  expect(count("capture")).toBe(1);
+  expect(count("capture")).toBe(2);
 
   const inspected = count("inspect");
   press({ id: 1, url: "https://other.example/" });
@@ -430,79 +687,31 @@ it("단축키는 고를 것이 없을 때만 저장하고, 결과를 페이지 �
   expect(w.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "!" });
   press();
   await waitFor(() => expect(w.chrome.action.openPopup).toHaveBeenCalledTimes(2));
-  expect(count("capture")).toBe(2);
+  expect(count("capture")).toBe(3);
   expect(w.stored.pendingCapture).toBeDefined();
 });
 
 
-it("저장 위치는 설정 창에서만 묻고, 대상 경로를 먼저 보인 뒤 두 번째 누름에 예약하며, 거절 사유를 그대로 보인다", async () => {
+// 자료 자리는 확장에서 보지도 옮기지도 않는다. 수집 통로가 저장 구조를 고치는 통로를 겸하면 브라우저 쪽의
+// 실수 하나가 사람의 자료 자리를 바꾼다 — 자리는 계약 목록 앱에서만 다룬다.
+it("확장은 설정 창에서도 자료 자리를 묻거나 옮기지 않는다", async () => {
   const w = worker();
-  const reply = (request: any, body: object): any => ({ protocolVersion: 2, requestId: request.requestId, ...body });
-  let place: any = { datasetId: "test", path: "C:\\자료\\계약목록_자료\\pclm.db", folder: "C:\\자료\\계약목록_자료",
-    folderName: "계약목록_자료", pending: null };
-  w.native.mockImplementation(async (_host: string, request: any) => {
-    if (request.method === "dataLocation") return reply(request, { ok: true, result: place });
-    if (request.method !== "stageDataMove") throw new Error("예상하지 않은 요청");
-    if (request.params.folder === "D:\\쓰는 중") return reply(request, { ok: false,
-      error: { code: "invalid_request", message: "고른 자리에 이미 계약 목록 자료가 있습니다." } });
-    const to = request.params.folder.replace(/\\+$/, "") + "\\계약목록_자료";
-    place = { ...place, pending: { from: place.folder, to } };
-    return reply(request, { ok: true, result: { folder: to } });
-  });
   const listener = w.chrome.runtime.onMessage.addListener.mock.lastCall![0];
   const optionsPage = { id: "extension", url: "chrome-extension://extension/options.html" };
-  const ask = (message: object, from: object = optionsPage): Promise<any> =>
-    new Promise(resolve => listener({ type: "pclm-location", ...message }, from, resolve));
-  // 페이지 수집기·팝업·다른 확장은 자리를 볼 수도 옮길 수도 없다.
-  for (const from of [w.sender, { id: "extension", url: "chrome-extension://extension/popup.html" }, { ...optionsPage, id: "other" }])
-    expect(await ask({ action: "moveLocation", datasetId: "test", folder: "D:\\" }, from)).toMatchObject({ ok: false });
+  const replied = vi.fn();
+  for (const action of ["location", "moveLocation"])
+    expect(listener({ type: "pclm-location", action, datasetId: "test", folder: "D:\\" }, optionsPage, replied)).toBeUndefined();
   expect(w.native).not.toHaveBeenCalled();
+  expect(replied).not.toHaveBeenCalled();
 
-  const open = () => {
-    document.body.innerHTML = optionsHtml;
-    const chrome = { storage: { local: { get: async () => ({}), set: async () => {} } },
-      commands: { getAll: async () => [] }, tabs: { create: vi.fn() }, runtime: { sendMessage: ask } };
-    new Function("chrome", "document", optionsSource)(chrome, document);
-  };
-  const byId = (id: string) => document.getElementById(id) as HTMLInputElement;
-  const stages = () => w.native.mock.calls.filter(([, request]) => request.method === "stageDataMove");
-  const typeAndPress = (folder: string) => {
-    byId("locationFolder").value = folder; byId("locationFolder").dispatchEvent(new Event("input"));
-    byId("locationMove").click();
-  };
-  open();
-  await waitFor(() => expect(byId("locationPath").value).toBe(place.path));
-  expect(byId("locationPath").readOnly).toBe(true);
-  expect(byId("locationPending").hidden).toBe(true);
-  expect(byId("locationFolderName").textContent).toBe("계약목록_자료");
-  expect(w.native.mock.lastCall![0]).toBe("kr.rfastball.pclm.erp");
-
-  // 첫 누름은 대상만 보인다. 입력을 바꾸면 처음부터 다시 확인한다.
-  typeAndPress("E:\\다른 곳");
-  typeAndPress("D:\\업무\\");
-  expect(byId("locationTarget").textContent).toContain("D:\\업무\\계약목록_자료");
-  expect(stages()).toHaveLength(0);
-  byId("locationMove").click();
-  await waitFor(() => expect(byId("locationPending").hidden).toBe(false));
-  expect(stages()).toHaveLength(1);
-  expect(stages()[0][1].params).toEqual({ datasetId: "test", folder: "D:\\업무\\" });
-  expect(byId("locationPending").textContent).toBe("다음 앱 실행 때 C:\\자료\\계약목록_자료 → D:\\업무\\계약목록_자료 로 옮깁니다.");
-  expect(byId("locationTarget").textContent).toContain("예약했습니다");
-
-  typeAndPress("D:\\쓰는 중"); byId("locationMove").click();
-  await waitFor(() => expect(byId("locationTarget").textContent).toContain("이미 계약 목록 자료가 있습니다"));
-  expect(stages()).toHaveLength(2);
-
-  // 개발 DB 면 호스트가 거절한 까닭을, 호스트가 없으면 연결 안내만 보인다.
-  w.native.mockImplementation(async (_host: string, request: any) => reply(request, { ok: false,
-    error: { code: "invalid_request", message: "개발 DB 는 위치를 옮길 수 없습니다." } }));
-  open();
-  await waitFor(() => expect(byId("locationStatus").textContent).toBe("개발 DB 는 위치를 옮길 수 없습니다."));
-  expect(byId("locationBody").hidden).toBe(true);
-  w.native.mockRejectedValue(new Error("호스트 없음"));
-  open();
-  await waitFor(() => expect(byId("locationStatus").textContent).toContain("연결하지 못했습니다"));
-  expect(byId("locationBody").hidden).toBe(true);
+  document.body.innerHTML = optionsHtml;
+  const chrome = { storage: { local: { get: async () => ({}), set: vi.fn(async () => {}) }, onChanged: { addListener: vi.fn() } },
+    commands: { getAll: async () => [] }, tabs: { create: vi.fn() }, runtime: { sendMessage: vi.fn() } };
+  await new Function("chrome", "document", optionsSource)(chrome, document);
+  expect(document.getElementById("location")).toBeNull();
+  (document.getElementById("development") as HTMLInputElement).click();
+  await waitFor(() => expect(chrome.storage.local.set).toHaveBeenCalledWith({ erpDevelopment: true }));
+  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
 });
 
 it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않은 값을 보내지 않는다", () => {
@@ -512,7 +721,8 @@ it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않�
   document.body.innerHTML = `<div id="mf_wfm_container"><input id="ctrtDmndBizNm" value="시험 접수" readonly><div id="${table.source}"></div></div>`;
   const rows = ["001", "002"].map(key => ({ ctrtDmndRcptNo: "RC001", ctrtDmndRcptOrd: "000", ctrtDmndRcptItemSqno: key,
     ndfsPrcmDmndNo: "REPEATED", ctrtDmndQty: "0", giveActno: "보내면 안 되는 값" }));
-  const fakeWindow: any = { $p: { getComponentById: (id: string) => id === table.source ? { getDataList: () => ({ getAllJSON: () => rows }) } : null } };
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01117" },
+    $p: { getComponentById: (id: string) => id === table.source ? { getDataList: () => ({ getAllJSON: () => rows }) } : null } };
   fakeWindow.top = fakeWindow;
   const read = new Function("document", "window", "location", "profiles", captureSource + "; return pclmReadMapped(profiles);");
   const result = read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, [p]);
@@ -522,27 +732,103 @@ it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않�
   expect(JSON.stringify(result)).not.toContain("보내면 안 되는 값");
 });
 
-it("화면의 문서는 번호로만 가리고, 번호가 여럿 보이면 가장 아랫단 문서를 고르며, 표가 없어도 받는다", () => {
+it("받는지는 hello 매핑에서 화면을 단 프로필만으로 정하고, 화면 하나를 그 프로필 하나로 읽으며, 표가 없어도 받는다", () => {
   screen();
   const profiles = JSON.parse(mappingJson).profiles;
-  // 품목표 하나 없는 화면. 계약 화면은 공고·접수 번호를 참조로 함께 싣는다.
-  const values: Record<string, string> = { ctrtNoOrd: "R26TA00000001-00", bidPbancNo: "R26BK00000001", ctrtDmndRcptNo: "R26DC00000001" };
+  // 계약 번호와 공고 번호·차수가 함께 보이는 화면. 품목표는 없다.
+  const values: Record<string, string> = { ctrtNoOrd: "R26TA00000001-00", bidPbancNo: "R26BK00000001", bidPbancOrd: "000" };
   const render = () => {
     document.body.innerHTML = `<div id="mf_wfm_container">${Object.keys(values).map(k => `<span id="mf_wfm_container_${k}"></span>`).join("")}</div>`;
   };
-  const fakeWindow: any = { $p: { getComponentById: (id: string) => {
+  render();
+  let menu: unknown = "01579";
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => menu }, $p: { getComponentById: (id: string) => {
     const key = id.replace("mf_wfm_container_", "");
     return key in values ? { getRef: () => "data:dma_pointInfo." + key, getValue: () => values[key] } : null;
   } } };
   fakeWindow.top = fakeWindow;
-  const read = new Function("document", "window", "location", "profiles", captureSource + "; return pclmReadMapped(profiles);");
-  const run = () => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, profiles);
-  render();
-  expect(run()).toMatchObject({ profile: "g2b-contract-v1", data: { tables: {} } });
-  delete values.ctrtNoOrd; values.bidPbancOrd = "000"; render();
-  expect(run().profile).toBe("g2b-notice-a-v1");
-  delete values.bidPbancOrd; render(); // 공고 차수가 없으면 공고 번호는 참조일 뿐이다.
-  expect(run).toThrow("번호를 찾지 못했습니다");
+  const fakeHistory: any = { state: null };
+  const read = new Function("document", "window", "location", "history", "profiles",
+    captureSource + "; return pclmReadMapped(profiles);");
+  const run = (given: any[] = profiles) => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, fakeHistory, given);
+  const refusal = (given?: any[]) => {
+    try { run(given); } catch (error) { return error as Error & { unsupported?: boolean }; }
+    throw new Error("거절되지 않았다");
+  };
+
+  expect(run()).toMatchObject({ profile: "g2b-contract-v1", screen: "01579", data: { tables: {} } });
+  // 공고 화면이면 계약 번호가 보여도 공고 프로필 하나로만 읽는다.
+  menu = "01179";
+  expect(run()).toMatchObject({ profile: "g2b-notice-a-v1", screen: "01179" });
+  // 나라장터의 함수가 없으면 주소 상태의 번호를 쓴다.
+  delete fakeWindow.com;
+  fakeHistory.state = { data: { menuNo: "01579" } };
+  expect(run()).toMatchObject({ profile: "g2b-contract-v1", screen: "01579" });
+  fakeWindow.com = { gfnGetMenuNo: () => menu };
+
+  // 목록에 없는 화면은 번호 칸이 읽혀도 받지 않는다 — 지금 보는 화면이 「수집 안 함」 으로 세우는 표시를 단다.
+  menu = "01175";
+  expect(refusal()).toMatchObject({ message: "메뉴 01175 화면은 수집하지 않습니다. 화면 자료는 엑셀로 내보낼 수 있습니다.", unsupported: true });
+  // 번호를 읽지 못하면 번호 칸으로 짐작하지 않는다.
+  menu = "메뉴"; fakeHistory.state = null;
+  expect(refusal()).toMatchObject({ message: expect.stringContaining("화면 번호를 읽지 못해"), unsupported: true });
+  // 목록은 프로필이 단 screen 에서 끌어낸다(ADR-037) — 공고 프로필이 화면을 내려놓으면 공고 화면도 받지 않는다.
+  menu = "01179";
+  const noNotice = profiles.map((p: any) => p.id === "g2b-notice-a-v1" ? { ...p, screen: undefined } : p);
+  expect(refusal(noNotice)).toMatchObject({ message: "메뉴 01179 화면은 수집하지 않습니다. 화면 자료는 엑셀로 내보낼 수 있습니다.", unsupported: true });
+  // 화면을 싣지 않는 옛 앱이면 어느 화면도 받지 않고 앱을 바꾸라고 한다.
+  menu = "01579";
+  const old = profiles.map(({ screen: _, ...p }: any) => p);
+  expect(refusal(old)).toMatchObject({ message: expect.stringContaining("앱을 새 판으로 바꿔 주세요"), unsupported: true });
+
+  // 목록의 화면인데 그 프로필의 번호를 읽지 못하면 평범한 오류다 — 다시 읽으면 된다.
+  menu = "01179";
+  delete values.bidPbancOrd; render();
+  const missing = refusal();
+  expect(missing.message).toBe("화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요.");
+  expect(missing.unsupported).toBeFalsy();
+});
+
+it("확장은 hello 매핑의 프로필만을 수집과 지금 보는 화면 읽기에 넘기고, 탭 보고에 메뉴 번호를 싣는다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  // 수집하는 화면은 프로필이 단 screen 이다 — 따로 목록을 싣지 않는다.
+  const profiles = [{ id: "g2b-contract-v1", screen: { code: "01579", name: "계약 상세" } }];
+  const original = w.native.getMockImplementation()!;
+  w.native.mockImplementation(async (host: string, request: any) => request.method === "hello"
+    ? { protocolVersion: 2, requestId: request.requestId, ok: true, result: { datasetId: "test", mapping: { profiles }, mappingRevision: "v1" } }
+    : original(host, request));
+  const g2b = [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a", title: "나라장터" },
+    { id: 2, windowId: 10, url: "https://www.g2b.go.kr/b", title: "나라장터" },
+    { id: 3, windowId: 10, url: "https://www.g2b.go.kr/c", title: "나라장터" }];
+  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [g2b[0]] : g2b);
+  const passed: any[] = [];
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => {
+    if (args.files) return [];
+    if (!args.args) return [{ result: "지문" }];
+    passed.push(args.args);
+    return [{ documentId: "doc" + args.target.tabId, result: args.target.tabId === 1
+      ? { screen: "계약 상세", menu: "01579", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} }, scope: "live", rowMatches: {}, screen: "01579" } }
+      : args.target.tabId === 2
+        ? { screen: "개찰 결과", menu: "01175", error: "메뉴 01175 화면은 수집하지 않습니다. 화면 자료는 엑셀로 내보낼 수 있습니다.", unsupported: true }
+        : { screen: "계약 상세", menu: "01579", error: "화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요.", unsupported: false } }];
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(300);
+  const last = w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs").at(-1)!;
+  expect(last.params.tabs.map((t: any) => [t.tabId, t.state, t.menu])).toEqual(
+    [[1, "supported", "01579"], [2, "unsupported", "01175"], [3, "error", "01579"]]);
+  expect(last.params.tabs[0].snapshot).toMatchObject({ screen: "01579", mappingRevision: "v1" });
+  expect(last.params.tabs[2].message).toBe("화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요.");
+  expect(passed).toEqual([[profiles], [profiles], [profiles]]);
+
+  // 수집기의 확인도 같은 목록으로 읽고, 화면 번호가 실린 스냅샷을 호스트에 보낸다.
+  passed.length = 0;
+  const view = w.send("inspect");
+  await vi.advanceTimersByTimeAsync(0);
+  expect((await view).kind).toBe("ready");
+  expect(passed).toEqual([[profiles]]);
+  expect(w.native.mock.calls.find(([, r]) => r.method === "inspect")![1].params.snapshot).toMatchObject({ screen: "01579" });
 });
 
 it("원값을 먼저 읽고, 숨은 칸의 차수를 쓰고, 부가 필드의 충돌은 그 필드만 비운다", () => {
@@ -563,7 +849,7 @@ it("원값을 먼저 읽고, 숨은 칸의 차수를 쓰고, 부가 필드의 �
     mf_wfm_container_ctrtNoOrd: bound("ctrtNoOrd", "R26TA00000001-00"),
     mf_wfm_container_dmstA: bound("dmstUntyGrpNm", "갑 기관"), mf_wfm_container_dmstB: bound("dmstUntyGrpNm", "을 기관"),
   };
-  const fakeWindow: any = { $p: { getComponentById: (id: string) => parts[id] ?? null } };
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01579" }, $p: { getComponentById: (id: string) => parts[id] ?? null } };
   fakeWindow.top = fakeWindow;
   const read = new Function("document", "window", "location", "profiles", captureSource + "; return pclmReadMapped(profiles);");
   const run = () => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, [contract]);
@@ -650,4 +936,115 @@ it("내보내기는 DB 연결과 미확인 저장에 의존하지 않으며 사�
   expect(document.getElementById("export-status")!.textContent).toContain("연결 끊김");
   expect(button.disabled).toBe(false);
   delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL;
+});
+
+// ── 지금 보는 화면 3b: 화면 이름표 · 확장 설정 · 오류 사건 ──────────────────
+
+it("화면 그대로: 수집 규칙의 칸마다 이름표(aria-label·앞 th·없음)와 보이는 글을, 품목은 줄마다 원값으로 읽는다", () => {
+  screen();
+  const contract = JSON.parse(mappingJson).profiles.find((p: any) => p.id === "g2b-contract-v1");
+  const items = contract.tables.find((t: any) => t.required).source;
+  document.body.innerHTML = `<h2 id="mf_wfm_cntsHeader_spnHeaderTitle">계약 상세</h2><div id="mf_wfm_container">
+    <h3>계약 기본정보</h3>
+    <table><tbody>
+      <tr><th>계약번호</th><td><span id="mf_wfm_container_ctrtNoOrd">R26TA00000001-00</span></td></tr>
+      <tr><th>계약명</th><td><input id="mf_wfm_container_ibxCtrtNm" value="시험 계약"></td></tr>
+      <tr><th>무시할 머리</th><td><input id="mf_wfm_container_calCtrtDt" aria-label="계약일자" value="2026-09-21"></td></tr>
+      <tr><td><select id="mf_wfm_container_selMthd"><option>일반</option><option selected>제한경쟁</option></select></td></tr>
+    </tbody></table>
+    <h3>품목내역</h3><div id="${items}"></div></div>`;
+  const bound = (key: string, value: string) => ({ getRef: () => "data:dma_pointInfo." + key, getValue: () => value });
+  const parts: Record<string, any> = {
+    [items]: { getDataList: () => ({ getAllJSON: () => [
+      { ctrtNo: "R26TA00000001", ctrtChgOrd: "00", ctrtItemSqno: 7, ctrtItemNm: "시험 품목", ctrtUntVal: "세트", ctrtQty: 6, ctrtAmt: 12000000, secret: "x" },
+      { ctrtNo: "R26TA00000001", ctrtChgOrd: "00", ctrtItemSqno: 8, ctrtItemNm: "둘째 품목", ctrtQty: 1 }] }) },
+    mf_wfm_container_ctrtNoOrd: bound("ctrtNoOrd", "R26TA00000001-00"),
+    mf_wfm_container_ibxCtrtNm: bound("ctrtNm", "시험 계약"),
+    mf_wfm_container_calCtrtDt: bound("ctrtDt", "20260921"),
+    mf_wfm_container_selMthd: bound("ctrtMthdCd", "02"),
+  };
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01579" }, $p: { getComponentById: (id: string) => parts[id] ?? null } };
+  fakeWindow.top = fakeWindow;
+  const read = new Function("document", "window", "location", "profiles", captureSource + exportSource +
+    "; const snapshot = pclmReadMapped(profiles); return pclmScreenRows(profiles[0], snapshot);");
+  const rows = read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, [contract]);
+  expect(rows).toEqual([
+    { group: "계약 기본정보", label: "계약번호", text: "R26TA00000001-00", source: "ctrtNoOrd" },
+    { group: "계약 기본정보", label: "계약명", text: "시험 계약", source: "ctrtNm" },
+    // 칸에 붙은 이름표가 앞 th 보다 먼저다. 보이는 글은 화면의 서식 그대로(원값 20260921 이 아니다).
+    { group: "계약 기본정보", label: "계약일자", text: "2026-09-21", source: "ctrtDt" },
+    // 이름표가 없으면 빈 글. select 는 고른 글.
+    { group: "계약 기본정보", label: "", text: "제한경쟁", source: "ctrtMthdCd" },
+    { group: "품목내역", label: "7 시험 품목", text: "6세트 · 12000000", source: "table:contract_item:1" },
+    { group: "품목내역", label: "8 둘째 품목", text: "1", source: "table:contract_item:2" },
+  ]);
+  expect(JSON.stringify(rows)).not.toContain("secret");
+
+  // 수집 규칙에 없는 화면 — 내보내기의 화면 필드를 앞에서 40줄까지. 내보내기가 거르는 칸은 오지 않는다.
+  document.body.innerHTML = `<input id="password" type="password" value="비밀">` +
+    Array.from({ length: 50 }, (_, i) => `<input id="f${i}" title="칸 ${i}" value="값 ${i}">`).join("");
+  const plain = new Function("document", "window", "location", captureSource + exportSource + "; return pclmScreenRows(null);");
+  const unsupported = plain(document, fakeWindow, { origin: "https://www.g2b.go.kr", pathname: "/" });
+  expect(unsupported).toHaveLength(40);
+  expect(unsupported[0]).toEqual({ group: "", label: "칸 0", text: "값 0", source: "" });
+  expect(JSON.stringify(unsupported)).not.toContain("비밀");
+});
+
+it("확장 설정을 탭 보고에 싣고, 창의 설정 명령을 옵션 창과 같은 자리에 쓰며 단축키 화면을 연다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  w.local.panelMode = "button";
+  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }] : [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : !args.args ? [{ result: "지문" }]
+    : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } },
+      screenRows: [{ group: "계약 기본정보", label: "계약명", text: "시험 계약", source: "ctrtNm" }] } }]);
+  const reports = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs");
+  await vi.advanceTimersByTimeAsync(300);
+  const last = reports().at(-1)!;
+  expect(last.params.settings).toEqual({ panelMode: "button", shortcut: "Alt+Shift+S", siteAccess: true });
+  expect(w.chrome.permissions.contains).toHaveBeenCalledWith({ origins: ["https://www.g2b.go.kr/*"] });
+  expect(last.params.tabs[0].screenRows).toEqual([{ group: "계약 기본정보", label: "계약명", text: "시험 계약", source: "ctrtNm" }]);
+
+  const command = (message: object) => w.ports[0].onMessage.addListener.mock.calls[0][0](message);
+  command({ protocolVersion: 2, command: "setPanelMode", mode: "always" });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(w.chrome.storage.local.set).toHaveBeenCalledWith({ panelMode: "always" });
+  expect(reports().at(-1)!.params.settings.panelMode).toBe("always");
+  command({ protocolVersion: 2, command: "setPanelMode", mode: "sometimes" });
+  expect(w.chrome.storage.local.set).toHaveBeenCalledTimes(1);
+  // 새 창으로 연다 — 앱이 새로 선 창을 알아보고 앞으로 가져온다. 탭으로 열면 뒤에 있는 창에 섞여 가려낼 수 없다.
+  command({ protocolVersion: 2, command: "openShortcuts" });
+  expect(w.chrome.windows.create).toHaveBeenCalledWith({ url: "chrome://extensions/shortcuts", focused: true });
+  // 확장 관리 — 명령줄로는 chrome:// 를 열 수 없어 창이 확장에 맡긴다.
+  command({ protocolVersion: 2, command: "openExtensions" });
+  expect(w.chrome.windows.create).toHaveBeenCalledWith({ url: "chrome://extensions/", focused: true });
+  expect(w.chrome.tabs.create).not.toHaveBeenCalled();
+
+  // 사이트 접근이 바뀌면(다음 확인에서) 다시 보고한다.
+  w.chrome.permissions.contains.mockResolvedValue(false);
+  await vi.advanceTimersByTimeAsync(2600);
+  expect(reports().at(-1)!.params.settings.siteAccess).toBe(false);
+});
+
+it("수집 흐름의 실패와 다시 보내 풀림을 코드만 실어 포트로 알린다", async () => {
+  const w = worker();
+  await waitFor(() => expect(w.ports).toHaveLength(1));
+  const events = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "event").map(m => m.params);
+  await w.send("inspect");
+  w.nextCapture(async () => { throw new Error("연결 끊김"); });
+  expect((await w.send("save")).kind).toBe("pending");
+  expect(events()).toEqual([{ kind: "error", code: "unconfirmed" }]);
+  expect((await w.send("inspect")).kind).toBe("retry"); // 결과 조회 — 오류가 아니다.
+  expect((await w.send("retry", w.sender, w.stored.pendingCapture.captureId)).kind).toBe("stored");
+  expect(events()).toEqual([{ kind: "error", code: "unconfirmed" }, { kind: "recovered" }]);
+  // 저장 대상의 거절은 rejected — 화면 안내(번호 없음)는 세지 않는다.
+  await w.send("inspect");
+  w.nextCapture(async (_host, request) => ({ protocolVersion: 2, requestId: request.requestId,
+    ok: false, error: { code: "conflict", message: "시험 계약 건명이 바뀌었습니다." } } as any));
+  await w.send("save");
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : [{ documentId: "doc1", result: { error: "화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요." } }]);
+  await w.send("inspect");
+  expect(events().slice(2)).toEqual([{ kind: "error", code: "rejected" }]);
+  // 자료는 싣지 않는다.
+  expect(JSON.stringify(events())).not.toMatch(/R26|시험|건명/);
 });

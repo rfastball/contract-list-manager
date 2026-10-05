@@ -10,7 +10,7 @@ namespace Pclm.Core.Tests;
 /// 통합 시트가 <b>생애주기 전부</b>를 내는지 본다 — 접수만 온 것, 공고까지 온 것,
 /// 셋이 다 온 것, 어디에도 매달리지 못한 계약이 모두 한 줄씩 선다.
 ///
-/// <para>예전에는 통합이 <c>v_계약_v1</c> 을 줄기로 세워 <b>계약이 있는 것만</b> 냈다.
+/// <para>예전에는 통합이 <c>v_계약</c> 을 줄기로 세워 <b>계약이 있는 것만</b> 냈다.
 /// 그래서 같은 자료를 두 화면이 다르게 셌다 — 구조 보기에는 접수만 온 건이 서 있는데
 /// 표에는 없었다. 무엇이 아직 안 들어왔는지는 <b>표에서도</b> 보여야 한다.</para>
 ///
@@ -27,8 +27,7 @@ public class UnifiedLifecycleTests : IDisposable
 
     public UnifiedLifecycleTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -144,7 +143,7 @@ public class UnifiedLifecycleTests : IDisposable
 
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM v_통합_v2;";
+        command.CommandText = "SELECT * FROM v_통합;";
 
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
@@ -212,7 +211,7 @@ public class UnifiedLifecycleTests : IDisposable
     {
         using var connection = _database.OpenReadOnly();
 
-        return [.. connection.Query("SELECT * FROM v_통합_v2;")
+        return [.. connection.Query("SELECT * FROM v_통합;")
             .Cast<IDictionary<string, object>>()
             .Select(row => row.ToDictionary(c => c.Key, c => c.Value?.ToString() ?? ""))];
     }

@@ -3,9 +3,10 @@ namespace Pclm.Core.Storage;
 /// <summary>
 /// 소비자에게 내보이는 계약면.
 ///
-/// <para>이 뷰들이 <b>다른 프로그램과의 유일한 약속</b>이다. 컬럼 이름을 바꾸면 저쪽에 저장된
-/// 필드 연결이 끊기므로, 고칠 일이 생기면 <c>_v2</c> 를 새로 만들어 나란히 두고 <c>_v1</c> 은
-/// 그대로 남긴다.</para>
+/// <para>이 뷰들이 <b>다른 프로그램과의 유일한 약속</b>이다. 뷰·열 이름은 <b>제자리에서</b>
+/// 바꾼다 — 옛 이름을 나란히 남기지 않는다(ADR-034). 소비자는 하나이고, 없는 필드를 시끄럽게
+/// 경고하므로 이름이 바뀐 것을 거기서 안다. 바뀌지 않아야 할 것이 바뀌는 것은
+/// <c>contract/views.txt</c> 박제가 잡는다.</para>
 ///
 /// <para>컬럼 이름을 <b>한글로 둔다.</b> 받는 쪽이 어휘를 따로 선언하지 않으면 키를 그대로
 /// 사람이 읽는 이름으로 쓰기 때문에, 한글이면 엑셀 머리글과 똑같이 동작한다.</para>
@@ -15,8 +16,6 @@ namespace Pclm.Core.Storage;
 /// </summary>
 public static class Views
 {
-    public const string Version = "v1";
-
     /// <summary>
     /// 계약면 전부. <b>다리가 열어 줄 표를 가리는 허용목록</b>이자 뷰 정의 목록이다.
     ///
@@ -25,25 +24,25 @@ public static class Views
     /// </summary>
     public static IReadOnlyList<string> Names =>
     [
-        "v_통합_v1", "v_공고_v1", "v_공고품목_v1", "v_계약_v1", "v_품목_v1",
-        "v_접수_v1", "v_접수품목_v1", "v_통합_v2", "v_계획_v1",
+        "v_공고", "v_공고품목", "v_계약", "v_계약품목",
+        "v_접수", "v_접수품목", "v_통합", "v_계획",
 
         // 차수를 펴서 내는 것들(스키마 V15). <b>끝에 붙인다</b> — 사이에 끼우면 박제가
         // 바뀐 것 없는 절까지 통째로 다시 쓰여, 무엇이 실제로 달라졌는지 보이지 않는다.
-        "v_공고차수_v1", "v_통합_v3", "v_계약차수_v1",
-        "v_ERP원천_v1", "v_계약업체_v1", "v_ERP접수_v1",
+        "v_공고차수", "v_통합차수", "v_계약차수",
+        "v_ERP원천", "v_계약업체", "v_ERP접수",
     ];
 
     /// <summary>
     /// <b>고칠 수 없는 표.</b> 화면이 값을 고치는 길을 아예 열지 않는다.
     ///
-    /// <para><c>v_계획_v1</c> 은 <c>plan</c> 이 개체가 아니라서다 —
+    /// <para><c>v_계획</c> 은 <c>plan</c> 이 개체가 아니라서다 —
     /// <c>field_override</c>·<c>user_column</c> 의 <c>entity_type</c> 에 자리가 없어 고친 값을
     /// 걸 데가 없다. 값을 고치는 길은 엑셀을 고쳐 다시 넣는 것 하나다.</para>
     ///
-    /// <para><b>차수 뷰 둘과 <c>v_통합_v3</c> 은 까닭이 다르다.</b>
-    /// <see cref="Store.FaceView"/> 가 종류당 뷰를 <b>하나</b>만 안다 — 공고는 <c>v_공고_v1</c>,
-    /// 계약은 <c>v_계약_v1</c> 이다. 그래서 옛 차수의 칸을 고치면 덮개가 담을
+    /// <para><b>차수 뷰 둘과 <c>v_통합차수</c> 는 까닭이 다르다.</b>
+    /// <see cref="Store.FaceView"/> 가 종류당 뷰를 <b>하나</b>만 안다 — 공고는 <c>v_공고</c>,
+    /// 계약은 <c>v_계약</c> 이다. 그래서 옛 차수의 칸을 고치면 덮개가 담을
     /// <c>original</c>(고치기 전에 그 자리에 있던 값)을 그 뷰에서 찾지 못해 <b>빈 문자열로
     /// 박히고</b>, "무엇을 무엇으로 고쳤나" 가 오류 없이 거짓이 된다. 되돌리기 안내도 함께
     /// 거짓이 된다. 고치는 자리는 공고 탭·계약 탭이고, 차수 뷰는 <b>보는</b> 자리다.</para>
@@ -53,61 +52,56 @@ public static class Views
     /// </summary>
     public static IReadOnlyList<string> ReadOnly =>
     [
-        "v_계획_v1", "v_통합_v3", "v_공고차수_v1", "v_계약차수_v1",
-        "v_ERP원천_v1", "v_계약업체_v1", "v_ERP접수_v1",
+        "v_계획", "v_통합차수", "v_공고차수", "v_계약차수",
+        "v_ERP원천", "v_계약업체", "v_ERP접수",
     ];
 
     /// <summary>
     /// 엑셀로 나가는 것. <b><see cref="Names"/> 와 일부러 다르다.</b>
     ///
-    /// <para>통합을 <c>v1</c>·<c>v2</c> 두 장으로 내면 받는 쪽이 어느 것을 볼지 헷갈린다 —
-    /// 한 권 안에 같은 뜻의 시트가 둘 있으면 그 자체가 오답의 원인이다. 파일에는 <b>v2 만</b>
-    /// 싣고, <c>v_통합_v1</c> 은 뷰로는 그대로 남겨 저쪽에 저장된 연결을 지킨다.</para>
+    /// <para>통합은 <c>v_통합</c> 한 장만 싣는다. 차수를 편 셋(<c>v_통합차수</c>·<c>v_공고차수</c>·
+    /// <c>v_계약차수</c>)은 같은 건을 여러 줄로 다시 내므로, 한 권에 함께 실으면 받는 쪽이 어느
+    /// 장을 세어야 하는지 헷갈린다.</para>
     ///
     /// <para>차례는 <b>흐름 그대로</b> — 통합 다음에 접수 → 공고 → 계약이다.</para>
     /// </summary>
     public static IReadOnlyList<string> Exported =>
     [
-        "v_통합_v2",
-        "v_접수_v1", "v_접수품목_v1",
-        "v_공고_v1", "v_공고품목_v1",
-        "v_계약_v1", "v_품목_v1",
-        "v_ERP원천_v1", "v_계약업체_v1", "v_ERP접수_v1",
+        "v_통합",
+        "v_접수", "v_접수품목",
+        "v_공고", "v_공고품목",
+        "v_계약", "v_계약품목",
+        "v_ERP원천", "v_계약업체", "v_ERP접수",
     ];
 
     /// <summary>
-    /// 시트·화면에 쓸 짧은 이름. <c>v_접수품목_v1</c> → <c>접수품목</c>.
-    /// <b>판을 떼는 규칙을 여기 하나에만 둔다</b> — 엑셀과 명령줄이 같은 이름을 불러야 한다.
+    /// 시트·화면에 쓸 짧은 이름. <c>v_접수품목</c> → <c>접수품목</c>.
+    /// <b>머리를 떼는 규칙을 여기 하나에만 둔다</b> — 엑셀과 명령줄이 같은 이름을 불러야 한다.
     /// </summary>
-    public static string SheetName(string view)
-    {
-        var name = view.StartsWith("v_", StringComparison.Ordinal) ? view[2..] : view;
-        var mark = name.LastIndexOf("_v", StringComparison.Ordinal);
-
-        return mark > 0 && name[(mark + 2)..].All(char.IsAsciiDigit) ? name[..mark] : name;
-    }
+    public static string SheetName(string view) =>
+        view.StartsWith("v_", StringComparison.Ordinal) ? view[2..] : view;
 
     /// <summary>
     /// 이 뷰의 줄 하나는 무엇인가. 덮개와 사람 열이 어느 표에 담길지가 여기서 갈린다.
     ///
     /// <para>다리가 쓰던 <c>view.Contains("공고") ? notice : contract</c> 는 접수가 들어오는
-    /// 순간 틀린다 — <c>v_접수_v1</c> 이 계약으로 읽혀 고친 값이 엉뚱한 표에 담긴다.
-    /// <b>접수를 먼저 본다</b>: 통합(v2)은 셋을 다 이름에 담지 않으므로 계약으로 떨어진다.</para>
+    /// 순간 틀린다 — <c>v_접수</c> 가 계약으로 읽혀 고친 값이 엉뚱한 표에 담긴다.
+    /// <b>접수를 먼저 본다</b>: 통합은 셋을 다 이름에 담지 않으므로 계약으로 떨어진다.</para>
     ///
-    /// <para><b>계획을 맨 앞에 본다.</b> <c>v_계획_v1</c> 은 접수도 공고도 아니라 그대로 두면
+    /// <para><b>계획을 맨 앞에 본다.</b> <c>v_계획</c> 은 접수도 공고도 아니라 그대로 두면
     /// 계약으로 떨어지는데, 그러면 계획 뷰의 모든 열이 <b>고칠 수 있는 것</b>으로 잡혀 덮개가
     /// 아무도 읽지 않는 자리(계약번호가 아닌 키)에 걸린다. <c>plan</c> 은 개체가 아니라
     /// <c>field_override</c>·<c>user_column</c> 의 <c>entity_type</c> 에 자리가 없다 —
     /// 이 이름은 "고칠 것이 없다" 를 뜻한다.</para>
     /// </summary>
     /// <remarks>
-    /// <para><c>v_통합_v3</c> 은 <b>이름 규칙으로 표현되지 않아</b> 따로 적는다. 줄 하나가
+    /// <para><c>v_통합차수</c> 는 <b>이름 규칙으로 표현되지 않아</b> 따로 적는다. 줄 하나가
     /// 공고 문서 한 장인데 이름에 「공고」가 없어 그대로 두면 계약으로 떨어지고, 그러면 고친
     /// 값이 <c>contract</c> 자리에 담겨 <b>아무도 읽지 않는 곳</b>에 걸린다 — 위 주석이
-    /// <c>v_접수_v1</c> 에 대해 경고하던 바로 그 실패다.</para>
+    /// <c>v_접수</c> 에 대해 경고하던 바로 그 실패다.</para>
     /// </remarks>
     public static string EntityTypeOf(string view) =>
-        view == "v_통합_v3" ? "notice"
+        view == "v_통합차수" ? "notice"
         : view.Contains("계획", StringComparison.Ordinal) ? "plan"
         : view.Contains("접수", StringComparison.Ordinal) ? "request"
         : view.Contains("공고", StringComparison.Ordinal) ? "notice"
@@ -128,7 +122,7 @@ public static class Views
     ];
 
     /// <summary>
-    /// <c>v_통합_v1</c> 이 <c>v_공고_v1</c> 에서 붙여 오는 열.
+    /// <c>v_통합</c> 이 <c>v_공고</c> 에서 붙여 오는 열.
     ///
     /// <para>통합의 줄 하나는 <b>계약</b>이라 줄 키가 계약번호다. 이 열들은 거기 이어진
     /// <b>다른 레코드</b>의 것이어서 그 키로는 주소가 잡히지 않는다 — 통합 시트에서는 잠그고,
@@ -142,7 +136,7 @@ public static class Views
     ];
 
     /// <summary>
-    /// <c>v_통합_v2</c> 가 <c>v_접수_v1</c> 에서 붙여 오는 열.
+    /// <c>v_통합</c> 이 <c>v_접수</c> 에서 붙여 오는 열.
     /// <see cref="UnifiedNoticeColumns"/> 와 같은 까닭으로 통합에서는 잠근다 —
     /// 줄 키가 계약번호라 <b>이어진 다른 레코드</b>의 칸에는 주소가 잡히지 않는다.
     /// </summary>
@@ -153,16 +147,16 @@ public static class Views
     ];
 
     /// <summary>
-    /// <c>v_계약_v1</c> 이 내는 열 차례(사람이 세운 열 앞까지).
+    /// <c>v_계약</c> 이 내는 열 차례(사람이 세운 열 앞까지).
     ///
-    /// <para><b>이름이 한 벌 더 필요한 까닭.</b> <c>v_통합_v2</c> 는 계약이 아직 없는 줄도 내므로
+    /// <para><b>이름이 한 벌 더 필요한 까닭.</b> <c>v_통합</c> 은 계약이 아직 없는 줄도 내므로
     /// 계약 뷰를 <c>k.*</c> 로 통째로 받을 수 없다 — LEFT JOIN 이 NULL 을 내는데 계약면의 빈
     /// 값은 빈 문자열이라(받는 쪽의 빈 값 경고가 그것에 걸려 있다), 열마다 감싸려면 이름을
     /// 알아야 한다. SQL 에는 "모든 열을 COALESCE" 라고 적을 말이 없다.</para>
     ///
     /// <para>두 벌이 되면 한쪽이 조용히 늙는다. 계약 뷰에 열을 더하고 여기를 빠뜨리면
     /// <b>통합에서 그 열만 사라지는데</b> 아무것도 실패하지 않는다 — 그래서
-    /// <c>DatasetContractTests</c> 가 이 목록과 실제 <c>v_계약_v1</c> 이 같은지 본다.</para>
+    /// <c>DatasetContractTests</c> 가 이 목록과 실제 <c>v_계약</c> 이 같은지 본다.</para>
     /// </summary>
     public static IReadOnlyList<string> ContractColumns =>
     [
@@ -173,6 +167,21 @@ public static class Views
         "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
         "수요기관", "검사기관", "검수기관",
         "계약상대자", "대표자", "사업자등록번호", "상대자주소", "상대자전화", "상대자팩스",
+    ];
+
+    /// <summary>
+    /// 판을 붙여 부르던 옛 이름(ADR-034 전). <see cref="Definitions"/> 가 맨 앞에서 모두 치운다.
+    ///
+    /// <para>차례는 <b>얹힌 것부터</b>다 — 통합·계획이 공고·계약·접수를 가리키므로 먼저 간다.
+    /// 지금 이름과 겹치는 것이 없어야 한다: 겹치면 막 지은 뷰를 치운다.</para>
+    /// </summary>
+    public static IReadOnlyList<string> LegacyNames =>
+    [
+        "v_통합_v3", "v_계획_v1", "v_통합_v2", "v_통합_v1",
+        "v_공고차수_v1", "v_계약차수_v1",
+        "v_공고품목_v1", "v_품목_v1", "v_접수품목_v1",
+        "v_공고_v1", "v_계약_v1", "v_접수_v1",
+        "v_ERP원천_v1", "v_계약업체_v1", "v_ERP접수_v1",
     ];
 
     /// <summary>빈 값은 NULL 이 아니라 빈 문자열로 낸다 — 받는 쪽의 빈 값 경고가 살아나게.</summary>
@@ -246,87 +255,70 @@ public static class Views
     }
 
     /// <summary>
-    /// 이 공고의 품목이 <b>세부품명 한 가지</b>인가. 세부품명과 세부품명번호를 함께 본다.
+    /// 이 공고의 <b>모든 품목 줄이 같은 값</b>일 때 그 값. 하나로 정할 수 없으면 빈 문자열이다.
     ///
-    /// <para>줄이 하나인가가 아니다 — 같은 물건을 여러 수요기관에 나눠 넣느라 줄만 늘어난
-    /// 공고가 흔하다(절단기 12줄, 승강판 2줄). 그런 건은 물건이 하나이므로 공고 뷰에 실을 수 있다.</para>
-    /// </summary>
-    private const string SoleItemKind = """
-        (SELECT COUNT(DISTINCT COALESCE(x.item_name,'') || char(31) || COALESCE(x.detail_item_number,''))
-         FROM notice_item x WHERE x.notice_base = n.notice_base AND x.seq = n.seq) = 1
-        """;
-
-    /// <summary>
-    /// 품목이 세부품명 한 가지일 때만 그 칸을 낸다. 아니면 빈 문자열이다.
+    /// <para><b>칸마다 따로 본다.</b> 세부품명이 둘인 공고도 수요기관·단위·납품기한은 줄마다
+    /// 같은 일이 흔하다. 세부품명이 한 가지인가로 칸 전부를 한꺼번에 비우면, 하나로 정해진
+    /// 값까지 버리게 된다 — 문서에는 빈칸이 찍히고 사람이 손으로 옮겨 적어야 했다.
+    /// 인도조건처럼 물건이 아니라 납품 방식에 달린 칸은 더 그렇다.</para>
     ///
-    /// <para><b>왜 첫 줄이 아닌가.</b> 첫 줄만 비치면 세부품명이 여럿인 공고에서 <b>첫 물건의
+    /// <para><b>왜 첫 줄이 아닌가.</b> 첫 줄만 비치면 줄마다 값이 다른 공고에서 <b>첫 물건의
     /// 값이 공고 전체의 값처럼</b> 보인다. 잘린 것은 눈에 띄지 않지만 틀린 것은 그대로 문서에
-    /// 찍힌다 — 없는 편이 낫다. 여러 가지인 공고는 <c>v_공고품목_v1</c> 이 전부 낸다.</para>
+    /// 찍힌다 — 없는 편이 낫다(<c>COUNT(DISTINCT)</c>). 갈리는 칸은 <c>v_공고품목</c> 이
+    /// 줄마다 낸다.</para>
     ///
-    /// <para>한 가지여도 <b>칸마다 값이 갈리면</b> 그 칸은 비운다(<c>COUNT(DISTINCT)</c>).
-    /// 같은 물건이라도 수요기관은 줄마다 다를 수 있어서다. 하나로 정할 수 없는 것을
-    /// 하나인 양 내지 않는다.</para>
-    /// </summary>
-    private static string SoleItem(string column) => $"""
-        (SELECT CASE WHEN COUNT(DISTINCT {column}) = 1 THEN MIN({column}) END
-         FROM notice_item i
-         WHERE i.notice_base = n.notice_base AND i.seq = n.seq AND {SoleItemKind})
-        """;
-
-    /// <summary>
-    /// <b>모든 줄이 같은 값</b>일 때 그 값. <see cref="SoleItem"/> 과 달리 세부품명이 여럿이어도 된다.
-    ///
-    /// <para>인도조건처럼 물건이 아니라 <b>납품 방식</b>에 달린 칸이 그렇다. 세부품명이 여럿인
-    /// 공고도 줄마다 같은 인도조건을 적는 일이 흔한데, 물건 기준으로 비우면 하나로 정해진 값을
-    /// 버리게 된다. 줄마다 갈리면 여전히 비운다.</para>
+    /// <para><b>빈 줄도 한 값으로 센다.</b> <c>COUNT(DISTINCT)</c> 는 NULL 을 세지 않아, 한 줄만
+    /// 수요기관을 적고 나머지가 비었으면 그 한 줄의 값이 공고 전체의 값처럼 찍혔다. 빈
+    /// 문자열과 NULL 을 같은 빈 값으로 접어(<c>COALESCE</c>) 센다 — 모든 줄이 같은 값을 적었을
+    /// 때만 싣는다.</para>
     /// </summary>
     private static string UniformItem(string column) => $"""
-        (SELECT CASE WHEN COUNT(DISTINCT {column}) = 1 THEN MIN({column}) END
+        (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM notice_item i
          WHERE i.notice_base = n.notice_base AND i.seq = n.seq)
         """;
 
     /// <summary>
-    /// 품목이 세부품명 한 가지일 때 그 <b>수량을 모두 더한다</b>.
+    /// 모든 줄의 <b>수량을 더한다</b> — 단, 줄마다 <b>단위가 같을 때만</b>.
     ///
-    /// <para>줄이 나뉜 것은 받는 곳이 여럿이라서지 물건이 여럿이라서가 아니다. 승강판 1대 + 2대는
-    /// 3대다 — 첫 줄만 보면 1대가 되어 계약 수량과 어긋난다.</para>
+    /// <para>줄이 나뉜 것은 받는 곳이 여럿이라서인 일이 많다. 승강판 1대 + 2대는 3대다 —
+    /// 첫 줄만 보면 1대가 되어 계약 수량과 어긋난다.</para>
+    ///
+    /// <para><b>단위가 같아야 더한 수가 뜻을 갖는다.</b> 세부품명이 달라도 모두 「대」 면
+    /// 합은 몇 대인지를 말하지만, 「대」 와 「식」 을 더한 수는 아무것도 말하지 않으면서
+    /// 문서에는 그럴듯하게 찍힌다. 단위가 갈리면 비운다(<see cref="UniformItem"/> 의 까닭).</para>
+    ///
+    /// <para><b>수량이 빈 줄이 있으면 더하지 않는다.</b> <c>SUM</c> 은 NULL 을 건너뛰어 5 와 빈
+    /// 칸의 합을 5 로 낸다 — 모르는 수량을 0 으로 친 합이 계약 수량처럼 찍힌다.</para>
     /// </summary>
-    private static string SoleQuantity() => $"""
-        (SELECT CAST(SUM(i.quantity) AS TEXT) FROM notice_item i
-         WHERE i.notice_base = n.notice_base AND i.seq = n.seq AND {SoleItemKind})
+    private static string UniformQuantity() => """
+        (SELECT CASE WHEN COUNT(DISTINCT COALESCE(i.unit,'')) = 1
+                   AND COUNT(NULLIF(i.quantity,'')) = COUNT(*)
+              THEN CAST(SUM(i.quantity) AS TEXT) END
+         FROM notice_item i
+         WHERE i.notice_base = n.notice_base AND i.seq = n.seq)
         """;
 
     /// <summary>
-    /// <see cref="SoleItemKind"/> 의 접수판.
+    /// <see cref="UniformItem"/> 의 접수판.
     ///
     /// <para><b>몸통을 함께 쓰지 않는다.</b> 저쪽은 <c>notice_item</c> 에 못 박힌 조각이라
-    /// 표 이름을 인자로 빼려면 공고 뷰가 함께 흔들린다 — 계약면 다섯의 열은 한 글자도
+    /// 표 이름을 인자로 빼려면 공고 뷰가 함께 흔들린다 — 계약면의 열은 한 글자도
     /// 건드리지 않기로 한 이상, 닮았다는 이유로 묶는 것이 위험을 더 만든다. 나란히 둔다.</para>
     /// </summary>
-    private const string SoleRequestItemKind = """
-        (SELECT COUNT(DISTINCT COALESCE(x.item_name,'') || char(31) || COALESCE(x.detail_item_number,''))
-         FROM request_item x WHERE x.request_base = r.request_base AND x.seq = r.seq) = 1
-        """;
-
-    /// <inheritdoc cref="SoleItem"/>
-    private static string SoleRequestItem(string column) => $"""
-        (SELECT CASE WHEN COUNT(DISTINCT {column}) = 1 THEN MIN({column}) END
-         FROM request_item i
-         WHERE i.request_base = r.request_base AND i.seq = r.seq AND {SoleRequestItemKind})
-        """;
-
-    /// <inheritdoc cref="UniformItem"/>
     private static string UniformRequestItem(string column) => $"""
-        (SELECT CASE WHEN COUNT(DISTINCT {column}) = 1 THEN MIN({column}) END
+        (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM request_item i
          WHERE i.request_base = r.request_base AND i.seq = r.seq)
         """;
 
-    /// <inheritdoc cref="SoleQuantity"/>
-    private static string SoleRequestQuantity() => $"""
-        (SELECT CAST(SUM(i.quantity) AS TEXT) FROM request_item i
-         WHERE i.request_base = r.request_base AND i.seq = r.seq AND {SoleRequestItemKind})
+    /// <inheritdoc cref="UniformQuantity"/>
+    private static string UniformRequestQuantity() => """
+        (SELECT CASE WHEN COUNT(DISTINCT COALESCE(i.unit,'')) = 1
+                   AND COUNT(NULLIF(i.quantity,'')) = COUNT(*)
+              THEN CAST(SUM(i.quantity) AS TEXT) END
+         FROM request_item i
+         WHERE i.request_base = r.request_base AND i.seq = r.seq)
         """;
 
     /// <summary>
@@ -360,11 +352,12 @@ public static class Views
         """;
 
     /// <summary>
-    /// 담당자가 <b>한 사람일 때만</b> 그 칸을 낸다. <see cref="SoleItem"/> 과 같은 까닭이다 —
-    /// 수요기관이 여럿인 공고에서 첫 사람을 공고의 담당자인 양 낼 수는 없다.
+    /// 담당자가 <b>한 사람일 때만</b> 그 칸을 낸다. <see cref="UniformItem"/> 과 같은 까닭이다 —
+    /// 수요기관이 여럿인 공고에서 첫 사람을 공고의 담당자인 양 낼 수는 없다. 칸이 빈 사람도
+    /// 한 사람으로 센다 — 전화를 적은 사람 하나와 비운 사람 하나를 한 사람으로 볼 수 없다.
     /// </summary>
     private static string SoleContact(string column) => $"""
-        (SELECT CASE WHEN COUNT(DISTINCT {column}) = 1 THEN MIN({column}) END
+        (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM notice_officer_contact t
          WHERE t.notice_base = n.notice_base AND t.seq = n.seq)
         """;
@@ -406,12 +399,56 @@ public static class Views
         END
         """;
 
-    /// <summary>하자담보기간은 개월로 담고 해로 낸다. 양식이 "2년" 으로 적기 때문이다.</summary>
-    private const string WarrantyYears = """
-        CASE WHEN n.warranty_text IS NOT NULL THEN n.warranty_text
-             WHEN n.warranty_years IS NOT NULL THEN n.warranty_years || '년 ' || coalesce(n.warranty_month_part,'0') || '개월'
+    /// <summary>
+    /// 하자담보기간을 <b>한 가지 모양</b>으로 낸다. 받는 것은 총 개월 수다.
+    ///
+    /// <list type="bullet">
+    /// <item>해로 떨어지면 해만 — <c>36</c> → <c>3년</c>.</item>
+    /// <item>한 해를 넘고 남으면 둘 다 — <c>18</c> → <c>1년 6개월</c>.</item>
+    /// <item>한 해가 안 되면 달만 — <c>6</c> → <c>6개월</c>.</item>
+    /// <item>없거나 0 이하면 빈 문자열.</item>
+    /// </list>
+    ///
+    /// <para>자리마다 따로 적던 동안 모양이 셋으로 갈렸다 — 해·달을 따로 받은 자리는
+    /// <c>2년 0개월</c>, 개월만 받은 자리는 <b>나눗셈으로 달을 버려</b> 18개월이 <c>1년</c> 으로
+    /// 찍혔다. 양식이 <c>2년</c> 으로 적으므로 쓸데없는 <c>0개월</c> 은 붙이지 않는다.</para>
+    /// </summary>
+    private static string WarrantyText(string totalMonths) => $"""
+        (SELECT CASE WHEN t IS NULL OR t <= 0 THEN ''
+                     WHEN t % 12 = 0 THEN (t / 12) || '년'
+                     WHEN t >= 12 THEN (t / 12) || '년 ' || (t % 12) || '개월'
+                     ELSE t || '개월' END
+         FROM (SELECT CAST({totalMonths} AS INTEGER) AS t))
+        """;
+
+    /// <summary>
+    /// 화면이 문장으로 적어 보낸 하자담보기간(<c>2 년 0 개월</c>)을 <see cref="WarrantyText"/>
+    /// 과 같은 모양으로 다듬는다. 셈하지 않고 <b>글자만</b> 고친다 — 적힌 그대로 담는다는
+    /// 규율(ADR-016)은 지키되, 같은 기간이 자리마다 다른 모양으로 찍히지 않게 한다.
+    ///
+    /// <para>띄어쓰기를 걷고, <c>년</c> 뒤의 <c>0개월</c> 과 앞의 <c>0년</c> 을 떼고,
+    /// 해와 달이 모두 남으면 사이를 한 칸 띄운다 — <c>2년0개월</c> → <c>2년</c>,
+    /// <c>0년6개월</c> → <c>6개월</c>, <c>0년0개월</c> → 빈 문자열, <c>2년6개월</c> → <c>2년 6개월</c>.</para>
+    /// </summary>
+    private static string WarrantyPhrase(string column) => $"""
+        (SELECT CASE WHEN c GLOB '*년[0-9]*개월'
+                     THEN substr(c, 1, instr(c, '년')) || ' ' || substr(c, instr(c, '년') + 1)
+                     ELSE c END
+         FROM (SELECT CASE WHEN b GLOB '0년*' THEN substr(b, 3) ELSE b END AS c
+               FROM (SELECT CASE WHEN a GLOB '*년0개월' THEN substr(a, 1, length(a) - 3) ELSE a END AS b
+                     FROM (SELECT replace({column}, ' ', '') AS a))))
+        """;
+
+    /// <summary>
+    /// 공고의 하자담보기간. 화면이 적은 문장을 먼저, 해·달을 따로 받은 값을 다음으로,
+    /// 개월 수 하나만 받은 값을 마지막으로 본다. 모양은 모두 <see cref="WarrantyText"/> 를 따른다.
+    /// </summary>
+    private static readonly string WarrantyYears = $"""
+        CASE WHEN n.warranty_text IS NOT NULL THEN {WarrantyPhrase("n.warranty_text")}
+             WHEN n.warranty_years IS NOT NULL
+                 THEN {WarrantyText("CAST(n.warranty_years AS INTEGER) * 12 + CAST(coalesce(n.warranty_month_part,'0') AS INTEGER)")}
              WHEN n.warranty_months IS NULL THEN ''
-             ELSE CAST(n.warranty_months / 12 AS TEXT) || '년' END
+             ELSE {WarrantyText("n.warranty_months")} END
         """;
 
     /// <summary>공고 일정에서 한 단계의 시각을 꺼낸다.</summary>
@@ -474,7 +511,7 @@ public static class Views
         """;
 
     /// <summary>
-    /// <c>v_계획_v1</c> 이 쓰는 미리 접은 표들. <b>줄이 갈라지지 않게 하는 것이 전부다.</b>
+    /// <c>v_계획</c> 이 쓰는 미리 접은 표들. <b>줄이 갈라지지 않게 하는 것이 전부다.</b>
     ///
     /// <para>계획 뷰의 줄 하나는 <c>plan</c> 한 행이어야 한다 — 갈라지면 계획 건수가 부풀어
     /// 세어지고, 분모로 쓰려고 세운 뷰가 분모 노릇을 못 한다. 그래서 이어 오는 것은 모두
@@ -525,7 +562,7 @@ public static class Views
     /// <summary>
     /// 계약이 <b>하나일 때만</b> 그 칸을 낸다. 아니면 빈 문자열이다.
     ///
-    /// <para><see cref="SoleItem"/> 의 규율 그대로다 — 한 공고에 계약이 여럿 달릴 수 있는데
+    /// <para><see cref="UniformItem"/> 의 규율 그대로다 — 한 공고에 계약이 여럿 달릴 수 있는데
     /// (분할 낙찰·수요기관 복수) 그중 하나를 계획 한 줄의 계약인 양 내면, 잘린 것은 눈에
     /// 띄지 않지만 틀린 것은 그대로 문서에 찍힌다. 몇 건인지는 <c>계약건수</c> 가 낸다.</para>
     /// </summary>
@@ -541,8 +578,8 @@ public static class Views
     /// <para>붙는 자리는 <b>계열</b>이다. 차수로 이으면 변경계약이 들어온 순간 값이 뷰에서
     /// 사라진다 — 지워지지 않는 것과 보이는 것은 다른 문제이고, 둘 다 지켜야 한다(ADR-012).</para>
     ///
-    /// <para>계약 쪽 열은 <c>v_계약_v1</c> 에 한 번만 붙인다. <c>v_통합_v1</c> 은 그 뷰를
-    /// <c>k.*</c> 로 통째로 받으므로 저쪽에서 또 붙이면 <b>같은 이름의 열이 둘</b>이 된다.</para>
+    /// <para>계약 쪽 열은 <c>v_계약</c> 에 한 번만 붙인다. <c>v_통합</c> 은 그 뷰에서
+    /// 사람 열까지 이름으로 받아 오므로 저쪽에서 또 붙이면 <b>같은 이름의 열이 둘</b>이 된다.</para>
     /// </summary>
     private static string UserColumn(string entityType, string keyExpression, string fieldName)
     {
@@ -572,8 +609,72 @@ public static class Views
     /// 사용자 열 이름과 달리 걸러 낼 것이 없다.</para>
     /// </summary>
     private static string Face(
-        string entityType, string baseColumn, string seqColumn, string name, string expression) =>
-        $"{Faced(entityType, baseColumn, seqColumn, name, expression)} AS \"{name}\"";
+        string entityType, string baseColumn, string seqColumn, string name, string expression)
+    {
+        _faces?.Add((entityType, baseColumn, name, expression));
+        return $"{Faced(entityType, baseColumn, seqColumn, name, expression)} AS \"{name}\"";
+    }
+
+    /// <summary><see cref="FaceReferences"/> 가 뷰를 지어 보는 동안만 선다 — 덮개로 감싼 열마다 그 재료를 적는다.</summary>
+    [ThreadStatic] private static List<(string Entity, string BaseColumn, string Name, string Expression)>? _faces;
+
+    private static readonly Lazy<IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>>> FaceSources =
+        new(ReadFaceSources);
+
+    /// <summary>
+    /// 면 열이 본 표의 어느 열에서 오는가 — <c>계약금액 → [contract.amount]</c>. <b>열 정의에서 끌어낸다</b>: 덮개로 감싼
+    /// 열(<see cref="Face"/>)마다 그 표기식이 가리키는 <c>별칭.열</c> 을 모으고, 별칭은 바깥 표(<c>n</c>·<c>c</c>·<c>r</c>)와
+    /// 식 안의 <c>FROM</c>·<c>JOIN</c> 으로 푼다. 잇는 조건(<c>i.seq = n.seq</c>·<c>s.name LIKE …</c>)과 덮개 표는 재료가
+    /// 아니라 걷는다. 손으로 적은 대응표를 두지 않으므로 열을 더하면 저절로 따라온다.
+    ///
+    /// <para>지금 보는 화면이 그 열을 화면의 어느 칸이 채우는지 잇는 데 쓴다(ADR-036). 풀리지 않는 별칭(바깥의
+    /// <c>LEFT JOIN</c>)은 재료로 세지 않는다 — 끌어낼 수 없는 열은 대응이 없다. 키 열은 감싸지 않아 여기 없다.</para>
+    /// </summary>
+    /// <param name="entityType"><c>request</c>·<c>notice</c>·<c>contract</c>.</param>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> FaceReferences(string entityType) =>
+        FaceSources.Value.TryGetValue(entityType, out var found) ? found : new Dictionary<string, IReadOnlyList<string>>();
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>> ReadFaceSources()
+    {
+        var faces = new List<(string Entity, string BaseColumn, string Name, string Expression)>();
+        _faces = faces;
+        try { _ = Definitions([]); }
+        finally { _faces = null; }
+
+        var declared = new System.Text.RegularExpressions.Regex(@"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)\s+(?!ON\b|WHERE\b)([a-z_][a-z0-9_]*)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // 잇는 조건 — 재료가 아니라 줄을 고르는 것.
+        var joins = new System.Text.RegularExpressions.Regex(
+            @"\b[a-z_]\w*\.[a-z_]\w*\s*=\s*[a-z_]\w*\.[a-z_]\w*|\b[a-z_]\w*\.[a-z_]\w*\s+LIKE\s+'[^']*'",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var reference = new System.Text.RegularExpressions.Regex(@"\b([a-z_]\w*)\.([a-z_][a-z0-9_]*)\b");
+        var bare = new System.Text.RegularExpressions.Regex(@"\bSELECT\s+([a-z_][a-z0-9_]*)\s+FROM\s+([a-z_][a-z0-9_]*)\b");
+        var result = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<string>>>(StringComparer.Ordinal);
+        foreach (var entity in faces.GroupBy(f => f.Entity))
+        {
+            var columns = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            foreach (var face in entity)
+            {
+                if (columns.ContainsKey(face.Name)) continue; // 차수 뷰가 같은 열 한 벌을 다시 짓는다.
+                var aliases = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [face.BaseColumn.Split('.')[0]] = entity.Key,
+                };
+                foreach (System.Text.RegularExpressions.Match m in declared.Matches(face.Expression))
+                    aliases[m.Groups[2].Value] = m.Groups[1].Value;
+                var body = joins.Replace(face.Expression, " ");
+                columns[face.Name] = reference.Matches(body)
+                    .Select(m => aliases.TryGetValue(m.Groups[1].Value, out var table) ? table + "." + m.Groups[2].Value : null)
+                    // 별칭 없이 고르는 것(<see cref="Step"/> 의 <c>SELECT starts_at FROM notice_schedule s</c>).
+                    .Concat(bare.Matches(body).Select(m => m.Groups[2].Value + "." + m.Groups[1].Value))
+                    .OfType<string>()
+                    .Where(r => !r.StartsWith("field_override.", StringComparison.Ordinal))
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            }
+            result[entity.Key] = columns;
+        }
+        return result;
+    }
 
     /// <summary>
     /// <see cref="Face"/> 의 값만 — 이름을 붙이지 않는다. 다른 열이 <b>사람이 고친 뒤의</b>
@@ -606,10 +707,10 @@ public static class Views
         Face("contract", "c.contract_base", "c.seq", name, expression);
 
     /// <summary>
-    /// 공고 뷰가 내는 열 한 벌. <c>v_공고_v1</c> 과 <c>v_공고차수_v1</c> 이 <b>같이 쓴다</b>.
+    /// 공고 뷰가 내는 열 한 벌. <c>v_공고</c> 와 <c>v_공고차수</c> 가 <b>같이 쓴다</b>.
     ///
-    /// <para>두 뷰의 차이는 <c>FROM</c> 절 하나뿐이다 — <c>v_공고_v1</c> 은
-    /// <see cref="LatestNotice"/> 로 최신 차수만 세우고, <c>v_공고차수_v1</c> 은 문서 한 장마다
+    /// <para>두 뷰의 차이는 <c>FROM</c> 절 하나뿐이다 — <c>v_공고</c> 는
+    /// <see cref="LatestNotice"/> 로 최신 차수만 세우고, <c>v_공고차수</c> 는 문서 한 장마다
     /// 줄을 세운다. 열은 <b>한 글자도 다르지 않아야</b> 하므로 두 벌로 적지 않는다.
     /// <see cref="ContractColumns"/> 가 이미 그 값을 치르고 있다 — 두 벌이면 한쪽에만 열을
     /// 더해도 아무것도 실패하지 않고 저쪽에서 그 열만 사라진다.</para>
@@ -648,14 +749,15 @@ public static class Views
             {N("입찰마감일시", DateText(Step("ends_at", "입찰서제출")))},
             {N("등록마감일시", DateText(Step("ends_at", "자격등록")))},
 
-            -- 세부품명이 한 가지인 공고만 채운다. 여럿이면 비우고 v_공고품목_v1 이 낸다.
-            {N("수요기관", Text(SoleItem("i.demand_agency")))},
-            {N("세부품명", Text(SoleItem("i.item_name")))},
-            {N("세부품명번호", Text(SoleItem("i.detail_item_number")))},
-            {N("수량", Text(SoleQuantity()))},
-            {N("단위", Text(SoleItem("i.unit")))},
-            {N("납품기한", Text(SoleItem(DeliveryDeadline("i.delivery_due", "i.delivery_days"))))},
-            -- 인도조건은 물건이 아니라 납품 방식이라 세부품명이 여럿이어도 줄마다 같으면 싣는다.
+            -- 칸마다 모든 품목 줄이 같으면 싣는다. 갈리면 비우고 v_공고품목 이 줄마다 낸다.
+            -- 수량은 더하되 단위가 모두 같을 때만 — 단위가 갈린 합은 뜻이 없다.
+            {N("수요기관", Text(UniformItem("i.demand_agency")))},
+            {N("세부품명", Text(UniformItem("i.item_name")))},
+            {N("세부품명번호", Text(UniformItem("i.detail_item_number")))},
+            {N("수량", Text(UniformQuantity()))},
+            {N("단위", Text(UniformItem("i.unit")))},
+            {N("납품기한", Text(UniformItem(DeliveryDeadline("i.delivery_due", "i.delivery_days"))))},
+            -- 인도조건도 같은 규칙이다. 물건이 아니라 납품 방식이라 줄마다 같은 일이 가장 흔하다.
             {N("인도조건", Text(UniformItem("i.delivery_terms")))},
 
             -- 수요기관 담당자. 공고기관 쪽 공고담당자와 다른 사람이다.
@@ -696,7 +798,7 @@ public static class Views
         """;
 
     /// <summary>
-    /// 계약 뷰가 내는 열 한 벌. <c>v_계약_v1</c> 과 <c>v_계약차수_v1</c> 이 <b>같이 쓴다</b> —
+    /// 계약 뷰가 내는 열 한 벌. <c>v_계약</c> 과 <c>v_계약차수</c> 가 <b>같이 쓴다</b> —
     /// <see cref="공고열"/> 와 같은 까닭이다.
     /// </summary>
     /// <param name="contractColumns">사람이 세운 계약 열. 뒤에 그대로 이어 붙는다.</param>
@@ -716,7 +818,7 @@ public static class Views
             {C("수수료", Money("c.fee"))},
             {C("지체상금률", Number("c.delay_penalty_rate"))},
             {C("하자보수보증금률", Number("c.warranty_bond_rate"))},
-            {C("하자담보책임기간", Text("CASE WHEN c.warranty_years IS NOT NULL THEN c.warranty_years || '년 ' || coalesce(c.warranty_months,'0') || '개월' ELSE c.warranty_period END"))},
+            {C("하자담보책임기간", Text($"CASE WHEN c.warranty_years IS NOT NULL THEN {WarrantyText("CAST(c.warranty_years AS INTEGER) * 12 + CAST(coalesce(c.warranty_months,'0') AS INTEGER)")} ELSE c.warranty_period END"))},
             {C("계약기간", Text("c.contract_period"))},
             {C("납품기한", DateText("c.delivery_due"))},
             {C("인도조건", Text("c.delivery_terms"))},
@@ -748,8 +850,8 @@ public static class Views
         var noticeColumns = UserColumns(columns, "notice", "n.notice_base");
         var requestColumns = UserColumns(columns, "request", "r.request_base");
 
-        // 통합 v2 가 계약 뷰에서 받아 오는 열. 사람이 세운 계약 열도 함께 온다 —
-        // v_계약_v1 이 그 열까지 낸 뒤이므로 이름만 이어 붙이면 된다.
+        // v_통합 이 계약 뷰에서 받아 오는 열. 사람이 세운 계약 열도 함께 온다 —
+        // v_계약 이 그 열까지 낸 뒤이므로 이름만 이어 붙이면 된다.
         var unifiedContract = string.Join(",\n            ",
             ContractColumns
                 .Concat(columns.Where(c => c.EntityType == "contract").Select(c => c.FieldName))
@@ -762,24 +864,29 @@ public static class Views
 
         return
     [
-        // 통합은 계약 뷰 위에 얹히므로, 계약을 다시 짓기 전에 먼저 치운다. v2 는 접수까지
+        // 옛 이름(ADR-034 전)을 모두 치운다. 판을 붙여 부르던 뷰는 이름을 제자리에서 바꾸며
+        // 나란히 남기지 않기로 했다 — 갱신된 DB 에 남으면 받는 쪽이 그것을 시트로 늘어놓고,
+        // 표가 바뀌는 순간 <b>깨진 뷰</b>가 된다. 스키마 판과 상관없이 열 때마다 치운다(뷰를
+        // 짓는 이 뭉치는 판올림이 없어도 돈다). 차례는 아래와 같은 까닭으로 얹힌 것부터다.
+        .. LegacyNames.Select(name => $"DROP VIEW IF EXISTS {name};"),
+
+        // 통합은 계약 뷰 위에 얹히므로, 계약을 다시 짓기 전에 먼저 치운다. 통합은 접수까지
         // 얹으므로 접수 뷰보다도 앞서 치워야 한다 — 가리키는 뷰가 살아 있으면 SQLite 가 막는다.
         // 계획은 접수·공고·계약 셋을 다 가리키므로 그 셋보다 앞선다.
         //
-        // v3 이 <b>맨 앞</b>이다. 계약·접수에 더해 v_공고차수_v1 까지 얹혀 이 뭉치에서 가장
+        // 통합차수가 <b>맨 앞</b>이다. 계약·접수에 더해 v_공고차수까지 얹혀 이 뭉치에서 가장
         // 위에 있다. 뷰 하나가 실패하면 RefreshViews 가 던져 <b>앱이 아예 뜨지 않는다</b>.
-        "DROP VIEW IF EXISTS v_통합_v3;",
-        "DROP VIEW IF EXISTS v_계획_v1;",
-        "DROP VIEW IF EXISTS v_통합_v2;",
-        "DROP VIEW IF EXISTS v_통합_v1;",
+        "DROP VIEW IF EXISTS v_통합차수;",
+        "DROP VIEW IF EXISTS v_계획;",
+        "DROP VIEW IF EXISTS v_통합;",
 
         // 짓다 만 중간 뷰의 잔재. 예전 DB 에 남아 있으면 치운다.
         "DROP VIEW IF EXISTS v_계약_기본;",
         "DROP VIEW IF EXISTS _계약_기본;",
 
         $"""
-        DROP VIEW IF EXISTS v_공고_v1;
-        CREATE VIEW v_공고_v1 AS
+        DROP VIEW IF EXISTS v_공고;
+        CREATE VIEW v_공고 AS
         SELECT
         {공고열(noticeColumns)}
         FROM notice n
@@ -788,28 +895,28 @@ public static class Views
 
         // ── 공고 차수 ────────────────────────────────────────────────
         //
-        // 줄 하나가 <b>공고 문서 한 장</b>이다. v_공고_v1 과 열이 한 글자도 다르지 않고
+        // 줄 하나가 <b>공고 문서 한 장</b>이다. v_공고 와 열이 한 글자도 다르지 않고
         // (같은 공고열 하나를 쓴다) LatestNotice 조인만 없다 — 최신 차수로 좁히지 않으므로
         // 취소공고도, 변경 전 차수도 제 줄로 선다.
         //
         // 「공고건」·「현행공고」는 여기서도 그 <b>건</b>의 것이다. 그래서 이 뷰는 "이 건에
         // 무엇 무엇이 있었고 지금 무엇이 서 있는가" 를 한 표로 낸다.
         //
-        // <b>읽기 전용이다</b>(Views.ReadOnly). Store.FaceView 가 공고 뷰를 v_공고_v1 하나로
+        // <b>읽기 전용이다</b>(Views.ReadOnly). Store.FaceView 가 공고 뷰를 v_공고 하나로
         // 알아, 옛 차수의 칸을 여기서 고치면 덮개의 original 을 찾지 못해 빈 문자열로 박힌다.
         $"""
-        DROP VIEW IF EXISTS v_공고차수_v1;
-        CREATE VIEW v_공고차수_v1 AS
+        DROP VIEW IF EXISTS v_공고차수;
+        CREATE VIEW v_공고차수 AS
         SELECT
         {공고열(noticeColumns)}
         FROM notice n;
         """,
 
-        // 공고 품목. v_품목_v1 이 계약에 대해 하는 것을 공고에 대해 한다 — 줄 하나가 품목 한 줄이다.
+        // 공고 품목. v_계약품목 이 계약에 대해 하는 것을 공고에 대해 한다 — 줄 하나가 품목 한 줄이다.
         // 수요기관이 여럿인 공고에서는 줄마다 수요기관이 다르므로, 그 기관의 담당자를 이름으로 이어 붙인다.
         $"""
-        DROP VIEW IF EXISTS v_공고품목_v1;
-        CREATE VIEW v_공고품목_v1 AS
+        DROP VIEW IF EXISTS v_공고품목;
+        CREATE VIEW v_공고품목 AS
         SELECT
             n.notice_base || '-' || n.seq         AS 입찰공고번호,
             {Text("n.title")}                     AS 공고명,
@@ -839,8 +946,8 @@ public static class Views
 
         $"""
         DROP VIEW IF EXISTS _계약_기본;
-        DROP VIEW IF EXISTS v_계약_v1;
-        CREATE VIEW v_계약_v1 AS
+        DROP VIEW IF EXISTS v_계약;
+        CREATE VIEW v_계약 AS
         SELECT
         {계약열(contractColumns)}
         FROM contract c
@@ -850,12 +957,12 @@ public static class Views
 
         // ── 계약 차수 ────────────────────────────────────────────────
         //
-        // 줄 하나가 <b>계약 문서 한 장</b>이다. v_계약_v1 과 열이 같고 LatestContract 만 없다 —
-        // 변경계약이 들어와도 앞차수가 제 줄로 남는다. v_공고차수_v1 과 같은 까닭으로
+        // 줄 하나가 <b>계약 문서 한 장</b>이다. v_계약 과 열이 같고 LatestContract 만 없다 —
+        // 변경계약이 들어와도 앞차수가 제 줄로 남는다. v_공고차수 와 같은 까닭으로
         // <b>읽기 전용</b>이다.
         $"""
-        DROP VIEW IF EXISTS v_계약차수_v1;
-        CREATE VIEW v_계약차수_v1 AS
+        DROP VIEW IF EXISTS v_계약차수;
+        CREATE VIEW v_계약차수 AS
         SELECT
         {계약열(contractColumns)}
         FROM contract c
@@ -863,8 +970,8 @@ public static class Views
         """,
 
         $"""
-        DROP VIEW IF EXISTS v_품목_v1;
-        CREATE VIEW v_품목_v1 AS
+        DROP VIEW IF EXISTS v_계약품목;
+        CREATE VIEW v_계약품목 AS
         SELECT
             c.contract_base || c.seq              AS 계약번호,
             {Text("c.title")}                     AS 계약건명,
@@ -889,8 +996,8 @@ public static class Views
         // 모든 열을 Face 로 감싼다: 새 열을 더할 때 그 자리도 함께 감싸지 않으면 그 칸만
         // 조용히 고칠 수 없게 된다(ADR-020).
         $"""
-        DROP VIEW IF EXISTS v_접수_v1;
-        CREATE VIEW v_접수_v1 AS
+        DROP VIEW IF EXISTS v_접수;
+        CREATE VIEW v_접수 AS
         SELECT
             -- 키 열은 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다.
             -- 이 두 이름은 대표조달요구번호·대표조달요구본번호에서 제자리로 바꿨다(ADR-027,
@@ -933,17 +1040,17 @@ public static class Views
             {R("기관담당자전화", Text("r.agency_phone"))},
             {R("기관담당자팩스", Text("r.agency_fax"))},
 
-            -- 세부품명이 한 가지인 접수만 채운다. 여럿이면 비우고 v_접수품목_v1 이 낸다.
-            -- v_공고_v1 의 규율을 그대로 따른다 — 하나로 정할 수 없는 것을 하나인 양 내지 않는다.
-            {R("세부품명", Text(SoleRequestItem("i.item_name")))},
-            {R("세부품명번호", Text(SoleRequestItem("i.detail_item_number")))},
-            {R("수량", Text(SoleRequestQuantity()))},
-            {R("단위", Text(SoleRequestItem("i.unit")))},
+            -- 칸마다 모든 품목 줄이 같으면 싣는다. 갈리면 비우고 v_접수품목 이 줄마다 낸다.
+            -- v_공고 의 규율을 그대로 따른다 — 하나로 정할 수 없는 것을 하나인 양 내지 않는다.
+            {R("세부품명", Text(UniformRequestItem("i.item_name")))},
+            {R("세부품명번호", Text(UniformRequestItem("i.detail_item_number")))},
+            {R("수량", Text(UniformRequestQuantity()))},
+            {R("단위", Text(UniformRequestItem("i.unit")))},
             {R("인도조건", Text(UniformRequestItem("i.delivery_terms")))},
-            {R("납품기한", Text(SoleRequestItem(RequestDeadline("i.delivery_due", "i.delivery_days"))))},
+            {R("납품기한", Text(UniformRequestItem(RequestDeadline("i.delivery_due", "i.delivery_days"))))},
             -- 재고번호도 같은 규칙이지만 세부품명 옆이 아니라 끝에 붙인다 — 계약면은
             -- 늘리기만 하는 자리라, 사이에 끼우면 뒤 열의 엑셀 자리가 한 칸씩 밀린다.
-            {R("재고번호", Text(SoleRequestItem("i.stock_number")))}{requestColumns}
+            {R("재고번호", Text(UniformRequestItem("i.stock_number")))}{requestColumns}
         FROM request r
         {LatestRequest};
         """,
@@ -952,8 +1059,8 @@ public static class Views
         // 「입찰공고번호」·「공고순번」은 request_item_link 에서 온다 — 어느 조달요구가 어느
         // 공고 품목이 되었는지, 수량·단가로 지은 짝의 결과다. 이어지지 않았으면 빈 문자열이다.
         $"""
-        DROP VIEW IF EXISTS v_접수품목_v1;
-        CREATE VIEW v_접수품목_v1 AS
+        DROP VIEW IF EXISTS v_접수품목;
+        CREATE VIEW v_접수품목 AS
         SELECT
             r.request_base || '-' || r.seq        AS 접수번호,
             {Text("r.title")}                     AS 요청명,
@@ -989,52 +1096,17 @@ public static class Views
               AND k.line_no = i.line_no;
         """,
 
-        // 조인 시트. 계약에 공고를 붙여 낸다. 옆의 공고·계약·품목이 쌓인 그대로를 내는 것과 달리
-        // 이쪽은 링크가 확정돼야 공고 열이 채워진다 — 역할이 달라서 둘 다 둔다.
-        //
-        // 한 공고에 계약이 여럿 달릴 수 있다(분할 낙찰·수요기관 복수). 그럴 때 같은 공고 열이
-        // 여러 줄에 반복되는데, 줄 하나가 계약 하나라는 약속이 지켜지므로 그게 옳은 모습이다.
-        //
-        // 계약은 언제나 공고 뒤에 오고, 둘을 잇는 것은 사람이 확정한 project_link 뿐이다
-        // (계약서에 공고번호가 찍히지 않는다). 링크 전에는 공고 열이 빈 문자열이다.
-        $"""
-        DROP VIEW IF EXISTS v_통합_v1;
-        CREATE VIEW v_통합_v1 AS
-        SELECT
-            k.*,
-            COALESCE(g.입찰공고번호, '')     AS 입찰공고번호,
-            COALESCE(g.공고명, '')           AS 공고명,
-            COALESCE(g.공고종류, '')         AS 공고종류,
-            COALESCE(g.게시일시, '')         AS 게시일시,
-            COALESCE(g.입찰방식, '')         AS 입찰방식,
-            COALESCE(g.낙찰방법, '')         AS 낙찰방법,
-            COALESCE(g.낙찰하한율, '')       AS 낙찰하한율,
-            COALESCE(g.사업예산, '')         AS 사업예산,
-            COALESCE(g.배정예산, '')         AS 배정예산,
-            COALESCE(g.추정가격, '')         AS 추정가격,
-            COALESCE(g.기초금액, '')         AS 기초금액,
-            COALESCE(g.개찰일시, '')         AS 개찰일시,
-            COALESCE(g.입찰개시일시, '')     AS 입찰개시일시,
-            COALESCE(g.입찰마감일시, '')     AS 입찰마감일시,
-            COALESCE(g.등록마감일시, '')     AS 등록마감일시,
-            COALESCE(g.공고담당자, '')       AS 공고담당자,
-            COALESCE(g.사전규격등록번호, '') AS 사전규격등록번호
-        FROM v_계약_v1 k
-        LEFT JOIN project_link l ON l.contract_base = k.계약본번호
-        -- 링크가 가리키는 것은 건이라 공고 한 장을 골라야 한다. 그 건의 <b>현행 공고</b>다 —
-        -- 재공고 건에서 취소된 원공고의 값이 계약 옆에 서지 않게(ADR-025 를 넓힌다).
-        LEFT JOIN v_공고_v1 g    ON g.공고본번호 = {건현행("l.notice_group", "현행.notice_base")};
-        """,
-
-        // v_통합_v1 위에 접수 아홉 열을 더한 것. v1 은 손대지 않고 나란히 세운다 —
-        // 열 이름은 소비자에 저장된 필드 연결의 열쇠라, 고치면 저쪽 설정이 조용히 끊긴다(ADR-014).
+        // 조인 시트. 조달 건 하나에 접수·공고·계약을 붙여 낸다. 옆의 접수·공고·계약 뷰가 쌓인
+        // 그대로를 내는 것과 달리 이쪽은 링크가 확정돼야 이어진 칸이 채워진다 — 역할이 달라서
+        // 둘 다 둔다. 계약과 공고를 잇는 것은 사람이 확정한 project_link 뿐이다(계약서에
+        // 공고번호가 찍히지 않는다). 링크 전에는 이어진 칸이 빈 문자열이다.
         //
         // 「수수료」는 계약 쪽에 이미 있어 「접수수수료」로 낸다. 같은 이름이 둘이면 SQLite 가
         // 오류 없이 뒤엣것을 「수수료:1」로 바꿔, 표가 이상해진 뒤에야 알게 된다.
         //
         // ── 줄 하나는 계약이 아니라 조달 건이다 ──────────────────────────
         //
-        // 예전에는 v_계약_v1 을 줄기로 세워 <b>계약이 있는 것만</b> 나왔다. 그래서 같은 자료를
+        // 예전에는 v_계약 을 줄기로 세워 <b>계약이 있는 것만</b> 나왔다. 그래서 같은 자료를
         // 구조 보기와 표 보기가 다르게 셌다 — 접수만 들어온 건, 공고까지만 온 건이 구조에는
         // 서 있는데 표에는 없었다. 무엇이 아직 안 들어왔는지는 표에서도 보여야 한다.
         //
@@ -1050,8 +1122,8 @@ public static class Views
         // 계약 열을 k.* 로 받지 못하는 것은 이 때문이다 — 계약이 없는 줄에서 LEFT JOIN 이
         // NULL 을 내는데 계약면의 빈 값은 빈 문자열이라, 열마다 감싸야 한다(ContractColumns).
         $"""
-        DROP VIEW IF EXISTS v_통합_v2;
-        CREATE VIEW v_통합_v2 AS
+        DROP VIEW IF EXISTS v_통합;
+        CREATE VIEW v_통합 AS
         WITH 사슬(접수, 공고, 계약) AS (
             -- 공고가 선 것. 줄기가 본번호가 아니라 <b>건</b>이라, 취소 후 재공고로 본번호가
             -- 갈렸던 것이 여기서 한 줄로 합쳐진다 — 줄 하나는 조달 건이라는 이 뷰의 정의가
@@ -1115,36 +1187,36 @@ public static class Views
             COALESCE(r.기관담당자, '')       AS 기관담당자,
             COALESCE(r.기관담당자전화, '')   AS 기관담당자전화
         FROM 사슬 s
-        LEFT JOIN v_계약_v1 k ON k.계약본번호 = s.계약
+        LEFT JOIN v_계약 k ON k.계약본번호 = s.계약
         -- 사슬의 공고 자리는 건 이름이다. 공고 열은 그 건의 현행 공고에서 낸다 — 건마다
         -- 공고가 여럿일 수 있으므로 여기서 하나로 좁히지 않으면 줄이 갈라진다.
-        LEFT JOIN v_공고_v1 g ON g.공고본번호 = {건현행("s.공고", "현행.notice_base")}
-        LEFT JOIN v_접수_v1 r ON r.접수본번호 = s.접수;
+        LEFT JOIN v_공고 g ON g.공고본번호 = {건현행("s.공고", "현행.notice_base")}
+        LEFT JOIN v_접수 r ON r.접수본번호 = s.접수;
         """,
 
-        // ── 통합 v3 — 차수를 편 것 ───────────────────────────────────
+        // ── 통합 차수 — 차수를 편 것 ─────────────────────────────────
         //
-        // 줄 하나가 <b>공고건 × 공고 레코드</b>다. v2 가 건마다 현행 공고 한 장으로 접어 낸
+        // 줄 하나가 <b>공고건 × 공고 레코드</b>다. v_통합이 건마다 현행 공고 한 장으로 접어 낸
         // 자리를, 여기서는 그 건이 가진 공고를 한 장씩 편다 — 취소된 원공고와 재공고가
         // 나란히 서고, 변경공고는 앞차수와 함께 선다. 접수·계약 열은 그 줄들에 되풀이된다.
         //
-        // 열은 v2 의 것을 그대로 두고 끝에 「공고건」·「현행공고」 둘만 더한다. 공고 열은
-        // v_공고_v1 이 아니라 <b>v_공고차수_v1</b> 에서 받는다 — 저쪽은 최신 차수만 내므로
+        // 열은 v_통합의 것을 그대로 두고 끝에 「공고건」·「현행공고」 둘만 더한다. 공고 열은
+        // v_공고 가 아니라 <b>v_공고차수</b> 에서 받는다 — 저쪽은 최신 차수만 내므로
         // 옛 차수 줄의 공고 열이 통째로 비어 버린다.
         //
-        // 사슬의 규칙은 v2 와 <b>같다</b>. 공고가 아직 없는 접수와 어디에도 매달리지 못한
+        // 사슬의 규칙은 v_통합과 <b>같다</b>. 공고가 아직 없는 접수와 어디에도 매달리지 못한
         // 계약은 여기서도 제 줄로 선다(공고 열이 빈 채로) — 무엇이 아직 안 들어왔는지는
         // 차수를 편 표에서도 보여야 한다.
         //
         // <b>읽기 전용이다</b>(Views.ReadOnly). 줄이 공고라 EntityTypeOf 도 notice 로 따로
         // 적어 두었다 — 이름에 「공고」가 없어 규칙으로는 잡히지 않는다.
         $"""
-        DROP VIEW IF EXISTS v_통합_v3;
-        CREATE VIEW v_통합_v3 AS
+        DROP VIEW IF EXISTS v_통합차수;
+        CREATE VIEW v_통합차수 AS
         WITH 사슬(접수, 공고, 계약) AS (
             -- 공고 문서 한 장이 한 줄이다. 건에 매달린 접수·계약을 그 줄들에 되풀이해 붙인다.
             -- 접수:건이 1:1(request_link.notice_group UNIQUE)이라 접수 조인은 줄을 늘리지 않고,
-            -- 계약이 여럿인 건에서만 공고 한 장이 계약 수만큼 갈라진다(v2 와 같다).
+            -- 계약이 여럿인 건에서만 공고 한 장이 계약 수만큼 갈라진다(v_통합과 같다).
             SELECT rl.request_base, n.notice_base || '-' || n.seq, pl.contract_base
             FROM notice n
             JOIN notice_series 계열 ON 계열.notice_base = n.notice_base
@@ -1154,7 +1226,7 @@ public static class Views
             UNION ALL
 
             -- 공고가 아직 없는 접수. 링크가 있는지가 아니라 <b>그 건에 공고가 실제로 서 있는지</b>
-            -- 를 본다 — v_통합_v2 의 같은 갈래와 한 글자도 다르지 않다.
+            -- 를 본다 — v_통합 의 같은 갈래와 한 글자도 다르지 않다.
             SELECT r.request_base, NULL, NULL
             FROM (SELECT DISTINCT request_base FROM request) r
             WHERE NOT EXISTS (
@@ -1204,16 +1276,16 @@ public static class Views
             COALESCE(g.공고건, '')           AS 공고건,
             COALESCE(g.현행공고, '')         AS 현행공고
         FROM 사슬 s
-        LEFT JOIN v_계약_v1 k     ON k.계약본번호 = s.계약
+        LEFT JOIN v_계약 k     ON k.계약본번호 = s.계약
         -- 사슬의 공고 자리는 건이 아니라 <b>공고 한 장</b>이라 차수까지 붙은 번호로 맞춘다.
-        LEFT JOIN v_공고차수_v1 g ON g.입찰공고번호 = s.공고
-        LEFT JOIN v_접수_v1 r     ON r.접수본번호 = s.접수;
+        LEFT JOIN v_공고차수 g ON g.입찰공고번호 = s.공고
+        LEFT JOIN v_접수 r     ON r.접수본번호 = s.접수;
         """,
 
         // ── 계획 ─────────────────────────────────────────────────────
         //
         // 줄기는 plan 이다. 줄 하나가 plan 한 행(조달요구번호 하나)이고, 계획에 없는
-        // 조달요구번호의 접수는 여기 서지 않는다 — 그것은 v_통합_v2 가 낸다. 이 뷰는 분모다.
+        // 조달요구번호의 접수는 여기 서지 않는다 — 그것은 v_통합 이 낸다. 이 뷰는 분모다.
         //
         // 「줄이 갈라지지 않는 것」이 이 뷰의 약속이다. 한 공고에 계약이 여럿 달릴 수 있고
         // (분할 낙찰·수요기관 복수) 그럴 때 줄을 가르면 계획 건수가 부풀어 센다. 그래서
@@ -1227,13 +1299,13 @@ public static class Views
         // 전용이다. 계획의 값을 고치는 길은 엑셀을 고쳐 다시 넣는 것 하나다(덮어쓴다).
         //
         // 그러나 이어 온 여덟 열은 계획의 값이 아니라 접수·공고·계약의 값이라 덮개 자리가
-        // 있다. 그래서 원본 표가 아니라 v_접수_v1·v_공고_v1·v_계약_v1 에서 받아 온다 —
-        // v_통합_v1·v2 가 하는 것과 같다. 원본에서 끌면 계약 탭에서 고친 계약금액이 여기에는
+        // 있다. 그래서 원본 표가 아니라 v_접수·v_공고·v_계약 에서 받아 온다 —
+        // v_통합이 하는 것과 같다. 원본에서 끌면 계약 탭에서 고친 계약금액이 여기에는
         // 옛 값으로 떠서, 같은 자료를 두 화면이 다르게 말한다. 덮개는 저쪽 뷰가 이미 한 번
-        // 씌웠으므로 여기서 또 씌우지 않는다(v_통합_v1 이 k.* 를 그대로 받는 것과 같은 까닭).
+        // 씌웠으므로 여기서 또 씌우지 않는다(v_통합이 k 의 열을 그대로 받는 것과 같은 까닭).
         $"""
-        DROP VIEW IF EXISTS v_계획_v1;
-        CREATE VIEW v_계획_v1 AS
+        DROP VIEW IF EXISTS v_계획;
+        CREATE VIEW v_계획 AS
         WITH {PlanFolds}
         SELECT
             -- 계획 자신의 열은 표본(「조달계획 (양식 표본).xlsx」)의 머리글 그대로,
@@ -1255,7 +1327,7 @@ public static class Views
             -- 늦었다·빠졌다를 기계가 가리지 않는다. 계약이 달렸으면 「계약」, 공고까지
             -- 이어졌으면 「공고」, 접수가 잡혔으면 「접수」, 계획에만 있으면 「미착수」다.
             --
-            -- 공고는 링크가 아니라 <b>그 공고가 실제로 서 있는지</b>를 본다(g 는 v_공고_v1).
+            -- 공고는 링크가 아니라 <b>그 공고가 실제로 서 있는지</b>를 본다(g 는 v_공고).
             -- 링크만 남고 공고 줄이 없으면 「공고」라고 적을 것이 없다.
             CASE
                 WHEN COALESCE(m.건수, 0) > 0         THEN '계약'
@@ -1270,7 +1342,7 @@ public static class Views
             COALESCE(g.게시일시, '')            AS 게시일시,
             COALESCE(g.개찰일시, '')            AS 개찰일시,
 
-            -- 언제나 채운다. v_접수_v1 의 「품목수」와 같은 꼴이라 없으면 0 이다.
+            -- 언제나 채운다. v_접수 의 「품목수」와 같은 꼴이라 없으면 0 이다.
             {Text("CAST(COALESCE(m.건수, 0) AS TEXT)")} AS 계약건수,
 
             -- 계약이 하나일 때만. 여럿이면 비우고 계약건수가 몇인지만 알린다.
@@ -1279,31 +1351,31 @@ public static class Views
             {SoleContract("COALESCE(k.계약금액, '')")}  AS 계약금액
         FROM plan p
         LEFT JOIN 접수짝 q         ON q.번호 = p.request_number
-        LEFT JOIN v_접수_v1 r      ON r.접수본번호 = q.본번호
+        LEFT JOIN v_접수 r      ON r.접수본번호 = q.본번호
         LEFT JOIN request_link rl  ON rl.request_base = q.본번호
         -- 건마다 공고가 여럿일 수 있다(취소·재공고). <b>현행 하나로 좁히지 않으면</b> 여기서
         -- 줄이 갈라져 계획 건수가 부풀어 세어지고, 분모로 쓰려고 세운 뷰가 분모 노릇을 못 한다.
-        LEFT JOIN v_공고_v1 g      ON g.공고본번호 = {건현행("rl.notice_group", "현행.notice_base")}
+        LEFT JOIN v_공고 g      ON g.공고본번호 = {건현행("rl.notice_group", "현행.notice_base")}
         LEFT JOIN 계약묶음 m       ON m.공고건 = rl.notice_group
-        LEFT JOIN v_계약_v1 k      ON k.계약본번호 = m.본번호;
+        LEFT JOIN v_계약 k      ON k.계약본번호 = m.본번호;
         """,
         """
-        DROP VIEW IF EXISTS v_ERP원천_v1;
-        CREATE VIEW v_ERP원천_v1 AS
+        DROP VIEW IF EXISTS v_ERP원천;
+        CREATE VIEW v_ERP원천 AS
         SELECT s.entity_type AS 자료종류, s.entity_base AS 내부키, s.entity_seq AS 차수,
           coalesce(json_extract(r.value,'$.origins.' || f.key),json_extract(s.document_json,'$.profile')) AS 수집프로필,
           json_extract(r.value,'$.table') AS 원천표, json_extract(r.value,'$.sourceKey') AS 원천행키,
           CAST(f.key AS TEXT) AS 필드, CAST(coalesce(f.value,'') AS TEXT) AS 수집값, s.mapping_revision AS 매핑판, s.updated_at AS 수집시각
         FROM erp_source s, json_each(s.document_json,'$.rows') r, json_each(r.value,'$.values') f;
-        DROP VIEW IF EXISTS v_계약업체_v1;
-        CREATE VIEW v_계약업체_v1 AS
+        DROP VIEW IF EXISTS v_계약업체;
+        CREATE VIEW v_계약업체 AS
         SELECT contract_base || seq AS 계약번호, CAST(line_no AS TEXT) AS 순번,
           coalesce(source_id,'') AS 원천업체번호, coalesce(name,'') AS 상호,
           coalesce(business_number,'') AS 사업자등록번호, coalesce(representative,'') AS 대표자,
           coalesce(share_rate,'') AS 계약지분율, coalesce(share_amount,'') AS 계약지분금액
         FROM erp_partner;
-        DROP VIEW IF EXISTS v_ERP접수_v1;
-        CREATE VIEW v_ERP접수_v1 AS
+        DROP VIEW IF EXISTS v_ERP접수;
+        CREATE VIEW v_ERP접수 AS
         SELECT r.request_base AS 내부키,r.seq AS 접수차수,
           coalesce((SELECT min(ref_request_base) FROM request_item i WHERE i.request_base=r.request_base AND i.seq=r.seq),'') AS ERP접수번호,
           coalesce((SELECT min(request_number) FROM request_item i WHERE i.request_base=r.request_base AND i.seq=r.seq),'') AS 대표조달요구본번호,

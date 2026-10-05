@@ -6,12 +6,11 @@ using Xunit;
 namespace Pclm.Core.Tests;
 
 /// <summary>
-/// 자동 확정이 <b>확신할 수 있을 때만</b> 걸리는지 본다.
+/// 계약↔공고 후보의 판정이 <b>확신할 수 있을 때만</b> 막힘 없이 서는지 본다.
 ///
-/// <para>이 규칙의 값어치는 많이 잇는 데 있지 않고 <b>위험한 쪽으로 실패하지 않는</b> 데 있다.
-/// 애매하면 잇지 않고 사람에게 넘겨야 한다 — 조용히 잘못 이어진 링크 하나가 축적 자산 전체의
-/// 신뢰를 무너뜨리기 때문이다. 그래서 여기 시험 대부분은 "이어지는지" 가 아니라
-/// <b>"안 이어지는지"</b> 를 지킨다(ADR-015).</para>
+/// <para>기계는 잇지 않고 추천만 한다(ADR-029). 그래도 판정의 값어치는 그대로다 — 막힘 없는
+/// 후보는 사람이 3초에 누르는 자리라, 애매한 것이 거기 서면 조용히 잘못 이어진다. 그래서 여기
+/// 시험 대부분은 "통과하는지" 가 아니라 <b>"걸리는 점이 붙는지"</b> 를 지킨다.</para>
 /// </summary>
 public class LinkerTests : IDisposable
 {
@@ -27,46 +26,47 @@ public class LinkerTests : IDisposable
 
     public LinkerTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
         _linker = new Linker(_database);
     }
 
     [Fact]
-    public void 건명이_같고_부수확인을_통과하면_자동으로_이어진다()
+    public void 건명이_같고_부수확인을_통과하면_막힘_없는_후보로_선다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
 
-        var result = _linker.AutoConfirm();
+        var candidate = Assert.Single(_linker.Candidates());
 
-        Assert.Equal(1, result.Count);
-        Assert.Equal("R26BK09017075", Link("R26TA09110507")["notice_group"]);
-        Assert.Equal("auto", Link("R26TA09110507")["decided_by"]);
-        Assert.Equal($"{Linker.RuleVersion}", Link("R26TA09110507")["rule_version"]);
-        Assert.Contains("세부품명 일치", Link("R26TA09110507")["evidence"]);
+        Assert.Equal("R26BK09017075", candidate.Notice.Base);
+        Assert.True(candidate.TitleMatched);
+        Assert.Null(candidate.Blocker);
+        Assert.Contains("세부품명 일치", candidate.Reason);
+
+        // 추천만 한다 — 판정을 통과한 유일 후보여도 기계는 잇지 않는다(ADR-029).
+        Assert.Empty(Links());
     }
 
-    /// <summary>건명은 공백만 지우고 대조하므로 띄어쓰기가 흔들려도 이어져야 한다.</summary>
+    /// <summary>건명은 공백만 지우고 대조하므로 띄어쓰기가 흔들려도 건명 일치로 서야 한다.</summary>
     [Fact]
-    public void 띄어쓰기가_달라도_이어진다()
+    public void 띄어쓰기가_달라도_건명_일치로_선다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년가람 수질측정기조달"));
 
-        Assert.Equal(1, _linker.AutoConfirm().Count);
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.True(candidate.TitleMatched);
+        Assert.Null(candidate.Blocker);
     }
 
     /// <summary>재공고·반복구매. 이름만으로는 가릴 수 없으니 사람에게 넘어가야 한다.</summary>
     [Fact]
-    public void 같은_이름_공고가_둘이면_자동으로_잇지_않는다()
+    public void 같은_이름_공고가_둘이면_둘_다_걸리는_점을_단다()
     {
         Put(Notice("R26BK09017075", "26년 가람 절단기 구매"));
         Put(Notice("R26BK09017030", "26년 가람 절단기 구매"));
         Put(Contract("R26TA09110507", "26년 가람 절단기 구매"));
-
-        Assert.Equal(0, _linker.AutoConfirm().Count);
 
         var candidates = _linker.Candidates();
         Assert.Equal(2, candidates.Count);
@@ -75,12 +75,11 @@ public class LinkerTests : IDisposable
     }
 
     [Fact]
-    public void 세부품명이_다르면_자동으로_잇지_않는다()
+    public void 세부품명이_다르면_막힌다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달", itemName: "플라즈마절단기"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달", itemName: "수질검사장치"));
 
-        Assert.Equal(0, _linker.AutoConfirm().Count);
         Assert.Contains("세부품명이 다릅니다", _linker.Candidates()[0].Blocker);
     }
 
@@ -90,7 +89,7 @@ public class LinkerTests : IDisposable
     /// 가 된다 — 이름만 보면 멀쩡한 짝이 통째로 막힌다.
     /// </summary>
     [Fact]
-    public void 세부품명이_달라도_물품분류번호_앞_8자리가_같으면_이어진다()
+    public void 세부품명이_달라도_물품분류번호_앞_8자리가_같으면_통과한다()
     {
         Put(Notice("R26BK09017075", "26년 가람 가스성분분석기 구매",
             itemName: "가스탐지기", detailNumber: "4715190501"));
@@ -98,16 +97,17 @@ public class LinkerTests : IDisposable
         Put(Contract("R26TA09110507", "26년 가람 가스성분분석기 구매",
             itemName: "유독또는가스탐지기", classNumber: "47151905"));
 
-        Assert.Equal(1, _linker.AutoConfirm().Count);
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.Null(candidate.Blocker);
 
-        var evidence = Link("R26TA09110507")["evidence"];
+        var evidence = candidate.Reason;
         Assert.Contains("물품분류번호 앞 8자리 일치 (47151905)", evidence);
         Assert.DoesNotContain("세부품명 일치", evidence);
     }
 
     /// <summary>번호를 대안으로 둔 것이지 이름 대조를 푼 것이 아니다 — 둘 다 어긋나면 막힌다.</summary>
     [Fact]
-    public void 세부품명도_분류번호도_다르면_잇지_않는다()
+    public void 세부품명도_분류번호도_다르면_막힌다()
     {
         Put(Notice("R26BK09017075", "26년 가람 가스성분분석기 구매",
             itemName: "가스탐지기", detailNumber: "4715190501"));
@@ -115,7 +115,6 @@ public class LinkerTests : IDisposable
         Put(Contract("R26TA09110507", "26년 가람 가스성분분석기 구매",
             itemName: "플라즈마절단기", classNumber: "27112501"));
 
-        Assert.Equal(0, _linker.AutoConfirm().Count);
         Assert.Contains("세부품명이 다릅니다", _linker.Candidates()[0].Blocker);
     }
 
@@ -141,23 +140,21 @@ public class LinkerTests : IDisposable
     }
 
     [Fact]
-    public void 수요기관이_다르면_자동으로_잇지_않는다()
+    public void 수요기관이_다르면_막힌다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달", agency: "한별군수지원단"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달", agency: "가람군수지원단"));
 
-        Assert.Equal(0, _linker.AutoConfirm().Count);
         Assert.Contains("수요기관이 다릅니다", _linker.Candidates()[0].Blocker);
     }
 
     /// <summary>계약은 언제나 공고 뒤에 온다. 어긋나면 물리적으로 불가능한 짝이다.</summary>
     [Fact]
-    public void 계약일이_게시일보다_앞서면_자동으로_잇지_않는다()
+    public void 계약일이_게시일보다_앞서면_막힌다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달", signed: Posted.AddDays(-1)));
 
-        Assert.Equal(0, _linker.AutoConfirm().Count);
         Assert.Contains("보다 앞섭니다", _linker.Candidates()[0].Blocker);
     }
 
@@ -171,8 +168,9 @@ public class LinkerTests : IDisposable
         Put(Notice("R26BK09017075", "26년 한별 공압식승강판 20톤 구매"));
         Put(Contract("R26TA09100327", "26년 한별 공압식승강판 20톤 구매") with { ContractedOn = null });
 
-        Assert.Equal(1, _linker.AutoConfirm().Count);
-        Assert.DoesNotContain("계약일", Link("R26TA09100327")["evidence"]);
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.Null(candidate.Blocker);
+        Assert.DoesNotContain("계약일", candidate.Reason);
     }
 
     [Fact]
@@ -186,9 +184,10 @@ public class LinkerTests : IDisposable
             new EntityRef("contract", "R26TA09110507", "00"),
             new EntityRef("notice", "R26BK09017030", "000"));
 
-        // 물리치고 나면 남은 후보가 하나뿐이라 이제 확신할 수 있다.
-        Assert.Equal(1, _linker.AutoConfirm().Count);
-        Assert.Equal("R26BK09017075", Link("R26TA09110507")["notice_group"]);
+        // 물리치고 나면 남은 후보가 하나뿐이라 이제 막힘 없이 선다.
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.Equal("R26BK09017075", candidate.Notice.Base);
+        Assert.Null(candidate.Blocker);
     }
 
     /// <summary>아니라고 판정한 짝이 이미 이어져 있었다면 함께 풀려야 한다.</summary>
@@ -197,85 +196,75 @@ public class LinkerTests : IDisposable
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
-        _linker.AutoConfirm();
+        Confirm("R26TA09110507", "R26BK09017075");
 
         _linker.Reject(
             new EntityRef("contract", "R26TA09110507", "00"),
             new EntityRef("notice", "R26BK09017075", "000"));
 
         Assert.Empty(Links());
-        Assert.Equal(0, _linker.AutoConfirm().Count);
+        Assert.Empty(_linker.Candidates());
     }
 
+    /// <summary>
+    /// 사람의 확정은 옛 자동 링크를 덮을 때 그 근거·규칙판을 함께 비운다 — 남기면 사람이 고른
+    /// 짝에 기계의 근거가 붙어 보인다.
+    /// </summary>
     [Fact]
-    public void 재평가는_사람이_확정한_링크를_건드리지_않는다()
+    public void 사람이_옛_자동_링크를_덮으면_기계의_근거가_남지_않는다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
-
-        // 건명이 전혀 다른 계약. 규칙으로는 절대 이어지지 않으므로 사람이 확정한 것임이 분명하다.
-        Put(Contract("R26TA09110507", "손으로 이은 계약"));
-        _linker.Confirm(
-            new EntityRef("contract", "R26TA09110507", "00"),
-            new EntityRef("notice", "R26BK09017075", "000"), 1.0);
-
-        var result = _linker.Reevaluate();
-
-        Assert.Equal(0, result.Released);
-        Assert.Equal("human", Link("R26TA09110507")["decided_by"]);
-        Assert.Equal("R26BK09017075", Link("R26TA09110507")["notice_group"]);
-    }
-
-    [Fact]
-    public void 재평가는_기계가_이은_것만_풀고_다시_판정한다()
-    {
-        Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
+        Put(Notice("R26BK09017030", "2026년 한별 소나 부품 구매"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
-        _linker.AutoConfirm();
+        옛자동링크("R26TA09110507", "R26BK09017075");
 
-        // 규칙판을 지난 것으로 돌려 놓으면 재평가가 그 링크를 다시 본다.
-        Execute("UPDATE project_link SET rule_version = 0 WHERE decided_by = 'auto';");
+        Confirm("R26TA09110507", "R26BK09017030");
 
-        var result = _linker.Reevaluate();
-
-        Assert.Equal(1, result.Released);
-        Assert.Equal(1, result.Count);
-        Assert.Equal($"{Linker.RuleVersion}", Link("R26TA09110507")["rule_version"]);
+        var link = Link("R26TA09110507");
+        Assert.Equal("R26BK09017030", link["notice_group"]);
+        Assert.Equal("human", link["decided_by"]);
+        Assert.Equal("", link["evidence"]);
+        Assert.Equal("", link["rule_version"]);
     }
 
     /// <summary>공고 하나에 계약이 여럿 달릴 수 있다. 계약 쪽에서 보면 후보는 여전히 하나다.</summary>
     [Fact]
-    public void 분할낙찰이면_계약_셋이_모두_같은_공고에_이어진다()
+    public void 분할낙찰이면_계약_셋이_모두_같은_공고를_막힘_없이_받는다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110501", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110502", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110503", "2026년 가람 수질측정기 조달"));
 
-        Assert.Equal(3, _linker.AutoConfirm().Count);
-        Assert.All(Links(), row => Assert.Equal("R26BK09017075", row));
+        var candidates = _linker.Candidates();
+
+        Assert.Equal(3, candidates.Count);
+        Assert.All(candidates, c => Assert.Equal("R26BK09017075", c.Notice.Base));
+        Assert.All(candidates, c => Assert.Null(c.Blocker));
     }
 
     [Fact]
-    public void 이미_이어진_계약은_다시_판정하지_않는다()
+    public void 이어진_계약은_후보_큐에서_빠진다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
 
-        Assert.Equal(1, _linker.AutoConfirm().Count);
-        Assert.Equal(0, _linker.AutoConfirm().Count);
+        Assert.Single(_linker.Candidates());
+        Confirm("R26TA09110507", "R26BK09017075");
+        Assert.Empty(_linker.Candidates());
     }
 
     [Fact]
-    public void 링크를_풀면_다시_이을_수_있다()
+    public void 링크를_풀면_다시_후보에_오른다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
-        _linker.AutoConfirm();
+        Confirm("R26TA09110507", "R26BK09017075");
 
         _linker.Unlink(new EntityRef("contract", "R26TA09110507", "00"));
 
         Assert.Empty(Links());
-        Assert.Equal(1, _linker.AutoConfirm().Count);
+        Assert.Single(_linker.Candidates());
     }
 
     /// <summary>
@@ -292,14 +281,12 @@ public class LinkerTests : IDisposable
         Assert.Equal(string.Empty, Linker.TitleKey(null));
     }
 
-    /// <summary>건명이 맞는 공고가 없으면 약한 근거로 후보를 내되 자동 확정 대상은 아니다.</summary>
+    /// <summary>건명이 맞는 공고가 없으면 약한 근거로 후보를 낸다.</summary>
     [Fact]
     public void 건명이_다르면_약한_후보로만_올라온다()
     {
         Put(Notice("R26BK09017075", "수질측정기 구매", itemId: "29478001"));
         Put(Contract("R26TA09110507", "전혀 다른 이름의 계약", itemId: "29478001"));
-
-        Assert.Equal(0, _linker.AutoConfirm().Count);
 
         var candidates = _linker.Candidates();
         Assert.Single(candidates);
@@ -310,13 +297,16 @@ public class LinkerTests : IDisposable
     /// <summary>
     /// 이어진 계약이 잇기 화면 목록에서 사라지면 <b>잘못 이어진 것을 끊을 자리가 없다.</b>
     /// 끊기는 그 줄을 골라야 나오는 동작이라, 줄이 서 있지 않으면 창에서는 되돌릴 길이 없다.
+    ///
+    /// <para>옛 판이 남긴 <c>auto</c> 줄도 그대로 선다 — ADR-029 는 새로 잇지 않을 뿐 있던
+    /// 링크를 지우지 않는다.</para>
     /// </summary>
     [Fact]
     public void 이어진_계약도_목록에_남고_이어진_공고를_함께_낸다()
     {
         Put(Notice("R26BK09017075", "2026년 가람 수질측정기 조달"));
         Put(Contract("R26TA09110507", "2026년 가람 수질측정기 조달"));
-        _linker.AutoConfirm();
+        옛자동링크("R26TA09110507", "R26BK09017075");
 
         var row = Assert.Single(_linker.Work().Contracts);
 
@@ -393,7 +383,7 @@ public class LinkerTests : IDisposable
         Put(Notice("R26BK09017075", "26년 가람 절단기 구매(정정)") with { Seq = "001" });
         Put(Notice("R26BK09017030", "26년 한별 소나 부품 구매"));
         Put(Contract("R26TA09110507", "26년 한별 소나 부품 구매"));
-        _linker.AutoConfirm();
+        Confirm("R26TA09110507", "R26BK09017030");
 
         var notices = _linker.Notices();
 
@@ -411,13 +401,13 @@ public class LinkerTests : IDisposable
 
     /// <summary>
     /// <b>이 바뀜의 실질적 값이다.</b> 조립대는 취소 뒤 재채번되어 본번호가 갈렸고, 건명도
-    /// 품목도 같아 이름이 같은 공고가 둘로 서 있었다 — 「같은 이름 공고가 2건」으로 막혀
-    /// 사람 큐로 밀리던 것이 한 건이 되면서 유일해져 기계가 스스로 잇는다.
+    /// 품목도 같아 이름이 같은 공고가 둘로 서 있었다 — 「같은 이름 공고가 2건」으로 막히던
+    /// 것이 한 건이 되면서 유일해져 막힘 없는 후보로 선다.
     ///
     /// <para>후보로 오르는 번호도 건 이름(<c>R26BK09011054</c>)이 아니라 <b>현행 공고</b>다.</para>
     /// </summary>
     [Fact]
-    public void 재공고_건은_후보가_하나라_자동으로_이어진다()
+    public void 재공고_건은_후보가_하나라_막힘_없이_선다()
     {
         조립대();
         Put(Contract("R26TA09080469", "26년 한별 조립대 구매"));
@@ -426,8 +416,7 @@ public class LinkerTests : IDisposable
         Assert.Equal("R26BK09012082-000", 후보.Notice.Display);
         Assert.Null(후보.Blocker);
 
-        var 이음 = Assert.Single(_linker.AutoConfirm().Linked);
-        Assert.Equal("R26BK09012082-000", 이음.Notice.Display);
+        _linker.Confirm(후보.Contract, 후보.Notice, 후보.Confidence);
 
         // 링크가 매달리는 자리는 건이다 — 이름은 가장 이른 본번호다.
         Assert.Equal("R26BK09011054", Link("R26TA09080469")["notice_group"]);
@@ -473,7 +462,6 @@ public class LinkerTests : IDisposable
             new EntityRef("contract", "R26TA09080469", "00"),
             new EntityRef("notice", "R26BK09012082", "000"));
 
-        Assert.Equal(0, _linker.AutoConfirm().Count);
         Assert.Empty(_linker.Candidates());
     }
 
@@ -503,6 +491,27 @@ public class LinkerTests : IDisposable
             seq: "001", kind: "취소공고", related: ["R26BK09011054-000"]));
         Put(Notice("R26BK09012082", "26년 한별 조립대 구매",
             related: ["R26BK09011054-001", "R26BK09011054-000"]));
+    }
+
+    private void Confirm(string contractBase, string noticeBase) =>
+        _linker.Confirm(
+            new EntityRef("contract", contractBase, "00"),
+            new EntityRef("notice", noticeBase, "000"), 1.0);
+
+    /// <summary>옛 판이 기계로 이어 둔 줄. ADR-029 뒤로는 만들어지지 않고 사용자 DB 에 남아 있을 뿐이다.</summary>
+    private void 옛자동링크(string contractBase, string noticeGroup)
+    {
+        using var connection = _database.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO project_link
+                (contract_base, notice_group, confidence, confirmed_at, decided_by, evidence, rule_version)
+            VALUES ($c, $n, 1.0, '2026-01-01T00:00:00Z', 'auto', '건명 일치 · 세부품명 일치', 3);
+            """;
+        command.Parameters.AddWithValue("$c", contractBase);
+        command.Parameters.AddWithValue("$n", noticeGroup);
+        command.ExecuteNonQuery();
     }
 
     private void Put(NoticeRecord notice) => _store.UpsertNotice(notice);
@@ -587,14 +596,6 @@ public class LinkerTests : IDisposable
         using var reader = command.ExecuteReader();
         while (reader.Read()) rows.Add(reader.GetString(0));
         return rows;
-    }
-
-    private void Execute(string sql)
-    {
-        using var connection = _database.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
     }
 
     public void Dispose()

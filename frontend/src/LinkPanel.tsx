@@ -16,6 +16,10 @@ type Props = {
    * 바꾼다 — 부르는 쪽이 접수 응답을 이 꼴로 옮겨 담아 넘기므로, 여기서 갈래를 알 필요가 없다.</p>
    */
   leftLabel?: string;
+  /**
+   * 열어 본 자료라 잇고 끊는 단추를 잠근다. 견주기 표는 그대로 펴 볼 수 있다 — 보는 것은 읽기다.
+   */
+  readOnly?: boolean;
 };
 
 /** 왼쪽 목록을 무엇으로 좁혀 볼 것인가. 기본은 아직 할 일 쪽이다. */
@@ -33,7 +37,7 @@ const 찾기결과 = 50;
  * 하나를 고르면 오른쪽에 짝 후보를 근거와 함께 편다. 30년 쓰인 얼개라 새로 고민할 것이 없다.</p>
  *
  * <p>후보를 <b>점수 한 줄로 요약하지 않고 항목마다 나란히 놓는다.</b> 무엇이 같고 무엇이 다른지
- * 눈으로 보아야 3초에 판단할 수 있고, 기계가 왜 자동으로 연결하지 못했는지도 그 표에서 드러난다.</p>
+ * 눈으로 보아야 3초에 판단할 수 있고, 무엇이 걸리는지도 그 표에서 드러난다. 기계는 추천만 한다(ADR-029).</p>
  *
  * <p><b>후보가 하나도 없는 계약도 왼쪽에 남는다.</b> 후보 목록만 그리면 모두 물리친 계약이
  * 화면에서 사라져, 공고와 연결되지 않은 채로 남은 줄도 모르게 된다.</p>
@@ -46,7 +50,7 @@ const 찾기결과 = 50;
  * 손수 고른 공고도 후보와 똑같이 견주기 표를 편 뒤에 잇는다.</p>
  */
 export function LinkPanel({
-  work, onConfirm, onReject, onUnlink, onCompare, leftLabel = "계약", initialKey = null,
+  work, onConfirm, onReject, onUnlink, onCompare, leftLabel = "계약", initialKey = null, readOnly = false,
 }: Props) {
   const [picked, setPicked] = useState<string | null>(initialKey);
   const [filter, setFilter] = useState<Filter>(initialKey ? "전체" : "미연결");
@@ -209,9 +213,10 @@ export function LinkPanel({
                 <strong>{here.noticeKey}</strong> {here.noticeTitle}
               </span>
               <span className="why">
-                {here.decidedBy === "auto" ? "자동 연결" : "직접 확정"}
+                {here.decidedBy === "auto" ? "자동 연결"
+                  : here.decidedBy === "explicit" ? "ERP 참조" : "직접 확정"}
               </span>
-              <button className="action" onClick={() => onUnlink(here.key)}>연결 해제</button>
+              <button className="action" disabled={readOnly} onClick={() => onUnlink(here.key)}>연결 해제</button>
             </div>
 
             <Facets facets={linked} leftLabel={leftLabel} />
@@ -238,11 +243,11 @@ export function LinkPanel({
                     {c.titleMatched ? "건명 일치" : "약한 근거"}
                     {c.noticeContractCount > 0 && ` · 이미 ${c.noticeContractCount}건 연결됨`}
                   </span>
-                  <button className="action primary" onClick={() => onConfirm(c)}>연결</button>
-                  <button className="action" onClick={() => onReject(c)}>후보 제외</button>
+                  <button className="action primary" disabled={readOnly} onClick={() => onConfirm(c)}>연결</button>
+                  <button className="action" disabled={readOnly} onClick={() => onReject(c)}>후보 제외</button>
                 </div>
 
-                {c.blocker && <p className="blocker">자동으로 연결하지 않았습니다. {c.blocker}</p>}
+                {c.blocker && <p className="blocker">확인할 점: {c.blocker}</p>}
 
                 <Facets facets={c.facets} leftLabel={leftLabel} />
               </div>
@@ -295,7 +300,7 @@ export function LinkPanel({
                   <span>
                     <strong>{chosen.key}</strong> {chosen.title}
                   </span>
-                  <button className="action primary" onClick={() => 손수잇기(here, chosen)}>연결</button>
+                  <button className="action primary" disabled={readOnly} onClick={() => 손수잇기(here, chosen)}>연결</button>
                 </div>
 
                 <Facets facets={chosen.facets} leftLabel={leftLabel} />

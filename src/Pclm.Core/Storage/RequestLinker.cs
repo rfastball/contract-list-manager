@@ -12,7 +12,7 @@ public sealed record RequestFacet(string Name, string Request, string Notice, bo
 
 /// <summary>접수 한 건에 붙일 공고 후보.</summary>
 /// <param name="TitleMatched">요청명과 공고명이 정확히 일치하는가. <b>근거가 아니라 정황</b>이다.</param>
-/// <param name="Blocker">자동으로 이어지지 않은 까닭. 없으면 사람이 볼 이유도 딱히 없다.</param>
+/// <param name="Blocker">잇기 전에 걸리는 점. 없으면 판정을 통과한 유일한 후보다.</param>
 public sealed record RequestLinkCandidate(
     EntityRef Request,
     string RequestTitle,
@@ -41,15 +41,6 @@ public sealed record RequestLinkWork(
     IReadOnlyList<RequestLinkRow> Requests,
     IReadOnlyList<RequestLinkCandidate> Candidates);
 
-/// <summary>기계가 스스로 이은 한 건.</summary>
-public sealed record AutoRequestLink(EntityRef Request, EntityRef Notice, string Evidence);
-
-/// <summary>자동 확정 한 번의 결과. <paramref name="Released"/> 는 재평가로 풀린 옛 자동 링크 수다.</summary>
-public sealed record AutoRequestLinkResult(IReadOnlyList<AutoRequestLink> Linked, int Released = 0)
-{
-    public int Count => Linked.Count;
-}
-
 /// <summary>
 /// 접수와 공고를 잇는다.
 ///
@@ -72,61 +63,15 @@ public sealed record AutoRequestLinkResult(IReadOnlyList<AutoRequestLink> Linked
 /// <para><b>세부품명번호는 근거로 쓰지 않는다.</b> 협의·요청 누락으로 접수와 공고가 다를 수
 /// 있다. 나란히 보이기만 하고, 어긋나도 막지 않는다.</para>
 ///
-/// <para><see cref="Linker"/> 와 같은 자세로 실패한다 — <b>오확정이 아니라 "사람에게 넘김"</b>.
-/// 통과 후보가 둘 이상이면 자동 확정이 걸리지 않고 큐로 간다.</para>
+/// <para><b>기계는 잇지 않는다</b>(ADR-029). 판정은 후보를 추천하는 데까지이고, 링크는 ERP 명시
+/// 참조(<c>ExplicitLinks</c>)와 사람의 확정으로만 선다. 옛 판이 남긴 <c>decided_by = 'auto'</c>
+/// 줄은 그대로 둔다.</para>
 /// </summary>
 public sealed class RequestLinker(Database database)
 {
     private readonly Database _database = database;
 
-    /// <summary>
-    /// 규칙판. 판정을 고칠 때마다 올린다 — <see cref="Reevaluate"/> 가 이 번호로 다시 볼 링크를 고른다.
-    ///
-    /// <para><b>3판에서 세는 단위가 공고에서 건으로 바뀌었다.</b> 수량·단가 다중집합이라는
-    /// 판정은 한 글자도 손대지 않았고, 재공고와 원공고가 한 건이 되면서 「수량·단가가 모두 맞는
-    /// 공고가 2건」으로 막히던 짝이 유일해질 뿐이다 — 2판으로 이어 둔 것을 다시 보아야 그 값이
-    /// 실제로 걷힌다.</para>
-    /// </summary>
-    public const int RuleVersion = 3;
-
-    /// <summary>규칙을 적용해 확신할 수 있는 짝을 잇는다. 이미 링크가 있는 접수는 건드리지 않는다.</summary>
-    public AutoRequestLinkResult AutoConfirm()
-    {
-        using var connection = _database.Open();
-        return AutoConfirm(connection, released: 0);
-    }
-
-    /// <summary>
-    /// 규칙이 바뀌었을 때 <b>기계가 이은 것만</b> 풀고 다시 판정한다.
-    /// 사람이 확정한 링크는 규칙판과 무관하게 남는다(ADR-007·ADR-012).
-    /// </summary>
-    public AutoRequestLinkResult Reevaluate()
-    {
-        using var connection = _database.Open();
-
-        // 품목 짝은 링크의 <b>결과</b>라 링크와 함께 걷는다. request_item_link 는
-        // request_link 가 아니라 request 를 가리키므로 캐스케이드가 데려가지 않는다.
-        var stale = connection.Query<string>(
-            """
-            SELECT request_base FROM request_link
-            WHERE decided_by = 'auto' AND (rule_version IS NULL OR rule_version < @rule);
-            """, new { rule = RuleVersion }).ToList();
-
-        foreach (var @base in stale)
-            connection.Execute(
-                "DELETE FROM request_item_link WHERE request_base = @b;", new { b = @base });
-
-        var released = connection.Execute(
-            """
-            DELETE FROM request_link
-            WHERE decided_by = 'auto' AND (rule_version IS NULL OR rule_version < @rule);
-            """,
-            new { rule = RuleVersion });
-
-        return AutoConfirm(connection, released);
-    }
-
-    /// <summary>사람이 볼 후보. 자동으로 이어진 접수는 여기 오지 않는다.</summary>
+    /// <summary>사람이 볼 후보. 이미 이어진 접수는 여기 오지 않는다.</summary>
     public IReadOnlyList<RequestLinkCandidate> Candidates()
     {
         var work = Work();
@@ -158,8 +103,8 @@ public sealed class RequestLinker(Database database)
                 ? matches
                 : matches.Where(n => n.Group != link.NoticeGroup).ToList();
 
-            // 통과한 후보가 둘 이상일 때에만 자동으로 잇지 않는다. 줄 수가 같은 공고가 여럿인
-            // 것은 흔한 일이라, 그것만으로 막으면 이을 수 있는 짝까지 사람 큐로 밀려난다.
+            // 「여럿입니다」는 통과한 후보가 둘 이상일 때에만 붙인다. 줄 수가 같은 공고가 여럿인
+            // 것은 흔한 일이라, 그것만으로 붙이면 유일하게 맞는 짝까지 애매해 보인다.
             var passing = pool.Count(n => Passes(state, request, n));
 
             var ambiguous = passing > 1
@@ -178,7 +123,7 @@ public sealed class RequestLinker(Database database)
                     verdict.Passed ? verdict.Evidence : $"품목 {request.Items.Count}줄",
                     notice.Linked,
                     TitleMatched: Linker.TitleKey(request.Title) == Linker.TitleKey(notice.Title),
-                    // 여럿이라 못 이었다는 말은 통과한 후보에만 붙인다 — 통과하지 못한 후보에는
+                    // 여럿이라는 말은 통과한 후보에만 붙인다 — 통과하지 못한 후보에는
                     // 제 까닭이 따로 있고, 그것을 덮으면 무엇이 어긋났는지 화면에서 사라진다.
                     Blocker: verdict.Passed && taken is null
                         ? ambiguous
@@ -188,7 +133,7 @@ public sealed class RequestLinker(Database database)
 
             // 보이는 것은 <b>현행 공고 번호</b>다. 건 이름은 문서가 없는 번호일 수 있어
             // (가스성분분석기가 가리키는 R26BK09013019) 사람 앞에 낼 것이 못 된다. 이름으로 물러서는 것은
-            // 건에 현행이 하나도 없을 때뿐이고, 그 자리는 v_공고_v1.현행공고 도 빈다.
+            // 건에 현행이 하나도 없을 때뿐이고, 그 자리는 v_공고.현행공고 도 빈다.
             var 이어진것 = link.NoticeGroup is null ? null : 현행(state, link.NoticeGroup);
 
             rows.Add(new RequestLinkRow(
@@ -276,7 +221,7 @@ public sealed class RequestLinker(Database database)
             "DELETE FROM request_link_rejection WHERE request_base = @r AND notice_group = @n;",
             new { r = request.Base, n = 건 }, transaction);
 
-        Write(connection, transaction, request.Base, 건, confidence, "human", null, null);
+        Write(connection, transaction, request.Base, 건, confidence);
         WriteItemLinks(connection, transaction, state, request.Base, 건);
 
         transaction.Commit();
@@ -335,41 +280,6 @@ public sealed class RequestLinker(Database database)
     }
 
     // ── 규칙 ─────────────────────────────────────────────
-
-    private AutoRequestLinkResult AutoConfirm(SqliteConnection connection, int released)
-    {
-        var state = Read(connection);
-        var linked = new List<AutoRequestLink>();
-
-        foreach (var (request, matches) in CountMatches(state))
-        {
-            if (state.Links.ContainsKey(request.Base)) continue;
-
-            // 유일성. 오확정은 근거가 약해서가 아니라 후보가 여럿일 때 난다 — 그런데 그 후보는
-            // 줄 수가 같은 공고가 아니라 <b>수량·단가까지 맞는</b> 공고다. 줄 수만으로 세면
-            // 두 줄짜리 공고가 셋만 있어도 이을 수 있는 짝이 통째로 사람 큐로 간다(실측).
-            var passing = matches.Where(n => Passes(state, request, n)).ToList();
-            if (passing.Count != 1) continue;
-
-            var notice = passing[0];
-            var verdict = Verify(state, request, notice);
-
-            using var transaction = connection.BeginTransaction();
-            Write(connection, transaction, request.Base, notice.Group, 1.0, "auto", verdict.Evidence, RuleVersion);
-            WriteItemLinks(connection, transaction, state, request.Base, notice.Group);
-            transaction.Commit();
-
-            // 이 실행 안에서 다음 접수가 같은 건을 집지 않게 스냅숏에도 반영한다.
-            state.Links[request.Base] = (notice.Group, "auto");
-
-            linked.Add(new AutoRequestLink(
-                new EntityRef("request", request.Base, request.Seq),
-                new EntityRef("notice", notice.Base, notice.Seq),
-                verdict.Evidence));
-        }
-
-        return new AutoRequestLinkResult(linked, released);
-    }
 
     private sealed record Verdict(bool Passed, string Evidence, string? Blocker);
 
@@ -440,7 +350,7 @@ public sealed class RequestLinker(Database database)
 
     /// <summary>
     /// 이을 수 있는 후보인가 — 판정을 통과했고, 그 건에 다른 접수가 붙어 있지 않은가.
-    /// <b>유일성을 세는 잣대</b>라 자동 확정과 화면이 같은 것을 보아야 한다.
+    /// <b>유일성을 세는 잣대</b>다.
     /// </summary>
     private static bool Passes(Snapshot state, RequestRow request, NoticeRow notice) =>
         Verify(state, request, notice).Passed && Taken(state, request, notice) is null;
@@ -740,7 +650,7 @@ public sealed class RequestLinker(Database database)
 
     /// <summary>
     /// 그 건에 선 <b>현행 공고</b>. 없으면 <c>null</c> — 건의 문서가 서로를 가리켜 모두
-    /// 대체된 자리이고, 그때는 <c>v_공고_v1.현행공고</c> 도 빈다.
+    /// 대체된 자리이고, 그때는 <c>v_공고.현행공고</c> 도 빈다.
     /// </summary>
     private static NoticeRow? 현행(Snapshot state, string 건) =>
         state.Notices.FirstOrDefault(n => n.Group == 건);
@@ -749,16 +659,19 @@ public sealed class RequestLinker(Database database)
     private static DateTime? Moment(string? text) =>
         DateTime.TryParse(text, out var value) ? value : null;
 
+    /// <summary>
+    /// 사람의 확정을 적는다. 옛 링크를 덮으면 그 근거·규칙판도 함께 비운다 — 남기면 사람이 고른
+    /// 짝에 기계의 근거가 붙어 보인다. 열은 스키마에 그대로 둔다(옛 <c>auto</c> 줄이 쓴다).
+    /// </summary>
     private static void Write(
         SqliteConnection connection, SqliteTransaction transaction,
-        string requestBase, string noticeGroup,
-        double confidence, string decidedBy, string? evidence, int? ruleVersion) =>
+        string requestBase, string noticeGroup, double confidence) =>
         connection.Execute(
             """
             INSERT INTO request_link
                 (request_base, notice_group, confidence, confirmed_at, decided_by, evidence, rule_version)
             VALUES
-                (@requestBase, @noticeGroup, @confidence, @now, @decidedBy, @evidence, @ruleVersion)
+                (@requestBase, @noticeGroup, @confidence, @now, 'human', NULL, NULL)
             ON CONFLICT(request_base) DO UPDATE SET
                 notice_group = excluded.notice_group,
                 confidence = excluded.confidence,
@@ -770,6 +683,6 @@ public sealed class RequestLinker(Database database)
             new
             {
                 requestBase, noticeGroup, confidence,
-                now = DateTime.UtcNow.ToString("O"), decidedBy, evidence, ruleVersion,
+                now = DateTime.UtcNow.ToString("O"),
             }, transaction);
 }

@@ -1,23 +1,36 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call } from "./bridge";
 
 type Field = { source: string; target: string; transform: string; codes?: Record<string, string> };
 type Profile = { id: string; entityType: string; fields: Field[]; tables: { source: string; target: string; keys: string[]; fields: Field[]; totalSelector?: string }[] };
 type Mapping = { version: number; profiles: Profile[] };
 type Versions = { active: Mapping; defaults: Mapping; versions: { revision: string; json: string; active: number; validated: number; created_at: string }[] };
-type Snapshot = { profile: string; mappingRevision: string; data: unknown; scope: string; rowMatches: Record<string, number> };
+/** screen: 수집 이력을 다시 검토할 때 이력에 적힌 화면 번호(ADR-037). 걸러 담은 이력에는 메뉴 경로가 없다 — 파일은 싣지 않고 원본의 경로를 본다. */
+type Snapshot = { profile: string; mappingRevision: string; data: unknown; scope: string; rowMatches: Record<string, number>; screen?: string };
 type Change = { id: string; table: string; line: number; field: string; before: string | null; after: string | null; conflict: boolean; override?: string };
 type Preview = { entity: string; entityType: string; baseToken: string; mappingRevision: string; itemCount: number; changes: Change[];
   unmatched: { id: string; table: string; sourceKey: string; existing: Record<string, unknown>[] }[] };
 const run = <T,>(operation: string, data: unknown = {}) => call<T>("erpTools", operation, JSON.stringify(data));
 
-/** 고급 도구도 동일한 inspect/capture를 사용한다. 매핑 편집은 업무자료를 쓰지 않는다. */
-export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
+/**
+ * 고급 도구도 동일한 inspect/capture를 사용한다. 매핑 편집은 업무자료를 쓰지 않는다.
+ *
+ * <p><code>startOpen</code> 이면 펼친 채로 서고 매핑을 곧바로 읽는다 — 나라장터 화면의 「고급」 을 펼친 사람은
+ * 이 도구를 쓰러 온 것이라 한 번 더 펼치게 하지 않는다. <code>focusRequest</code> 가 바뀌면 JSON 파일 고르는 자리로
+ * 초점을 옮긴다(「JSON 파일로 가져오기…」). 읽는 동안은 칸이 잠겨 초점을 받지 못하므로 다 읽은 뒤에 옮긴다.</p>
+ */
+export function ErpTools({ onChanged, startOpen = false, focusRequest = 0 }: {
+  onChanged?: () => Promise<void>;
+  startOpen?: boolean;
+  focusRequest?: number;
+}) {
   const [config, setConfig] = useState<Versions>();
   const [json, setJson] = useState("");
   const [profile, setProfile] = useState("g2b-request-v1");
   const [source, setSource] = useState("");
   const [sourceName, setSourceName] = useState("");
+  /** 수집 이력에서 불러왔으면 그 이력의 화면 번호. 파일을 고르면 걷는다. */
+  const [sourceScreen, setSourceScreen] = useState<string>();
   const [preview, setPreview] = useState<Preview>();
   const [pending, setPending] = useState<{ snapshot: Snapshot; baseToken: string; captureId: string; choices: Record<string, string> }>();
   const [snapshot, setSnapshot] = useState<Snapshot>();
@@ -28,6 +41,10 @@ export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [refs, setRefs] = useState<{ entityType: string; base: string; target: string; state: string }[]>([]);
   const [history, setHistory] = useState<{ capture_id: string; entity_base: string; entity_seq: string; snapshot_json: string }[]>([]);
+  /** 매핑을 읽으러 갔는가. 펼친 채로 서면 효과와 펼침 사건이 함께 읽으러 가지 않게 한다. */
+  const asked = useRef(false);
+  const jsonInput = useRef<HTMLInputElement>(null);
+  const focused = useRef(0);
   async function work(fn: () => Promise<void>) {
     setBusy(true); setError(""); setMessage("");
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -35,8 +52,9 @@ export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
   }
   function invalidate() { setPending(undefined); setPreview(undefined); setSnapshot(undefined); setChoices({}); }
   async function load() {
-    const result = await run<Versions>("list"); setConfig(result);
-    setJson(JSON.stringify(result.active, null, 2)); invalidate();
+    // 읽지 못했으면 다시 펼칠 때 다시 읽으러 간다.
+    try { const result = await run<Versions>("list"); setConfig(result); setJson(JSON.stringify(result.active, null, 2)); invalidate(); }
+    catch (e) { asked.current = false; throw e; }
   }
   let edited: Mapping | undefined;
   try {
@@ -54,13 +72,24 @@ export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
     const current = await run<Versions>("list");
     // 서버가 활성 버전의 해시를 반환하므로 JS에 별도 해시 구현을 두지 않는다.
     const revision = await run<string>("saveMapping", { json: JSON.stringify(current.active) });
-    const input: Snapshot = { profile, mappingRevision: revision, data: JSON.parse(source), scope: "file", rowMatches: matches };
+    const input: Snapshot = { profile, mappingRevision: revision, data: JSON.parse(source), scope: "file", rowMatches: matches,
+      ...(sourceScreen ? { screen: sourceScreen } : {}) };
     const result = await run<Preview>("inspect", input);
     setPending(undefined); setSnapshot(input); setPreview(result); setChoices({});
-    setMessage(result.unmatched.length ? "기존 행과 대응을 선택한 뒤 다시 미리보기하세요." : "파일에 담긴 범위만 비교했습니다.");
+    setMessage(result.unmatched.length ? "기존 행과 대응을 선택한 뒤 다시 미리보기하세요." : "파일에 있는 범위만 비교했습니다.");
   }
+  useEffect(() => {
+    if (startOpen && !asked.current) { asked.current = true; void work(load); }
+  }, []); // 처음 한 번만 — 펼친 채로 선 때다.
+  useEffect(() => {
+    if (!focusRequest || focusRequest === focused.current || busy) return;
+    focused.current = focusRequest;
+    jsonInput.current?.scrollIntoView({ block: "center" });
+    jsonInput.current?.focus();
+  }, [focusRequest, busy]);
   const ready = preview && snapshot && !preview.unmatched.length && preview.changes.filter(c => c.conflict).every(c => choices[c.id]);
-  return <details className="erp-tools" onToggle={e => { if (e.currentTarget.open && !config && !busy) void work(load); }}>
+  return <details className="erp-tools" open={startOpen || undefined}
+    onToggle={e => { if (e.currentTarget.open && !config && !busy && !asked.current) { asked.current = true; void work(load); } }}>
     <summary>고급 · 수집 매핑과 JSON 검토</summary>
     <fieldset disabled={busy}>
       <legend>매핑 관리</legend>
@@ -97,7 +126,7 @@ export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
     </fieldset>
     <fieldset disabled={busy}>
       <legend>JSON 자료 검토</legend>
-      <label className="action file">JSON 파일 선택<input type="file" accept=".json" onChange={e => { const f = e.target.files?.[0]; if (f) void work(async () => { setSource(await f.text()); setSourceName(f.name); setMatches({}); invalidate(); }); }}/></label>
+      <label className="action file">JSON 파일 선택<input ref={jsonInput} type="file" accept=".json" onChange={e => { const f = e.target.files?.[0]; if (f) void work(async () => { setSource(await f.text()); setSourceName(f.name); setSourceScreen(undefined); setMatches({}); invalidate(); }); }}/></label>
       <p className="hint">{sourceName || "선택한 자료 없음"}</p>
       <button className="action" type="button" disabled={!source} onClick={() => void work(inspect)}>활성 매핑으로 미리보기</button>
       {preview && <><h3>{preview.entity} · 품목 {preview.itemCount}행</h3>
@@ -125,7 +154,9 @@ export function ErpTools({ onChanged }: { onChanged?: () => Promise<void> }) {
       <ul>{history.map(h => <li key={h.capture_id}>{h.entity_base}-{h.entity_seq} <button className="action" type="button" onClick={() => void work(async () => {
         const saved = JSON.parse(h.snapshot_json);
         if (!saved.data) throw new Error("이전 형식 이력입니다. 원본 JSON 파일을 다시 선택하세요.");
-        setSource(JSON.stringify(saved.data)); setSourceName("허용 필드 수집 이력"); setProfile(saved.profile); setMatches({}); invalidate();
+        // 받는 화면은 화면 번호로만 가린다(ADR-037). 번호를 적기 전의 이력은 어느 화면의 것인지 알 수 없다.
+        if (typeof saved.screen !== "string" || !saved.screen) throw new Error("이 수집 이력에는 화면 번호가 없어 다시 검토할 수 없습니다. 원본 JSON 파일을 여세요.");
+        setSource(JSON.stringify(saved.data)); setSourceName("허용 필드 수집 이력"); setSourceScreen(saved.screen); setProfile(saved.profile); setMatches({}); invalidate();
       })}>현재 매핑으로 재검토</button></li>)}</ul>
     </details>
     <p role="status" className="hint">{busy ? "처리 중…" : message}</p>{error && <p role="alert">{error}</p>}

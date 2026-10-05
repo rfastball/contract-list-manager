@@ -25,8 +25,7 @@ public class OutlineTests : IDisposable
 
     public OutlineTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -142,7 +141,7 @@ public class OutlineTests : IDisposable
 
         using var connection = _database.Open();
         using var count = connection.CreateCommand();
-        count.CommandText = "SELECT COUNT(*) FROM v_접수품목_v1;";
+        count.CommandText = "SELECT COUNT(*) FROM v_접수품목;";
         Assert.Equal(3L, count.ExecuteScalar());
     }
 
@@ -164,8 +163,59 @@ public class OutlineTests : IDisposable
 
         using var connection = _database.Open();
         using var read = connection.CreateCommand();
-        read.CommandText = "SELECT 인도조건 || '|' || 세부품명 FROM v_접수_v1;";
+        read.CommandText = "SELECT 인도조건 || '|' || 세부품명 FROM v_접수;";
         Assert.Equal("납품장소 입고도|", read.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// 접수도 세부품명이 여럿일 때 칸마다 본다. 단위가 모두 같으면 수량을 더하고, 단위가
+    /// 갈리면 수량도 단위도 비운다 — 단위가 같아야 더한 수가 뜻을 갖는다.
+    /// </summary>
+    [Theory]
+    [InlineData("대", "대", "3|대")]
+    [InlineData("대", "식", "|")]
+    public void 접수_수량은_단위가_같을_때만_더한다(string first, string second, string expected)
+    {
+        _store.UpsertRequest(Request("000") with
+        {
+            Items =
+            [
+                new RequestItemRecord { LineNo = 1, RequestNumber = "REQ-A", ItemName = "지어낸 기계", Quantity = 1, Unit = first },
+                new RequestItemRecord { LineNo = 2, RequestNumber = "REQ-B", ItemName = "지어낸 부품", Quantity = 2, Unit = second },
+            ],
+        });
+
+        using var connection = _database.Open();
+        using var read = connection.CreateCommand();
+        read.CommandText = "SELECT 수량 || '|' || 단위 FROM v_접수;";
+        Assert.Equal(expected, read.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// 접수도 빈 줄을 한 값으로 센다. 한 줄만 재고번호를 적었으면 접수 전체의 재고번호가
+    /// 아니고, 수량이 빈 줄이 있으면 합은 모르는 수다.
+    /// </summary>
+    [Theory]
+    [InlineData("STK-1", "STK-1", 5, 3, "STK-1|8")]
+    [InlineData("STK-1", null, 5, 3, "|8")]
+    [InlineData("STK-1", "", 5, 3, "|8")]
+    [InlineData("STK-1", "STK-1", 5, null, "STK-1|")]
+    public void 접수도_빈_줄이_섞이면_칸을_비운다(
+        string? firstStock, string? secondStock, int? firstQuantity, int? secondQuantity, string expected)
+    {
+        _store.UpsertRequest(Request("000") with
+        {
+            Items =
+            [
+                new RequestItemRecord { LineNo = 1, RequestNumber = "REQ-A", ItemName = "지어낸 기계", Quantity = firstQuantity, Unit = "대", StockNumber = firstStock },
+                new RequestItemRecord { LineNo = 2, RequestNumber = "REQ-B", ItemName = "지어낸 부품", Quantity = secondQuantity, Unit = "대", StockNumber = secondStock },
+            ],
+        });
+
+        using var connection = _database.Open();
+        using var read = connection.CreateCommand();
+        read.CommandText = "SELECT 재고번호 || '|' || 수량 FROM v_접수;";
+        Assert.Equal(expected, read.ExecuteScalar());
     }
 
     /// <summary>차수는 접는다 — 본문에는 최신 하나가 서고 쌓인 차수는 이름표로 모인다.</summary>

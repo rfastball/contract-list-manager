@@ -56,10 +56,10 @@ dotnet build src/Pclm.App
 & './src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe' --erp-dev
 ```
 
-개발 DB는 `%LOCALAPPDATA%\Pclm.Erp.Dev\pclm.db` 하나만 사용한다.
+개발 자료는 개발 홈 `%LOCALAPPDATA%\Pclm.Erp.Dev` 의 쪽지가 가리키는 작업자료 하나만 사용한다.
 WebView2 캐시와 오류 로그도 `Pclm.Erp.Dev` 아래에 분리한다.
 개발 GUI가 생성·판올림하고, Native Host는 기존 DB만 연다.
-`--erp-dev`와 `--db`는 함께 쓸 수 없다. 개발 실행에서 자료 이동은 차단한다.
+`--erp-dev`와 `--home`은 함께 쓸 수 없다(`--db`는 걷었다). 개발 홈에서 작업자료를 옮기거나 바꿔도 업무 홈의 쪽지는 건드리지 않는다.
 인자 없이 실행하면 기존 운영 모드이므로 이번 검증에는 반드시 `--erp-dev`를 사용한다.
 
 1. Chrome의 `chrome://extensions` 또는 Edge의 `edge://extensions`에서 개발자 모드를 켠다.
@@ -128,7 +128,7 @@ Native Host와 C# 코드는 이번 UI 변경에서 바뀌지 않았으므로 기
 
 ## 테스트 변화
 
-기존 소유자 검색: DataLocationTests(자료 위치), MergeTests(취합 테이블 정책), 기존 프런트 컴포넌트 테스트.
+기존 소유자 검색: HomeTests·WorkfileSwitchTests(자료 위치), MergeTests(취합 테이블 정책), 기존 프런트 컴포넌트 테스트.
 새 통신·수집 경로를 검증하는 기존 소유자는 없었다.
 
 - 고유 위험: 부분수집이 기존 자료를 삭제함, 중복·충돌 요청이 잘못 저장됨, 프레임 오염,

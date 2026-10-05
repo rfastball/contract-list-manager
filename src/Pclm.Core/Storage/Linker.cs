@@ -7,7 +7,7 @@ namespace Pclm.Core.Storage;
 /// 계약 한 건에 붙일 공고 후보.
 /// </summary>
 /// <param name="TitleMatched">건명이 정확히 일치하는가. 아니면 약한 근거로 올라온 후보다.</param>
-/// <param name="Blocker">자동으로 이어지지 않은 까닭. 없으면 사람이 볼 이유도 딱히 없다.</param>
+/// <param name="Blocker">잇기 전에 걸리는 점. 없으면 판정을 통과한 유일한 후보다.</param>
 public sealed record LinkCandidate(
     EntityRef Contract,
     string ContractTitle,
@@ -35,7 +35,10 @@ public sealed record LinkFacet(string Name, string Contract, string Notice, bool
 /// 그 줄이 화면에 서 있어야 한다. 후보가 하나도 없는 것도 낸다.
 /// </summary>
 /// <param name="Notice">지금 이어져 있는 공고. <c>null</c> 이면 아직 이어지지 않았다.</param>
-/// <param name="DecidedBy">누가 이었는가(<c>auto</c>·<c>human</c>). 이어지지 않았으면 <c>null</c>.</param>
+/// <param name="DecidedBy">
+/// 누가 이었는가 — <c>human</c>·<c>explicit</c>(ERP 명시 참조), 옛 판이 남긴 <c>auto</c>.
+/// 이어지지 않았으면 <c>null</c>.
+/// </param>
 public sealed record LinkRow(
     EntityRef Contract, string Title, int CandidateCount,
     EntityRef? Notice, string NoticeTitle, string? DecidedBy);
@@ -49,29 +52,20 @@ public sealed record LinkWork(
     IReadOnlyList<LinkRow> Contracts,
     IReadOnlyList<LinkCandidate> Candidates);
 
-/// <summary>기계가 스스로 이은 한 건.</summary>
-public sealed record AutoLink(EntityRef Contract, EntityRef Notice, string Evidence);
-
-/// <summary>자동 확정 한 번의 결과. <paramref name="Released"/> 는 재평가로 풀린 옛 자동 링크 수다.</summary>
-public sealed record AutoLinkResult(IReadOnlyList<AutoLink> Linked, int Released = 0)
-{
-    public int Count => Linked.Count;
-}
-
 /// <summary>
 /// 공고와 계약을 잇는다.
 ///
 /// <para>계약서 어디에도 공고번호가 찍히지 않는다. 그래도 <b>나라장터가 공고명을 계약명으로
 /// 그대로 옮긴다</b> — 전파된 이름의 정확 일치는 정황 증거가 아니라 사실상 파생 키다.
-/// 그래서 건명을 <b>블로킹 키</b>로 세우고, 부수 확인을 통과한 <b>유일한</b> 후보를
-/// 기계가 스스로 잇는다(ADR-015). 판정은 점수가 아니라 <b>통과 여부와 후보 개수</b>다.</para>
+/// 그래서 건명을 <b>블로킹 키</b>로 세우고, 부수 확인을 통과했는지와 후보가 몇인지를
+/// 후보마다 적어 <b>추천한다</b>.</para>
 ///
-/// <para><b>오확정이 아니라 "사람에게 넘김" 으로 실패한다.</b> 같은 이름 공고가 둘이면
-/// (재공고·반복구매) 자동 확정이 걸리지 않고 큐로 간다. 위험한 쪽으로 기울지 않는 것이
-/// 이 규칙의 값어치다 — 조용히 잘못 이어진 링크 하나가 축적 자산 전체의 신뢰를 무너뜨린다.</para>
+/// <para><b>기계는 잇지 않는다</b>(ADR-029). 링크는 ERP 명시 참조(<c>ExplicitLinks</c>)와
+/// 사람의 확정으로만 선다 — 한때 통과한 유일 후보를 기계가 스스로 이었으나(ADR-015) 걷었다.
+/// 옛 판이 남긴 <c>decided_by = 'auto'</c> 줄은 그대로 두고 그대로 보인다.</para>
 ///
 /// <para>한 공고에 계약이 여러 건 달릴 수 있다(분할 낙찰·수요기관 복수). 계약 쪽에서 보면
-/// 후보 공고는 여전히 하나라 자동 확정이 제대로 걸리고, 그것이 정답이다.</para>
+/// 후보 공고는 여전히 하나다.</para>
 ///
 /// <para><b>세부품명이 달라도 물품분류번호 앞 8자리가 같으면 같은 품목이다</b> — 8자리 기준
 /// 이름과 10자리 기준 이름이 문서마다 섞여 찍힌다. 계약서는 물품분류번호(8자리)에 딸린
@@ -82,16 +76,6 @@ public sealed record AutoLinkResult(IReadOnlyList<AutoLink> Linked, int Released
 public sealed class Linker(Database database)
 {
     private readonly Database _database = database;
-
-    /// <summary>
-    /// 규칙판. <see cref="TitleKey"/> 나 부수 확인을 고칠 때마다 올린다 —
-    /// <see cref="Reevaluate"/> 가 이 번호로 다시 볼 링크를 고른다.
-    ///
-    /// <para><b>3판에서 세는 단위가 공고에서 건으로 바뀌었다.</b> 판정 자체는 한 글자도 손대지
-    /// 않았지만, 재공고와 원공고가 한 건이 되면서 둘로 갈려 「같은 이름 공고가 2건」으로 막히던
-    /// 짝이 이제 유일해진다 — 2판으로 이어 둔 것을 다시 보아야 그 값이 실제로 걷힌다.</para>
-    /// </summary>
-    public const int RuleVersion = 3;
 
     /// <summary>건명이 맞는 공고가 없을 때 쓰는 약한 점수의 바닥. 이 아래는 후보로도 내놓지 않는다.</summary>
     private const double Floor = 0.3;
@@ -140,40 +124,10 @@ public sealed class Linker(Database database)
     }
 
     /// <summary>
-    /// 규칙을 적용해 확신할 수 있는 짝을 잇는다. 이미 링크가 있는 계약은 건드리지 않는다.
-    /// </summary>
-    public AutoLinkResult AutoConfirm()
-    {
-        using var connection = _database.Open();
-        return AutoConfirm(connection, released: 0);
-    }
-
-    /// <summary>
-    /// 규칙이 바뀌었을 때 <b>기계가 이은 것만</b> 풀고 다시 판정한다.
+    /// 사람이 볼 후보. 이미 이어진 계약은 여기 오지 않는다.
     ///
-    /// <para>사람이 확정한 링크는 규칙판과 무관하게 남는다. 기계가 읽은 것과 사람이 붙인 것을
-    /// 갈라 두는 이 저장소의 원칙을 링크에 적용한 것이다(ADR-007·ADR-012).</para>
-    /// </summary>
-    public AutoLinkResult Reevaluate()
-    {
-        using var connection = _database.Open();
-
-        var released = connection.Execute(
-            """
-            DELETE FROM project_link
-            WHERE decided_by = 'auto' AND (rule_version IS NULL OR rule_version < @rule);
-            """,
-            new { rule = RuleVersion });
-
-        return AutoConfirm(connection, released);
-    }
-
-    /// <summary>
-    /// 사람이 볼 후보. 자동으로 이어진 계약은 여기 오지 않는다.
-    ///
-    /// <para>두 갈래다. <b>건명이 같은데도 자동으로 안 이어진 것</b>은 까닭(<c>Blocker</c>)과 함께
-    /// 내놓고, <b>건명이 맞는 공고가 아예 없는 계약</b>은 물품식별번호·건명 유사도로 약한 후보를
-    /// 낸다. 뒤쪽은 자동 확정 대상이 아니다 — 근거가 약한 것을 기계가 결정하게 두지 않는다.</para>
+    /// <para>두 갈래다. <b>건명이 같은 공고</b>는 걸리는 점(<c>Blocker</c>)과 함께 내놓고,
+    /// <b>건명이 맞는 공고가 아예 없는 계약</b>은 물품식별번호·건명 유사도로 약한 후보를 낸다.</para>
     /// </summary>
     /// <remarks>
     /// <see cref="Work"/> 가 이어진 계약의 <b>갈아탈 후보</b>까지 내므로 여기서 그것을 걸러 낸다 —
@@ -230,7 +184,7 @@ public sealed class Linker(Database database)
                     results.Count - before,
                     // 보이는 것은 <b>현행 공고 번호</b>다. 건 이름은 문서가 없는 번호일 수 있어
                     // (가스성분분석기가 가리키는 R26BK09013019) 사람 앞에 낼 것이 못 된다. 이름으로 물러서는
-                    // 것은 건에 현행이 하나도 없을 때뿐이고, 그 자리는 v_공고_v1.현행공고 도 빈다.
+                    // 것은 건에 현행이 하나도 없을 때뿐이고, 그 자리는 v_공고.현행공고 도 빈다.
                     new EntityRef("notice", linked?.Base ?? link.NoticeGroup, linked?.Seq ?? string.Empty),
                     linked?.Title ?? string.Empty,
                     link.DecidedBy));
@@ -240,7 +194,7 @@ public sealed class Linker(Database database)
 
             if (matches.Count > 0)
             {
-                // 후보가 여럿이면 어느 하나가 통과하더라도 자동으로 잇지 않는다.
+                // 후보가 여럿이면 어느 하나가 통과하더라도 그것만으로는 가를 수 없다.
                 var ambiguous = matches.Count > 1
                     ? $"같은 이름 공고가 {matches.Count}건입니다"
                     : null;
@@ -351,7 +305,7 @@ public sealed class Linker(Database database)
             "DELETE FROM link_rejection WHERE contract_base = @c AND notice_group = @n;",
             new { c = contract.Base, n = 건 });
 
-        Write(connection, contract.Base, 건, confidence, "human", evidence: null, ruleVersion: null);
+        Write(connection, contract.Base, 건, confidence);
     }
 
     /// <summary>
@@ -396,35 +350,6 @@ public sealed class Linker(Database database)
     }
 
     // ── 규칙 ─────────────────────────────────────────────
-
-    private AutoLinkResult AutoConfirm(SqliteConnection connection, int released)
-    {
-        var state = Read(connection);
-        var linked = new List<AutoLink>();
-
-        foreach (var (contract, matches) in TitleMatches(state))
-        {
-            // 이미 이어진 계약은 건드리지 않는다. 거르는 자리가 TitleMatches 에서 여기로 왔다 —
-            // 잇기 화면이 이어진 계약도 받아야 해서 그쪽은 더 이상 거르지 않는다.
-            if (state.Links.ContainsKey(contract.Base)) continue;
-
-            // 유일성. 오확정은 점수가 낮아서가 아니라 후보가 여럿일 때 난다.
-            if (matches.Count != 1) continue;
-
-            var notice = matches[0];
-            var verdict = Verify(state, contract, notice);
-            if (!verdict.Passed) continue;
-
-            Write(connection, contract.Base, notice.Group, 1.0, "auto", verdict.Evidence, RuleVersion);
-
-            linked.Add(new AutoLink(
-                new EntityRef("contract", contract.Base, contract.Seq),
-                new EntityRef("notice", notice.Base, notice.Seq),
-                verdict.Evidence));
-        }
-
-        return new AutoLinkResult(linked, released);
-    }
 
     private sealed record Verdict(bool Passed, string Evidence, string? Blocker);
 
@@ -494,7 +419,7 @@ public sealed class Linker(Database database)
     /// 한 줄이라 재공고와 원공고가 여기서 <b>하나로 셈해진다</b> — 이름이 같은 두 줄로 서서
     /// 유일성 판정을 막던 것이 그것으로 풀린다. <b>이어진 계약도 낸다</b> —
     /// 이어진 것을 여기서 걸러 버리면 잇기 화면이 그 줄을 세울 수 없어 끊을 자리가 사라진다.
-    /// 이어진 것을 건너뛸지는 부르는 쪽이 <see cref="Snapshot.Links"/> 를 보고 정한다.
+    /// 이어진 것을 어떻게 다룰지는 부르는 쪽이 <see cref="Snapshot.Links"/> 를 보고 정한다.
     /// </summary>
     private static IEnumerable<(ContractRow Contract, List<NoticeRow> Matches)> TitleMatches(Snapshot state)
     {
@@ -521,8 +446,7 @@ public sealed class Linker(Database database)
     }
 
     /// <summary>
-    /// 건명이 맞는 공고가 없을 때의 약한 점수. <b>사람에게 보여줄 순서를 정할 뿐</b>이고
-    /// 자동 확정에는 쓰이지 않는다.
+    /// 건명이 맞는 공고가 없을 때의 약한 점수. <b>사람에게 보여줄 순서를 정할 뿐</b>이다.
     /// </summary>
     private static (double Score, string Reason) WeakScore(Snapshot state, ContractRow contract, NoticeRow notice)
     {
@@ -639,8 +563,8 @@ public sealed class Linker(Database database)
     /// 세는 단위가 건이라야 재공고 건에서 후보가 둘로 갈리지 않는다.
     /// </param>
     /// <param name="Links">
-    /// 계약 계열마다 지금 이어진 <b>건</b>과 <b>누가 이었는지</b>. 화면이 「기계가 이었습니다」와
-    /// 「사람이 확정했습니다」를 갈라 적어야 해서 이어졌다는 사실만으로는 모자라다.
+    /// 계약 계열마다 지금 이어진 <b>건</b>과 <b>누가 이었는지</b>. 화면이 사람의 확정과
+    /// 명시 참조·옛 자동 연결을 갈라 적어야 해서 이어졌다는 사실만으로는 모자라다.
     /// </param>
     /// <param name="ContractClassNumbers">문서에 찍힌 그대로의 물품분류번호. 사람에게 보일 값이다.</param>
     /// <param name="ContractClasses">
@@ -732,15 +656,18 @@ public sealed class Linker(Database database)
     private static DateTime? Moment(string? text) =>
         DateTime.TryParse(text, out var value) ? value : null;
 
+    /// <summary>
+    /// 사람의 확정을 적는다. 옛 링크를 덮으면 그 근거·규칙판도 함께 비운다 — 남기면 사람이 고른
+    /// 짝에 기계의 근거가 붙어 보인다. 열은 스키마에 그대로 둔다(옛 <c>auto</c> 줄이 쓴다).
+    /// </summary>
     private static void Write(
-        SqliteConnection connection, string contractBase, string noticeGroup,
-        double confidence, string decidedBy, string? evidence, int? ruleVersion) =>
+        SqliteConnection connection, string contractBase, string noticeGroup, double confidence) =>
         connection.Execute(
             """
             INSERT INTO project_link
                 (contract_base, notice_group, confidence, confirmed_at, decided_by, evidence, rule_version)
             VALUES
-                (@contractBase, @noticeGroup, @confidence, @now, @decidedBy, @evidence, @ruleVersion)
+                (@contractBase, @noticeGroup, @confidence, @now, 'human', NULL, NULL)
             ON CONFLICT(contract_base) DO UPDATE SET
                 notice_group = excluded.notice_group,
                 confidence = excluded.confidence,
@@ -752,7 +679,7 @@ public sealed class Linker(Database database)
             new
             {
                 contractBase, noticeGroup, confidence,
-                now = DateTime.UtcNow.ToString("O"), decidedBy, evidence, ruleVersion,
+                now = DateTime.UtcNow.ToString("O"),
             });
 
     /// <summary>계열 하나가 가진 값들을 모은다. 차수를 넘나들며 합친다.</summary>

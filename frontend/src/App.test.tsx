@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { invoke } from "./mock";
+import type { Outline, Summary } from "./types";
 
 /**
  * 가짜 다리를 <b>그대로 태우되</b> 무엇을 불렀는지만 엿듣는다.
@@ -38,26 +39,71 @@ afterEach(cleanup);
  * 여기서 보는 것은 값이 아니라 <b>배선</b>이다.</p>
  */
 describe("App", () => {
+  it("클릭 없이 변경된 자료와 건수를 갱신하고 같은 버전은 다시 읽지 않는다", async () => {
+    let version = 0;
+    let fail = false;
+    부름.mockImplementation(async (method, args) => {
+      if (method === "dataVersion") return version;
+      if (method === "outline" && fail) throw new Error("일시적인 조회 실패");
+      const result = await 본디(method, args);
+      if (method === "status") return { ...(result as Summary), requestBases: 100 + version };
+      if (method === "outline" && version > 0) {
+        const tree = structuredClone(result as Outline);
+        tree.chains[0].request!.title = "자동 수신된 접수";
+        return tree;
+      }
+      return result;
+    });
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(<App />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(screen.getByRole("row", { name: "26년한별윈치8종구매" })).toBeTruthy();
+      부름.mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(부름).toHaveBeenCalledWith("dataVersion", []);
+      expect(부름).not.toHaveBeenCalledWith("outline", []);
+      expect(부름).not.toHaveBeenCalledWith("status", []);
+
+      version++;
+      fail = true;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(screen.getByRole("heading", { name: "자료를 읽지 못했습니다" })).toBeTruthy();
+      fail = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(screen.getByRole("row", { name: "자동 수신된 접수" })).toBeTruthy();
+      expect(screen.getByLabelText("전체 자료 수").textContent).toContain("접수 101");
+
+      unmount();
+      부름.mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(부름).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
   it("늦은 조회와 오류가 다른 탭의 자료를 덮지 않고 실패한 조회를 재시도한다", async () => {
     const user = userEvent.setup();
     let finish!: (value: unknown) => void;
     let fail = true;
     부름.mockImplementation((method, args) => {
-      if (method === "sheet" && args[0] === "v_공고_v1") return new Promise(resolve => { finish = resolve; });
-      if (method === "sheet" && args[0] === "v_계약_v1" && fail) return Promise.reject(new Error("시험용 조회 실패"));
+      if (method === "sheet" && args[0] === "v_공고") return new Promise(resolve => { finish = resolve; });
+      if (method === "sheet" && args[0] === "v_계약" && fail) return Promise.reject(new Error("시험용 조회 실패"));
       return 본디(method, args);
     });
     render(<App />);
     await screen.findByRole("searchbox");
-    await user.click(screen.getByRole("tab", { name: "공고" }));
+    await user.click(screen.getByRole("tab", { name: /^공고/ }));
     await waitFor(() => expect(finish).toBeDefined());
     expect(screen.queryByRole("grid")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: "계약" }));
+    await user.click(screen.getByRole("tab", { name: /^계약/ }));
     await screen.findByRole("heading", { name: "자료를 읽지 못했습니다" });
     fail = false;
     await user.click(screen.getByRole("button", { name: "다시 읽기" }));
     await screen.findByRole("columnheader", { name: "계약번호" });
-    await act(async () => { finish(await 본디("sheet", ["v_공고_v1"])); });
+    await act(async () => { finish(await 본디("sheet", ["v_공고"])); });
     expect(screen.getByRole("columnheader", { name: "계약번호" })).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: "공고종류" })).toBeNull();
   });
@@ -69,7 +115,7 @@ describe("App", () => {
     await user.click(within(chain).getByText("MPKPLA26910286-000"));
     await user.click(screen.getByRole("button", { name: "표에서 보기" }));
     expect((await screen.findByRole("searchbox") as HTMLInputElement).value).toBe("MPKPLA26910286-000");
-    expect(screen.getByRole("tab", { name: "접수" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^접수/ }).getAttribute("aria-selected")).toBe("true");
     await user.click(screen.getByRole("tab", { name: "통합" }));
     await user.click(screen.getByRole("button", { name: "구조" }));
     await user.click(within(await screen.findByRole("row", { name: "26년한별윈치8종구매" })).getByText("MPKPLA26910286-000"));
@@ -91,26 +137,36 @@ describe("App", () => {
   });
 
   /**
-   * 차례는 흐름 그대로 접수 → 공고 → 계약이고, 통합이 그 셋을 한 줄에 모아 낸 것이라 맨
-   * 앞이다. 계획은 그 앞칸이 아니라 <b>분모</b>라 통합 다음이고, 현황은 지표가 아직 가상이라
-   * 맨 뒤에 선다 — 기본 탭은 통합 그대로다.
+   * 통합이 맨 앞이고, 그다음은 나라장터 한 원천에서 갈라지는 접수 → 공고 → 계약이다. 계획은 그 앞칸이 아니라
+   * <b>분모</b>라 갈래 뒤에, 현황은 지표가 아직 가상이라 맨 뒤에 선다 — 기본 탭은 통합 그대로다.
+   * 방향키·Home·End 는 보이는 차례를 그대로 따른다.
    */
-  it("여섯 자료 탭을 키보드로 선택하고 처음으로 돌아온다", async () => {
+  it("일곱 자료 탭을 키보드로 선택하고 처음으로 돌아온다", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(
-      ["통합", "계획", "접수", "공고", "계약", "현황"]);
+    expect(tabs.map((t) => t.id)).toEqual(
+      ["tab-통합", "tab-나라장터", "tab-접수", "tab-공고", "tab-계약", "tab-계획", "tab-현황"]);
     tabs[0].focus();
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(tabs[1]);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "나라장터", level: 1 })).toBeTruthy();
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(tabs[2]);
+    expect(tabs[2].getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+    expect(tabs[5].getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByRole("heading", { name: "조달 계획" })).toBeTruthy();
     await user.keyboard("{End}");
-    expect(tabs[5].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[6].getAttribute("aria-selected")).toBe("true");
     await user.keyboard("{ArrowDown}");
     expect(document.activeElement).toBe(tabs[0]);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{ArrowUp}");
+    expect(tabs[6].getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{Home}");
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
   });
 
@@ -128,36 +184,36 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "계약" }));
+    await user.click(await screen.findByRole("tab", { name: /^계약/ }));
 
     expect(await screen.findByRole("columnheader", { name: /진행상태/ })).toBeTruthy();
   });
 
   /** 접수는 세 번째 개체다. 제 뷰를 열지 못하면 탭만 서고 몸통은 영영 「읽는 중…」에 머문다. */
-  it("접수 탭은 v_접수_v1 을 열고 조달요구번호를 낸다", async () => {
+  it("접수 탭은 v_접수 를 열고 조달요구번호를 낸다", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "접수" }));
+    await user.click(await screen.findByRole("tab", { name: /^접수/ }));
 
     expect(await screen.findByRole("columnheader", { name: "조달요구번호" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "접수번호" })).toBeTruthy();
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_접수_v1"]);
+    expect(부름).toHaveBeenCalledWith("sheet", ["v_접수"]);
   });
 
   /**
-   * 통합이 보는 것은 <b>v2</b> 다. v1 은 계약면 약속이라 손대지 않고 나란히 세웠으므로,
-   * 여기서 v1 을 열면 접수 아홉 열이 통째로 빠진 채 아무 말 없이 그럴듯하게 선다.
+   * 통합이 보는 것은 <b>v_통합</b>이다. 접수 아홉 열이 빠진 표를 열면 아무 말 없이 그럴듯하게
+   * 선다 — 그래서 접수 쪽 열이 실제로 서는지 본다.
    */
-  it("통합 표는 v_통합_v2 를 연다", async () => {
+  it("통합 표는 v_통합을 연다", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "표" }));
 
-    // 이 열은 v2 에만 있다.
+    // 이 열은 통합이 접수에서 붙여 오는 것이다.
     expect(await screen.findByRole("columnheader", { name: "조달요구번호" })).toBeTruthy();
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_통합_v2"]);
+    expect(부름).toHaveBeenCalledWith("sheet", ["v_통합"]);
   });
 
   /**
@@ -170,15 +226,16 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "공고" }));
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
     await user.click(await screen.findByRole("button", { name: "전체 차수" }));
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_공고차수_v1"]);
+    // 다리는 가짜 다리를 동적으로 불러 부르므로 누름과 같은 틱에 닿지 않는다 — 기다린다.
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", ["v_공고차수"]));
 
-    await user.click(screen.getByRole("tab", { name: "계약" }));
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_계약차수_v1"]);
+    await user.click(screen.getByRole("tab", { name: /^계약/ }));
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", ["v_계약차수"]));
 
     await user.click(screen.getByRole("tab", { name: "통합" }));
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_통합_v3"]);
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", ["v_통합차수"]));
   });
 
   /**
@@ -189,13 +246,13 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "공고" }));
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
     await user.click(await screen.findByRole("button", { name: "전체 차수" }));
 
-    await user.click(screen.getByRole("tab", { name: "접수" }));
+    await user.click(screen.getByRole("tab", { name: /^접수/ }));
 
     expect(await screen.findByRole("columnheader", { name: "조달요구번호" })).toBeTruthy();
-    expect(부름).toHaveBeenCalledWith("sheet", ["v_접수_v1"]);
+    expect(부름).toHaveBeenCalledWith("sheet", ["v_접수"]);
   });
 
   /**
@@ -207,7 +264,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "공고" }));
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
 
     // 최신만 내는 표에는 갈린 건의 현행 한 장만 선다 — 취소된 당초의 번호는 어디에도 없다.
     expect(await screen.findByRole("columnheader", { name: /현행공고/ })).toBeTruthy();
@@ -253,7 +310,7 @@ describe("App", () => {
     expect(screen.getByRole("listbox", { name: "계약 목록" })).toBeTruthy();
 
     // 탭을 누르면 공고 연결이 닫히고 몸통이 돌아온다.
-    await user.click(screen.getByRole("tab", { name: "공고" }));
+    await user.click(screen.getByRole("tab", { name: /^공고/ }));
     expect(screen.queryByRole("listbox", { name: "계약 목록" })).toBeNull();
   });
 
@@ -293,18 +350,18 @@ describe("App", () => {
   });
 
   /**
-   * 규칙판이 오르면 옛 자동 링크를 다시 봐야 한다. 그 길이 창에 없으면 규칙을 고쳐도
-   * 이미 이어 둔 것은 옛 판정 그대로 남는다 — 배포물에는 명령줄이 없다.
+   * 참조를 담은 자료가 늦게 들어오면 명시 참조로 다시 이어야 한다. 그 길이 창에 없으면
+   * 배포물에서는 이을 수 없다 — 배포물에는 명령줄이 없다.
    */
-  it("자동 연결 재검토가 다리를 부르고 결과를 알린다", async () => {
+  it("명시 참조로 다시 잇기가 다리를 부르고 결과를 알린다", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: /공고 연결/ }));
-    await user.click(await screen.findByRole("button", { name: "자동 연결 재검토" }));
+    await user.click(await screen.findByRole("button", { name: "명시 참조로 다시 잇기" }));
 
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("relink", []));
-    expect(await screen.findByText(/자동 연결 1건 · 기존 자동 연결 0건 재검토/)).toBeTruthy();
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("relinkExplicit", []));
+    expect(await screen.findByText(/명시 참조 연결 1건 · 기존 연결 유지/)).toBeTruthy();
   });
 
   /** 지금 어느 자료를 여는지 창이 말해야 한다 — 명령줄은 이미 첫 줄에 적는다. */
@@ -314,18 +371,26 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "설정" }));
 
     // 경로 구분자는 정규식 이스케이프에 걸리므로 양끝만 본다.
-    expect(await screen.findByText(/AppData.+pclm\.db/)).toBeTruthy();
+    expect(await screen.findByText(/AppData.+계약자료\.pclm/)).toBeTruthy();
+    // 작업자료를 가리키는 홈도 함께 적는다 — 쪽지·백업·확장 연결이 거기 있다.
+    expect(await screen.findByText(/홈 C:.+Pclm/)).toBeTruthy();
   });
 
-  /** 옮기기는 적어 두기만 한다. "옮겼다" 고 말하면 사람이 곧바로 옛 자리를 지운다. */
-  it("폴더 옮기기는 다음 실행에 옮긴다고 알린다", async () => {
+  /**
+   * 자리 옮기기는 「다음 실행에 옮긴다」 는 예약이 아니다 — 그 예약은 그 사이의 편집이 어디에 쌓이는지를 흐렸다.
+   * 이제 옮기기는 전환 절차(ADR-032)로 그 자리에서 끝나고, 고른 자리를 확인받기 전에는 아무것도 하지 않는다.
+   */
+  it("자리 옮기기는 예약하지 않고 확인을 받기 전에는 아무것도 바꾸지 않는다", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "설정" }));
-    await user.click(await screen.findByRole("button", { name: "다른 폴더로 옮기기…" }));
 
-    // 설정 창의 안내와 토스트가 둘 다 말한다 — 설정을 닫아도 남게.
-    expect(await screen.findAllByText(/앱을 다시 실행하면/)).toHaveLength(2);
+    const dialog = await screen.findByRole("dialog", { name: "설정" });
+    await user.click(await within(dialog).findByRole("button", { name: "작업자료 옮기기…" }));
+
+    expect(await screen.findByRole("dialog", { name: "작업자료 옮기기" })).toBeTruthy();
+    expect(부름.mock.calls.map(([m]) => m)).not.toContain("moveWorkfile");
+    expect(부름.mock.calls.map(([m]) => m)).not.toContain("moveDataLocation");
   });
 
   it("설정에서 제출자 이름을 고친다", async () => {
@@ -365,7 +430,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "계약" }));
+    await user.click(await screen.findByRole("tab", { name: /^계약/ }));
     await screen.findByRole("columnheader", { name: /계약번호/ });
 
     await user.keyboard("{Control>}f{/Control}");
@@ -398,7 +463,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "계약" }));
+    await user.click(await screen.findByRole("tab", { name: /^계약/ }));
     await screen.findByRole("columnheader", { name: /진행상태/ });
 
     // 진행상태 칸을 열어 본다 — 고르기 상자가 아니라 입력칸이어야 한다.
@@ -423,7 +488,7 @@ describe("App", () => {
     await waitFor(() => expect(within(dialog).getByDisplayValue("담당")).toBeTruthy());
 
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
-    await user.click(screen.getByRole("tab", { name: "계약" }));
+    await user.click(screen.getByRole("tab", { name: /^계약/ }));
 
     expect(await screen.findByRole("columnheader", { name: /담당/ })).toBeTruthy();
   });
@@ -486,7 +551,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("tab", { name: "계약" }));
+    await user.click(await screen.findByRole("tab", { name: /^계약/ }));
     await screen.findByRole("columnheader", { name: /계약건명/ });
 
     // 같은 건명이 여러 줄에 서므로 글자가 아니라 자리로 짚는다 (0행은 머리글).

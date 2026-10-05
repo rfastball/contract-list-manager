@@ -70,7 +70,16 @@ export function Grid({
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
   const [sort, setSort] = useState<Sort | null>(null);
-  const [cursor, setCursor] = useState({ row: 0, col: 0 });
+  /**
+   * 커서는 <b>줄의 신원</b>으로 든다. <code>row</code> 는 마지막으로 본 자리일 뿐이다.
+   *
+   * <p>예전에는 자리 번호만 들어, 커서가 선 채로 <code>rows</code> 가 바뀌면(창에 돌아올 때마다
+   * 바깥이 다시 읽고, 정렬 중에 저장하면 다시 세워지고, 고친 값이 찾기에서 빠지면) 같은 번호가
+   * <b>다른 레코드</b>를 가리켰다 — 편집 중이던 글자가 오류 없이 남의 줄에 저장됐다.</p>
+   */
+  const [cursor, setCursor] = useState<{ id: string | null; row: number; col: number }>(
+    { id: null, row: 0, col: 0 },
+  );
 
   /** 편집 중인 글자. null 이면 보기 상태다. */
   const [draft, setDraft] = useState<string | null>(null);
@@ -115,27 +124,75 @@ export function Grid({
     });
   }, [sheet, query, sort]);
 
-  // 걸러내거나 세운 뒤 자리가 사라질 수 있어 커서를 안으로 당긴다.
-  useEffect(() => {
-    setCursor((c) => ({
-      row: Math.min(c.row, Math.max(rows.length - 1, 0)),
-      col: Math.min(c.col, sheet.columns.length - 1),
-    }));
-    setDraft(null);
-  }, [rows.length, sheet.columns.length]);
-
-  useEffect(() => {
-    here.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [cursor]);
-
   /**
-   * 그 줄을 부르는 이름. 앞에서부터 차 있는 것을 쓴다 — 지우기와 React 키가 이것을 본다.
+   * 그 줄을 부르는 이름. 앞에서부터 차 있는 것을 쓴다 — 지우기와 커서가 이것을 본다.
    * 통합에서 계약이 아직 없는 줄도 이름을 갖게 하는 자리다.
    */
   const 이름 = useCallback(
     (r: Record<string, string>) => identityColumns.map((c) => r[c] ?? "").find(Boolean) ?? "",
     [identityColumns],
   );
+
+  /**
+   * 커서와 React 키가 붙드는 줄의 신원 — 이름에 <b>원본 순서에서 몇 번째 같은 이름인지</b>를
+   * 붙인다. 차수를 편 뷰는 한 이름이 여러 줄로 서므로 이름만으로는 줄 하나를 가리키지 못한다.
+   * 원본 순서로 세므로 정렬·찾기로는 바뀌지 않는다.
+   */
+  const 신원 = useMemo(() => {
+    const seen = new Map<string, number>();
+    const ids = new Map<Record<string, string>, string>();
+    for (const r of sheet.rows) {
+      const name = 이름(r);
+      const nth = seen.get(name) ?? 0;
+      seen.set(name, nth + 1);
+      ids.set(r, `${name}\u0000${nth}`);
+    }
+    return (r: Record<string, string>) => ids.get(r) ?? 이름(r);
+  }, [sheet.rows, 이름]);
+
+  const last = Math.max(rows.length - 1, 0);
+
+  // 커서가 선 줄을 이번 rows 에서 찾는다. 같은 자리에 그대로 있으면 그것을, 옮겨 갔으면 옮긴
+  // 자리를 쓴다. 사라졌으면(지웠거나 찾기에서 빠졌으면) 마지막으로 본 자리 근처로 당긴다.
+  const found = useMemo(() => {
+    if (cursor.id === null) return -1;
+    const there = rows[cursor.row];
+    if (there !== undefined && 신원(there) === cursor.id) return cursor.row;
+    return rows.findIndex((r) => 신원(r) === cursor.id);
+  }, [rows, cursor.id, cursor.row, 신원]);
+  const at = found >= 0 ? found : Math.min(cursor.row, last);
+  /** 편집하던 줄이 사라졌다 — 그 글자를 옆 줄에 넣을 수는 없다. */
+  const lost = cursor.id !== null && found < 0;
+
+  // 찾은 자리를 커서에 되적는다. 사라졌으면 당겨 선 줄을 새로 붙들고 편집 중이던 글자를 버린다.
+  useEffect(() => {
+    if (lost) setDraft(null);
+    const r = rows[at];
+    if (r === undefined) return; // 찾기 결과가 비었다 — 검색을 지우면 그 줄로 돌아간다
+    const id = 신원(r);
+    if (id !== cursor.id || at !== cursor.row) setCursor((c) => ({ ...c, id, row: at }));
+  }, [rows, at, lost, cursor.id, cursor.row, 신원]);
+
+  // 열이 줄면 커서를 안으로 당긴다. 열 번호가 가리키는 열이 달라졌을 수 있어 편집도 접는다.
+  useEffect(() => {
+    setCursor((c) => ({ ...c, col: Math.min(c.col, sheet.columns.length - 1) }));
+    setDraft(null);
+  }, [sheet.columns.length]);
+
+  useEffect(() => {
+    here.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [at, cursor.col]);
+
+  /** 화면에 보이는 자리로 커서를 옮긴다 — 옮긴 뒤로는 그 자리의 줄을 붙든다. */
+  const go = useCallback((index: number, col: number) => {
+    const i = Math.min(Math.max(index, 0), last);
+    const r = rows[i];
+    setCursor({
+      id: r === undefined ? null : 신원(r),
+      row: i,
+      col: Math.min(Math.max(col, 0), sheet.columns.length - 1),
+    });
+  }, [rows, last, 신원, sheet.columns.length]);
 
   /**
    * 이 줄에 <b>고친 값이 매달릴 레코드가 있는가</b>.
@@ -147,19 +204,19 @@ export function Grid({
   const 매달린다 = (r: Record<string, string> | undefined) => (r?.[keyColumn] ?? "") !== "";
 
   const column = sheet.columns[cursor.col];
-  const row = rows[cursor.row];
+  const row = rows[at];
   const canEdit =
     row !== undefined && 매달린다(row) && (editable.has(column) || correctable.has(column));
+  /** 줄이 사라진 그 한 번의 그리기에서는 글자를 옆 줄에 그리지 않는다 — 곧 버린다. */
+  const editing = lost ? null : draft;
 
   /** 이 칸에 걸린 덮개의 원래 값. 걸려 있지 않으면 undefined 다 — 빈 문자열과 구별된다. */
   const original = row === undefined ? undefined : sheet.overrides[row[keyColumn]]?.[column];
 
-  const move = useCallback((dRow: number, dCol: number) => {
-    setCursor((c) => ({
-      row: Math.min(Math.max(c.row + dRow, 0), Math.max(rows.length - 1, 0)),
-      col: Math.min(Math.max(c.col + dCol, 0), sheet.columns.length - 1),
-    }));
-  }, [rows.length, sheet.columns.length]);
+  const move = useCallback(
+    (dRow: number, dCol: number) => go(at + dRow, cursor.col + dCol),
+    [go, at, cursor.col],
+  );
 
   const commit = useCallback(async (next: string) => {
     setDraft(null);
@@ -193,7 +250,7 @@ export function Grid({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (rows.length === 0) return;
-    if (draft !== null) return; // 편집 중에는 입력 상자가 맡는다
+    if (editing !== null) return; // 편집 중에는 입력 상자가 맡는다
 
     switch (e.key) {
       case "ArrowUp": move(-1, 0); break;
@@ -202,11 +259,8 @@ export function Grid({
       case "ArrowRight": move(0, 1); break;
       case "PageUp": move(-15, 0); break;
       case "PageDown": move(15, 0); break;
-      case "Home": e.ctrlKey ? setCursor((c) => ({ ...c, row: 0, col: 0 })) : setCursor((c) => ({ ...c, col: 0 })); break;
-      case "End":
-        if (e.ctrlKey) setCursor({ row: Math.max(rows.length - 1, 0), col: sheet.columns.length - 1 });
-        else setCursor((c) => ({ ...c, col: sheet.columns.length - 1 }));
-        break;
+      case "Home": go(e.ctrlKey ? 0 : at, 0); break;
+      case "End": go(e.ctrlKey ? last : at, sheet.columns.length - 1); break;
       case "Tab": move(0, e.shiftKey ? -1 : 1); break;
       case "F2":
       case "Enter":
@@ -298,9 +352,10 @@ export function Grid({
           </thead>
           <tbody>
             {rows.map((r, ri) => (
-              <tr key={`${이름(r)}\u0000${ri}`}>
+              // 신원으로 키를 단다 — 자리 번호를 섞으면 줄이 옮길 때마다 새로 태어나 편집 상자가 끊긴다.
+              <tr key={신원(r)}>
                 {sheet.columns.map((c, ci) => {
-                  const current = ri === cursor.row && ci === cursor.col;
+                  const current = ri === at && ci === cursor.col;
                   return (
                     <Cell
                       key={c}
@@ -311,18 +366,19 @@ export function Grid({
                       original={sheet.overrides[r[keyColumn]]?.[c]}
                       definition={definitions.get(c)}
                       current={current}
-                      draft={current ? draft : null}
+                      draft={current ? editing : null}
                       saving={current && saving}
-                      onSelect={() => { setDraft(null); setCursor({ row: ri, col: ci }); board.current?.focus(); }}
+                      onSelect={() => { setDraft(null); go(ri, ci); board.current?.focus(); }}
                       onOpen={() => setDraft(r[c] ?? "")}
 
                       onDraft={setDraft}
                       onCommit={(value, move) => {
                         void commit(value);
-                        if (move) setCursor((cur) => ({
-                          row: move === "down" ? Math.min(cur.row + 1, rows.length - 1) : cur.row,
-                          col: move === "right" ? Math.min(cur.col + 1, sheet.columns.length - 1) : cur.col,
-                        }));
+                        // 「아래」 는 누른 순간 화면에서 바로 아래에 있던 줄이다. 그 줄을 붙들므로,
+                        // 정렬 중에 저장해 고친 줄이 다른 자리로 옮겨 가도 커서는 그 줄에 남는다 —
+                        // 저장 뒤의 같은 번호를 쓰면 그사이 밀려 올라온 다른 줄에 선다.
+                        if (move === "down") go(at + 1, cursor.col);
+                        else if (move === "right") go(at, cursor.col + 1);
                         board.current?.focus();
                       }}
                       onCancel={() => { setDraft(null); board.current?.focus(); }}
@@ -336,7 +392,7 @@ export function Grid({
       </div>
 
       <div className="grid-status">
-        <span>{rows.length ? cursor.row + 1 : 0} / {rows.length}</span>
+        <span>{rows.length ? at + 1 : 0} / {rows.length}</span>
         {rows.length !== sheet.rows.length && <span>· 전체 {sheet.rows.length}</span>}
         <span>· {column}</span>
         {original !== undefined && <span className="fixed">· 수정한 셀 (원래 값: {original || "빈 값"})</span>}

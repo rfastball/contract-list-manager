@@ -5,24 +5,92 @@ using Pclm.Core.Storage;
 Console.OutputEncoding = Encoding.UTF8;
 
 var command = args.Length > 0 ? args[0].ToLowerInvariant() : "help";
-// 창과 같은 자리를 본다. 갈라 두면 같은 컴퓨터에 DB 가 여럿 생기고,
-// 밖에서 읽는 쪽은 어느 것이 진짜인지 알 수 없다(Database.DefaultPath).
-var overridden = Option("--db");
-var resolved = overridden is null ? DataLocation.Resolve() : null;
-var dbPath = overridden ?? resolved!.DbPath;
-if (resolved?.Note is { } locationNote) { Console.WriteLine(locationNote); Console.WriteLine(); }
+// 창과 같은 홈의 쪽지를 본다. 갈라 두면 같은 컴퓨터에 자료가 여럿 생기고,
+// 밖에서 읽는 쪽은 어느 것이 진짜인지 알 수 없다. --home 은 개발·시험 격리의 문이다.
+// --db 는 걷었다 — 모르는 깃발로 흘려보내면 시험 자료를 연 줄 알고 실제 자료를 고친다.
+if (Flag("--db"))
+{
+    Console.Error.WriteLine("--db 는 없어졌습니다. 시험 자료는 --home <폴더> 로 따로 여세요.");
+    Environment.Exit(2);
+    return;
+}
+var homeArg = Option("--home");
+if (Flag("--home") && homeArg is null)
+{
+    Console.Error.WriteLine("--home 뒤에 폴더를 적으세요.");
+    Environment.Exit(2);
+    return;
+}
+var home = homeArg is null ? Home.Default : new Home(homeArg);
 
 // 값을 받지 않는 깃발. Positional 이 뒤에 오는 자리 인자를 옵션 값으로 삼키지 않게 알려 준다.
-string[] switches = ["--아님", "--해제", "--재평가", "--계열", "--예"];
+string[] switches = ["--아님", "--해제", "--명시", "--계열", "--예"];
 
-var database = new Database(dbPath);
-
-// 판올림이 건을 다시 지으며 사람이 이어 둔 접수나 링크를 밀어냈으면 알린다. 오류를 내지 않는
-// 자리라 여기서 말하지 않으면 이어 둔 사람은 사라진 줄도 모른다 — 글은 창과 한 벌을 쓴다.
-if (NoticeGroupText.Render(database.Migrate()) is { } 건알림)
+// --file 은 다른 자료를 열어 본다. 창의 열람과 같은 길이다 — 원본을 읽기 전용으로 홈에 한 벌 떠서
+// 그 사본을 읽는다. 원본은 판도 뷰도 바뀌지 않는다(ADR-031). 읽는 명령에만 받는다: 쓰는 명령이
+// 받으면 고친 것이 사본과 함께 사라지는데 사람은 고친 줄 안다.
+string[] viewCommands = ["status", "현황", "export"];
+var fileArg = Option("--file");
+if (Flag("--file") && fileArg is null)
 {
-    Console.Write(건알림);
-    Console.WriteLine();
+    Console.Error.WriteLine("--file 뒤에 열어 볼 파일을 적으세요.");
+    Environment.Exit(2);
+    return;
+}
+if (fileArg is not null && !viewCommands.Contains(command))
+{
+    Console.Error.WriteLine($"--file 은 열람 전용입니다 — {string.Join(" · ", viewCommands)} 에만 씁니다. {command} 는 작업자료에서 하세요.");
+    Environment.Exit(2);
+    return;
+}
+
+Database database;
+ViewedFile? viewed = null;
+if (fileArg is not null)
+{
+    // 지난번에 걷지 못한 사본을 걷는다. 창과 같은 자리·같은 규칙이다.
+    home.PruneViews();
+    try
+    {
+        viewed = PclmFile.OpenView(fileArg, home.ViewDirectory);
+    }
+    catch (PclmFileException error)
+    {
+        Console.Error.WriteLine(error.Message);
+        Environment.Exit(2);
+        return;
+    }
+
+    database = viewed.Database;
+    Console.WriteLine($"열람  {viewed.SourcePath} ({PclmRole.Name(viewed.Role)}, v{viewed.Version}) — 읽기 전용\n");
+}
+else
+// 쪽지가 깨졌거나 가리키는 파일이 없거나 작업자료가 아니면 까닭을 말하고 그친다 — 빈 자료를 세우거나
+// 다른 자료를 대신 열지 않는다. 고르는 것은 창의 시작 화면이 한다. 명령줄은 홈 잠금을 잡지 않는다:
+// 창이 떠 있는 동안 status 를 보는 것이 이 명령줄의 쓰임이다.
+switch (home.Resolve())
+{
+    case HomeState.Problem problem:
+        Console.Error.WriteLine(problem.Message);
+        if (problem.Path is { } where && !problem.Message.Contains(where)) Console.Error.WriteLine(where);
+        Environment.Exit(2);
+        return;
+
+    case HomeState.Ready ready:
+        database = ready.Database;
+        foreach (var note in ready.Notes) { Console.WriteLine(note); Console.WriteLine(); }
+
+        // 판올림이 건을 다시 지으며 사람이 이어 둔 접수나 링크를 밀어냈으면 알린다. 오류를 내지 않는
+        // 자리라 여기서 말하지 않으면 이어 둔 사람은 사라진 줄도 모른다 — 글은 창과 한 벌을 쓴다.
+        if (ready.NoticeGroupText is { } 건알림)
+        {
+            Console.Write(건알림);
+            Console.WriteLine();
+        }
+        break;
+
+    default:
+        throw new InvalidOperationException("모르는 시작 상태입니다.");
 }
 
 switch (command)
@@ -40,6 +108,8 @@ switch (command)
     default: Help(); break;
 }
 
+// 열어 본 사본은 다 읽었으면 지운다. 못 지운 것은 다음 열람이 걷는다.
+viewed?.Dispose();
 return;
 
 /// <summary>
@@ -105,7 +175,7 @@ void Status()
     var reports = new Reports(database);
     var s = reports.Summary();
 
-    Console.WriteLine($"DB  {database.Path}\n");
+    Console.WriteLine($"DB  {읽는자리()}\n");
     Console.WriteLine($"  접수   {s.RequestRows,4}행 / {s.RequestBases,4}건");
     Console.WriteLine($"  공고   {s.NoticeRows,4}행 / {s.NoticeBases,4}건");
     Console.WriteLine($"  계약   {s.ContractRows,4}행 / {s.ContractBases,4}건");
@@ -135,7 +205,7 @@ void 현황()
 {
     var report = new Pclm.Core.Storage.Status(database).Report();
 
-    Console.WriteLine($"DB  {database.Path}");
+    Console.WriteLine($"DB  {읽는자리()}");
     Console.WriteLine();
 
     foreach (var group in report.Groups)
@@ -159,7 +229,8 @@ void Link()
     var requestLinker = new RequestLinker(database);
     var rest = Positional();
 
-    if (Flag("--재평가"))
+    // 명시 참조로만 다시 잇는다. 기계가 추천만으로 잇는 길은 없다(ADR-029).
+    if (Flag("--명시"))
     {
         Console.WriteLine($"명시 참조 연결 {ExplicitLinks.Resolve(database)}건 · 기존 링크 유지");
         return;
@@ -222,7 +293,7 @@ void Link()
             {
                 var linked = c.NoticeLinkedCount > 0 ? " · 이미 접수가 붙어 있음" : "";
                 Console.WriteLine($"      품목  {c.Confidence,5:P0}  {c.Notice.Display}  {c.NoticeTitle}   ({c.Reason}{linked})");
-                if (c.Blocker is not null) Console.WriteLine($"              └ 자동으로 잇지 않은 까닭: {c.Blocker}");
+                if (c.Blocker is not null) Console.WriteLine($"              └ 확인할 점: {c.Blocker}");
             }
             Console.WriteLine();
         }
@@ -241,19 +312,10 @@ void Link()
             var mark = c.TitleMatched ? "건명" : "약함";
 
             Console.WriteLine($"      {mark}  {c.Confidence,5:P0}  {c.Notice.Display}  {c.NoticeTitle}   ({c.Reason}{linked})");
-            if (c.Blocker is not null) Console.WriteLine($"              └ 자동으로 잇지 않은 까닭: {c.Blocker}");
+            if (c.Blocker is not null) Console.WriteLine($"              └ 확인할 점: {c.Blocker}");
         }
         Console.WriteLine();
     }
-}
-
-/// <summary>기계가 스스로 이은 접수를 알린다. 근거는 수량·단가 다중집합이다.</summary>
-void ReportRequests(AutoRequestLinkResult result)
-{
-    foreach (var link in result.Linked)
-        Console.WriteLine($"  자동  {link.Request.Display}  →  {link.Notice.Display}   ({link.Evidence})");
-
-    if (result.Count > 0) Console.WriteLine($"\n접수 {result.Count}건을 자동으로 이었습니다.\n");
 }
 
 /// <summary>
@@ -266,15 +328,6 @@ EntityRef? FindLinkable(string? key)
 
     Console.Error.WriteLine($"그런 계약·접수가 없습니다: {key ?? "(빠짐)"}");
     return null;
-}
-
-/// <summary>기계가 스스로 이은 것을 알린다. 무엇을 근거로 삼았는지 함께 적는다.</summary>
-void Report(AutoLinkResult result)
-{
-    foreach (var link in result.Linked)
-        Console.WriteLine($"  자동  {link.Contract.Display}  ←  {link.Notice.Display}   ({link.Evidence})");
-
-    if (result.Count > 0) Console.WriteLine($"\n자동으로 {result.Count}건 이었습니다.\n");
 }
 
 /// <summary>사람이 친 키를 실제 행으로 옮긴다. 없으면 까닭을 적고 null.</summary>
@@ -329,7 +382,8 @@ void Submit()
         : Directory.Exists(target) ? Path.Combine(target, fileName)
         : target;
 
-    var saved = database.Snapshot(path, overwrite: true);
+    // 제출본은 자기 역할과 새 신원을 달고 나간다 — 창의 「제출본 만들기」 와 같은 길이다.
+    var saved = PclmFile.Snapshot(database, path, PclmRole.Submission, overwrite: true);
 
     Console.WriteLine($"제출본  {saved}");
     Console.WriteLine($"        {new FileInfo(saved).Length / 1024d / 1024d:0.#}MB · DB {database.Path}");
@@ -542,6 +596,9 @@ void Remove()
     Console.WriteLine($"\n지움  {plan.Display}");
 }
 
+/// <summary>읽고 있는 자료. 열람 중이면 원본이다 — 홈 안의 임시 사본은 사람이 찾아갈 자리가 아니다.</summary>
+string 읽는자리() => viewed?.SourcePath ?? database.Path;
+
 /// <summary>빈 값은 눈에 보여야 한다. 아무것도 찍히지 않으면 지워진 것인지 알 수 없다.</summary>
 string Shown(string value) => value.Length == 0 ? "(빔)" : value;
 
@@ -550,10 +607,10 @@ void Help() => Console.WriteLine("""
                                         인자가 없으면 지난번에 고른 엑셀을 다시 읽는다
     pclm status                         쌓인 상태를 본다
     pclm 현황                            계획을 분모로 본 진행 (지금 지표는 가상이다)
-    pclm link [키 공고번호]              공고에 계약·접수를 잇는다 (인자 없으면 자동 확정 + 후보)
+    pclm link [키 공고번호]              공고에 계약·접수를 잇는다 (인자 없으면 명시 참조 연결 + 후보)
       --아님 <키> <공고번호>            이 짝은 아니라고 판정한다 (다시 후보로 오르지 않는다)
       --해제 <키>                       링크를 푼다
-      --재평가                          기계가 이은 것만 풀고 규칙을 다시 적용한다
+      --명시                            ERP 명시 참조로만 다시 잇는다 (후보는 내지 않고 있던 링크는 둔다)
     pclm export [경로]                  계약면을 엑셀로 내보낸다 (그 시점의 사진)
     pclm submit [경로]                  내 자료 한 벌을 제출본 파일로 뜬다 (.pclm)
       --이름 <이름>                     제출본 파일 이름에 쓸 내 이름을 정해 둔다
@@ -564,7 +621,8 @@ void Help() => Console.WriteLine("""
     pclm delete <키>                    레코드를 지운다 (무엇이 사라지는지 세어 보인다)
       --계열                            그 본번호의 전 차수를 지운다
       --예                              실제로 지운다 (없으면 세어 보이기만 한다)
-      --db <경로>                       다른 자료를 연다 (기본은 창과 같은 자리)
+      --home <폴더>                     다른 홈의 작업자료를 연다 (기본은 창과 같은 홈)
+      --file <파일>                     다른 자료를 열어 본다 — status · 현황 · export 만, 읽기 전용
 
     <키> 는 계약번호·공고번호·접수번호다. 접수는 아무 요청번호로도 찾는다.
     쌓이는 자리는 pclm status 가 첫 줄에 적는다.
@@ -579,7 +637,7 @@ string? Option(string name)
 bool Flag(string name) => Array.IndexOf(args, name) >= 0;
 
 // 명령 뒤의 자리 인자만. --옵션과 그 뒤에 붙는 값을 함께 건너뛴다 —
-// 건너뛰지 않으면 "set 키 열 값 --db 경로" 에서 경로가 값에 딸려 들어간다.
+// 건너뛰지 않으면 "set 키 열 값 --home 폴더" 에서 경로가 값에 딸려 들어간다.
 // 다만 값을 받지 않는 깃발은 저 혼자 건너뛴다. 함께 건너뛰면
 // "link --아님 계약 공고" 에서 계약번호가 깃발의 값으로 사라진다.
 List<string> Positional()

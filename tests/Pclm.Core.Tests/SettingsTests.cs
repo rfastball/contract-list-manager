@@ -22,8 +22,7 @@ public class SettingsTests : IDisposable
 
     public SettingsTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _settings = new SettingsStore(_database);
     }
 

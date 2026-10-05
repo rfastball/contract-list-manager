@@ -19,7 +19,7 @@ const columns: UserColumn[] = [
 
 function sheet(): Sheet {
   return {
-    name: "v_통합_v1",
+    name: "v_통합",
     columns: ["계약번호", "계약건명", "계약금액", "담당", "진행상태"],
     // 사람이 세운 열과 파서가 읽은 칸은 담기는 표가 달라 길이 갈린다.
     editable: ["담당", "진행상태"],
@@ -293,6 +293,69 @@ describe("Grid", () => {
     await user.keyboard("{Enter}");
     expect(screen.getAllByRole("row").slice(1)).toHaveLength(3);
     expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+  });
+
+  // ── 커서는 줄을 붙든다 ──────────────────────────────
+  // 창에 돌아올 때마다 바깥이 표를 다시 읽고, 정렬 중에 저장하면 다시 세워진다. 커서가 자리
+  // 번호만 들면 같은 번호가 다른 레코드를 가리켜, 편집하던 글자가 오류 없이 남의 줄에 저장된다.
+
+  it("편집 중에 줄 차례가 바뀌어도 원래 줄에 저장된다", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const { data, redraw } = draw({ onEdit });
+
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{F2}");
+    await user.clear(screen.getByRole("textbox"));
+    await user.keyboard("이담당");
+
+    redraw({ ...data, rows: [data.rows[2], data.rows[0], data.rows[1]] });
+    await user.keyboard("{Enter}");
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith("R26TA0100", "담당", "이담당");
+  });
+
+  it("편집 중에 위에 줄이 새로 서도 친 글자가 남고 원래 줄에 저장된다", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const { data, redraw } = draw({ onEdit });
+
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{F2}");
+    await user.clear(screen.getByRole("textbox"));
+    await user.keyboard("이담당");
+
+    const 새줄 = { 계약번호: "R26TA0050", 계약건명: "새로온건", 계약금액: "10", 담당: "최담당", 진행상태: "준비" };
+    redraw({ ...data, rows: [새줄, ...data.rows] });
+
+    const box = screen.getByRole("textbox");
+    expect(box).toHaveProperty("value", "이담당");
+    expect(within(screen.getAllByRole("row")[2]).getByText("R26TA0100")).toBeTruthy();
+    expect(screen.getAllByRole("row")[2].contains(box)).toBe(true);
+
+    await user.keyboard("{Enter}");
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith("R26TA0100", "담당", "이담당");
+  });
+
+  it("머리글로 정렬해도 커서는 그 줄에 남는다", async () => {
+    const user = userEvent.setup();
+    const onCorrect = vi.fn().mockResolvedValue(undefined);
+    const onDelete = vi.fn();
+    draw({ onCorrect, onDelete });
+
+    await user.click(cell(0, "수질측정기"));
+    await user.click(screen.getByText("계약금액")); // 80 · 900 · 1,000 — 첫 줄이 가운데로 간다
+
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+
+    await user.keyboard("{Delete}");
+    expect(onCorrect).toHaveBeenCalledWith("R26TA0100", "계약건명", "");
+
+    await user.click(screen.getByText("선택 자료 삭제…"));
+    expect(onDelete).toHaveBeenCalledWith("R26TA0100");
   });
 
   it("상태줄이 자리와 전체 수를 알린다", async () => {

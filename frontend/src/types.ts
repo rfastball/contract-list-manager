@@ -41,21 +41,75 @@ export type Summary = {
   unlinkedRequests: number;
 };
 
-/**
- * 자료가 쌓이는 자리. <b>DB 안이 아니라 밖(config.json)에 적힌다</b> — 어느 DB 를 열지를
- * DB 안에 두면 그 값을 읽으려고 DB 를 먼저 열어야 한다. 그래서 Settings 와 따로 온다.
- */
 /** 판과 라이선스. 고지 둘은 exe 안에 박힌 전문이다. */
 export type About = { version: string; license: string; notices: string };
 
+/**
+ * 창의 몸가짐. 자료가 아니라 이 컴퓨터의 것이라 작업자료 밖(홈의 window.json)에 적힌다 — 작업자료를 바꾸거나
+ * 제출본을 보내도 따라가지 않는다. 열람 창은 다루지 않는다.
+ */
+export type WindowPrefs = {
+  /** 닫기(X)를 눌러도 끝내지 않고 알림 영역에 둔다. */
+  closeToTray: boolean;
+  /** Windows 에 로그인하면 켠다. 참은 레지스트리 하나다 — 작업 관리자에서 끈 것도 꺼짐으로 온다. */
+  autostart: boolean;
+  /** 자동 실행을 바꿀 수 있는 자리인가. 시험 홈(--home)·압축 파일 안에서 켠 창은 아니다. */
+  autostartAvailable: boolean;
+  /** 바꿀 수 없는 까닭. 바꿀 수 있으면 null. 다리가 짓는다. */
+  autostartReason: string | null;
+};
+
+/**
+ * 지금 연 작업자료와 그것을 가리키는 홈. <b>DB 안이 아니라 밖(홈의 config.json)에 적힌다</b> — 어느 파일을
+ * 열지를 파일 안에 두면 그 값을 읽으려고 파일을 먼저 열어야 한다. 그래서 Settings 와 따로 온다.
+ */
+/**
+ * 이 창이 무엇을 열고 있는가. <code>readOnly</code> 면 남의 것·제출본·취합본을 <b>열어 본</b> 창이라
+ * 다리가 고치는 요청을 모두 거절한다 — 화면은 그것을 미리 알고 편집 자리를 잠근다.
+ */
+export type Session = {
+  readOnly: boolean;
+  /** 파일의 역할. <code>work</code>·<code>submission</code>·<code>merged</code>·<code>backup</code>·<code>retired</code>. */
+  role: string;
+  /** 사람에게 보일 역할 이름. 다리가 짓는다 — 화면이 따로 옮기면 두 벌이 된다. */
+  roleName: string;
+  /** 보고 있는 파일. 열람이면 원본이다(임시 사본이 아니다). */
+  path: string;
+};
+
 export type DataLocation = {
+  /** 작업자료(.pclm) 의 전체 경로. */
   path: string;
   folder: string;
   sizeBytes: number;
-  /** 기본 자리인가. 아니면 밖에서 읽는 쪽이 못 따라올 수 있다. */
-  isDefault: boolean;
+  /** 홈 폴더. 쪽지·백업·확장 연결이 여기 있다. */
+  home: string;
+  /** 작업자료를 가리키는 쪽지. 밖에서 읽는 쪽도 이것을 본다. */
   configPath: string;
 };
+
+/** 무엇으로 바꿀지 고르는 갈래. 바꾸기는 고른 파일의 역할에 따라 그 자리를 쓰거나(use) 사본을 뜬다(snapshot). */
+export type WorkfileKind = "move" | "switch" | "new";
+
+/**
+ * 고른 것과 그 뜻(<code>pickWorkfile</code>). <b>아직 아무것도 바뀌지 않았다</b> — 화면이 이것을 보이고 확인을 받은
+ * 뒤에야 바꾸기를 부른다.
+ */
+export type WorkfilePlan = {
+  /** <code>move</code> 옮기기 · <code>use</code> 다른 작업자료 쓰기 · <code>snapshot</code> 사본에서 새로 · <code>new</code> 새 계약자료. */
+  action: "move" | "use" | "snapshot" | "new";
+  /** 바꾼 뒤 작업자료가 될 파일. */
+  path: string;
+  /** 옮기기면 지금 자리, 사본에서 새로면 원본. 그 밖에는 null. */
+  source: string | null;
+  /** 사본에서 새로일 때 원본의 역할 이름(제출본·취합본·백업…). */
+  sourceRoleName: string | null;
+  /** 지금 작업자료. */
+  current: string;
+};
+
+/** 바꾸기의 답. 다리는 이 답을 보낸 뒤 창을 다시 띄운다. */
+export type SwitchResult = { restart: boolean; path: string };
 
 /**
  * 확장이 어디까지 깔렸는지. 앱은 브라우저를 볼 수 없어, 확장이 인사할 때 남긴 흔적으로 안다.
@@ -65,7 +119,213 @@ export type ExtensionStatus = {
   prepared: boolean;
   embeddedVersion: string;
   diskVersion: string | null;
-  contacts: { browser: string; version: string; at: string }[];
+  contacts: ExtensionContact[];
+  /** 확장을 풀어 둘 자리. 아직 준비하지 않았어도 온다 — 브라우저에서 사람이 고르는 폴더다. */
+  folder: string;
+  /**
+   * 지금 붙어 있는 브라우저(상시 연결, ADR-035). 확장이 쥔 포트로 뜬 호스트가 살아 있는 것만 온다.
+   * `connectedAt` 은 포트가 열린 때(로컬 ISO).
+   */
+  live: ExtensionLive[];
+  /** 오늘의 연결 기록(붙음·끊김·판 바뀜), 일어난 차례대로. 끊긴 까닭은 없다 — 앱도 호스트도 모른다. */
+  log: ExtensionLogEntry[];
+  /** 오늘 확장의 수집 흐름이 알린 오류, 일어난 차례대로. 확장은 코드만 보낸다. */
+  errors: ExtensionProblem[];
+  /** 오늘 전의 마지막 오류(기록이 남는 이레 안). */
+  pastError: ExtensionProblem | null;
+};
+
+/** 오류 하나. <code>recovered</code> 는 그 뒤 같은 요청을 다시 보내 풀었는가. */
+export type ExtensionProblem = { at: string; browser: string; code: string; recovered: boolean };
+
+/** 확장이 호스트에 인사할 때 남긴 흔적. 브라우저마다 마지막 하나만 남는다. */
+export type ExtensionContact = { browser: string; version: string; at: string };
+
+export type ExtensionLive = { browser: string; version: string; connectedAt: string };
+
+/** 붙음·끊김·판 바뀜. 판 바뀜이면 `previous` 가 그 앞의 판이고, 아니면 빈 문자열. */
+export type ExtensionLogEntry = {
+  at: string;
+  event: "connected" | "disconnected" | "updated";
+  browser: string;
+  version: string;
+  previous: string;
+};
+
+// ── 지금 보는 화면(ADR-036) ─────────────────────────────
+// 확장이 보고한 나라장터 탭과, 수집할 수 있는 탭마다 작업자료에 비춘 것(mirror). 값은 계약면에 찍힐 표기 그대로다.
+
+/** 칸 하나. <code>override</code> 는 사람이 고친 칸의 아래 값이 이번 화면으로 바뀌는 것이다. */
+export type MirrorField = {
+  column: string;
+  kind: "id" | "same" | "changed" | "new" | "override";
+  /** 계약면 표기. 덮개 칸이면 화면의 값(덮개 아래). */
+  value: string;
+  /** 견준 차수의 표기 — <code>changed</code> 에만. */
+  old: string | null;
+  /** 변환 전 화면의 원값이 표기와 다르면(날짜·금액) 그것. */
+  raw: string | null;
+  /** 사람이 고친 값 — <code>override</code> 에만. */
+  human: string | null;
+  /** 가져올 때 「수집 원값으로 복원」 을 고르는 자리 — <code>override</code> 에만. */
+  choiceId: string | null;
+  /** 이 열을 채우는 화면의 자리(수집 규칙의 source 키, 표면 <code>table:대상</code>). 열 정의에서 끌어낸 것이라 없을 수 있다. */
+  sources: string[];
+  /** 그 자리에 화면이 적어 둔 이름표. */
+  from: string;
+};
+
+/** 확장이 읽어 보낸 화면의 이름표와 보이는 글 한 줄(「화면 그대로」). */
+export type ScreenRow = {
+  /** 가장 가까운 앞의 구역 제목. 없으면 빈 글. */
+  group: string;
+  label: string;
+  text: string;
+  /** 수집 규칙의 source 키. 품목 줄은 <code>table:대상:n</code>, 수집 규칙에 없는 화면은 빈 글. */
+  source: string;
+};
+
+/** 확장의 설정 — 「Chrome 확장 상태」 의 설정이 보이고 바꾼다. 앞 탭의 브라우저(없으면 처음 붙은 것)의 것이다. */
+export type ExtensionSettings = {
+  pid: number;
+  browser: string;
+  panelMode: "always" | "button";
+  /** 현재 화면 바로 저장의 단축키. 없으면 빈 글. */
+  shortcut: string;
+  siteAccess: boolean;
+};
+
+export type MirrorItem = {
+  line: string; name: string; spec: string; quantity: string; unit: string; price: string; amount: string;
+  /** 견준 차수의 같은 순번 — 수량·단가·금액이 다를 때만. */
+  before: { quantity: string; unit: string; price: string; amount: string } | null;
+  /** 견준 차수에 없던 순번. */
+  added: boolean;
+  /** 화면의 품목 줄(<code>table:대상:n</code>). 이번 화면에 없던 줄이면 빈 글. */
+  source: string;
+};
+
+/** 접수 → 공고 → 계약 의 한 칸. 지금 저장된 연결로만 읽는다. */
+export type MirrorPlace = {
+  kind: "접수" | "공고" | "계약";
+  state: "here" | "linked" | "ref" | "missing";
+  /** 번호-차수. <code>ref</code> 면 참조한 본번호. */
+  number: string;
+  /** <code>ref</code> 일 때 그 본번호가 작업자료에 있는가(있는데 이어지지 않았다). */
+  collected: boolean;
+  /** 이 칸을 잇는 화면의 자리 — 그 종류를 참조하는 번호 칸. */
+  source: string | null;
+};
+
+export type MirrorRound = { seq: string; amount: string; savedOn: string; state: "stored" | "current" | "ghost" };
+
+export type MirrorStatus = "새 자료" | "새 차수" | "검토 대기" | "바뀐 칸" | "저장됨";
+
+export type MirrorShot = {
+  entityType: EntityType;
+  kind: "접수" | "공고" | "계약";
+  number: string;
+  base: string;
+  seq: string;
+  title: string;
+  status: MirrorStatus;
+  /** 견준 차수와 다른 칸 수 + 다른 품목 행 수. */
+  changes: number;
+  compareSeq: string | null;
+  latestSeq: string | null;
+  view: string;
+  viewColumns: number;
+  fields: MirrorField[];
+  /** 이 화면에서 읽지 않아 빈 열의 수. */
+  rest: number;
+  items: MirrorItem[];
+  itemChanges: number;
+  itemRows: number;
+  itemsAllRead: boolean;
+  place: MirrorPlace[];
+  rounds: MirrorRound[];
+  baseToken: string;
+  /** 창에서 가져올 수 없는 까닭. Chrome 의 수집기에서 고른다. */
+  blocked: string | null;
+};
+
+/** Chrome 의 나라장터 탭 하나. <code>id</code> 는 호스트 프로세스와 탭 번호를 이은 것이다. */
+export type MirrorTab = {
+  id: string;
+  pid: number;
+  tabId: number;
+  browser: string;
+  title: string;
+  /** 나라장터 머리 제목. */
+  screen: string;
+  /** 화면의 메뉴 번호(숫자 다섯, ADR-037). 모르거나 옛 확장이면 빈 문자열. */
+  menu: string;
+  state: "reading" | "supported" | "unsupported" | "error";
+  /** 로컬 <code>yyyy-MM-ddTHH:mm:ss</code>. 아직 읽지 않았으면 빈 문자열. */
+  readAt: string;
+  message: string;
+  /** Chrome 에서 앞에 있는 탭. */
+  front: boolean;
+  shot: MirrorShot | null;
+  /** 투영하지 못한 까닭. */
+  error: string | null;
+  /** 화면 그대로 — 이름표와 보이는 글. 옛 확장은 보내지 않아 빈 목록이다. */
+  screenRows: ScreenRow[];
+};
+
+/** 수집하는 화면 하나(ADR-037) — 매핑에서 화면을 단 프로필. <code>kind</code> 는 접수·공고·계약. */
+export type SupportedScreen = { code: string; entityType: string; kind: string; name: string };
+
+export type MirrorState = {
+  readOnly: boolean;
+  /** 지금 붙은 확장이 탭을 알렸는가. 옛 판은 알리지 않는다. */
+  reporting: boolean;
+  front: string | null;
+  tabs: MirrorTab[];
+  /** 확장의 설정. 옛 확장이거나 아직 알리지 않았으면 null. */
+  settings: ExtensionSettings | null;
+  /** 수집하는 화면 — 「수집 안 함」 의 안내가 이것을 그대로 보인다. 열람 창은 빈 목록. */
+  screens: SupportedScreen[];
+};
+
+/** 창의 가져오기. 낡았으면 쓰지 않고 그 탭을 다시 읽힌다. */
+export type ImportResult =
+  | { status: "stored"; entity: string; changed: boolean; at: string }
+  | { status: "stale"; message: string };
+
+// ── 수집 기록 ──────────────────────────────────────────
+// 성공한 저장만 남는다. 검토 중이거나 결과를 확인하지 못한 것은 브라우저에 있다.
+
+/** 수집 한 번. 값은 화면에 그대로 찍을 문자열이다. */
+export type CaptureEntry = {
+  captureId: string;
+  /** 로컬 <code>yyyy-MM-ddTHH:mm:ss</code>. */
+  at: string;
+  entityType: EntityType;
+  /** 접수·공고·계약. */
+  kind: "접수" | "공고" | "계약";
+  /** 번호-차수. 표의 번호와 같은 표기라 그대로 검색에 건다. */
+  number: string;
+  title: string;
+  changed: boolean;
+  /** <code>저장</code> · <code>변경 없음</code>. */
+  result: string;
+  /** <code>live</code> 확장 · <code>file</code> JSON 파일. */
+  scope: string;
+};
+
+/** 오늘(로컬 자정부터) 들어온 수집과 마지막 하나(<code>captures</code>). */
+export type CaptureDay = {
+  today: string;
+  /** 늦은 것부터. */
+  entries: CaptureEntry[];
+  requests: number;
+  notices: number;
+  contracts: number;
+  /** 오늘 것 중 무엇을 바꾼 수. */
+  saved: number;
+  /** 가장 늦은 수집. 오늘이 아니어도 온다. */
+  last: CaptureEntry | null;
 };
 
 export type Settings = {
@@ -221,7 +481,7 @@ export type Candidate = {
   noticeContractCount: number;
   /** 건명이 정확히 일치하는가. 아니면 약한 근거로 올라온 후보다. */
   titleMatched: boolean;
-  /** 자동으로 이어지지 않은 까닭. */
+  /** 잇기 전에 확인할 점. 없으면 판정을 통과한 유일한 후보다. */
   blocker: string | null;
   facets: LinkFacet[];
 };
@@ -237,7 +497,10 @@ export type LinkContract = {
   /** 지금 이어져 있는 공고. null 이면 아직 이어지지 않았다. */
   noticeKey: string | null;
   noticeTitle: string;
-  /** 누가 이었는가 — `auto` 면 기계, `human` 이면 사람. 이어지지 않았으면 null. */
+  /**
+   * 누가 이었는가 — `human` 이면 사람, `explicit` 이면 ERP 명시 참조, `auto` 는 옛 판의 기계
+   * 연결이 남은 것이다(ADR-029 뒤로 새로 생기지 않는다). 이어지지 않았으면 null.
+   */
   decidedBy: string | null;
 };
 
@@ -298,14 +561,8 @@ export type RequestLinkWork = {
   notices: NoticeChoice[];
 };
 
-/**
- * 자동으로 다시 이은 결과. 두 갈래(접수·계약)를 합친 수다.
- *
- * `released` 는 규칙판이 올라 **다시 본** 옛 자동 링크 수다 — 사람이 확정한 것은 여기 들지
- * 않는다. 그래서 `linked` 가 `released` 보다 적을 수 있고, 그것은 고장이 아니라
- * 새 규칙이 더 깐깐해졌다는 뜻이다.
- */
-export type RelinkResult = { linked: number; released: number };
+/** ERP 명시 참조로 새로 이은 수. 두 갈래(접수·계약)를 합친 것이다 — 있던 연결은 세지 않는다. */
+export type RelinkResult = { linked: number };
 
 // ── 계획 ───────────────────────────────────────────────
 // 접수·공고·계약과 달리 <b>엑셀에서 온다</b>. 서식은 표본에 고정되어 있어(ADR-023 개정)

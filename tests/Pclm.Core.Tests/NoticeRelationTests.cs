@@ -26,8 +26,7 @@ public class NoticeRelationTests : IDisposable
 
     public NoticeRelationTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -83,7 +82,7 @@ public class NoticeRelationTests : IDisposable
         Put("R26BK09011054", "001", "R26BK09011054-000");
         Put("R26BK09012082", "000", "R26BK09011054-001", "R26BK09011054-000");
 
-        var rows = Rows("v_공고_v1");
+        var rows = Rows("v_공고");
 
         // 계열 둘이 각각 최신 차수 하나씩. 취소되었다는 이유로 빠지지 않는다.
         Assert.Equal(2, rows.Count);
@@ -114,7 +113,7 @@ public class NoticeRelationTests : IDisposable
         ];
     }
 
-    private Dictionary<string, string> Notice() => Rows("v_공고_v1")[0];
+    private Dictionary<string, string> Notice() => Rows("v_공고")[0];
 
     private List<Dictionary<string, string>> Rows(string view)
     {

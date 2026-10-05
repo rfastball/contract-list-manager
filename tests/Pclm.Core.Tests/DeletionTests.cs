@@ -30,8 +30,7 @@ public class DeletionTests : IDisposable
 
     public DeletionTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -39,11 +38,11 @@ public class DeletionTests : IDisposable
     public void 지우면_계약면에서_사라진다()
     {
         _store.UpsertContract(Contract("00"));
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약;"));
 
         _store.Delete(계약, wholeSeries: true);
 
-        Assert.Equal(0, Count("SELECT COUNT(*) FROM v_계약_v1;"));
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM v_계약;"));
     }
 
     /// <summary>딸린 줄은 외래키 캐스케이드가 데려간다. 남으면 다음 투입에서 옛 줄이 되살아난다.</summary>
@@ -81,7 +80,7 @@ public class DeletionTests : IDisposable
         Assert.Equal(0, Count("SELECT COUNT(*) FROM contract_series;"));
 
         // 공고는 그대로 남는다 — 계약 하나를 지운 것이 공고를 지운 것은 아니다.
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_공고_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_공고;"));
     }
 
     /// <summary>덮개는 외래키가 없다. 손으로 지우지 않으면 조용히 남는다.</summary>
@@ -125,7 +124,7 @@ public class DeletionTests : IDisposable
         _store.Delete(계약 with { Seq = "01" }, wholeSeries: false);
 
         Assert.Equal(1, Count("SELECT COUNT(*) FROM contract;"));
-        Assert.Equal("00", Text("SELECT 차수 FROM v_계약_v1;"));
+        Assert.Equal("00", Text("SELECT 차수 FROM v_계약;"));
     }
 
     /// <summary>
@@ -154,7 +153,7 @@ public class DeletionTests : IDisposable
 
         _store.Delete(계약 with { Seq = "01" }, wholeSeries: false);
 
-        Assert.Equal("납품", Text("SELECT 진행상태 FROM v_계약_v1;"));
+        Assert.Equal("납품", Text("SELECT 진행상태 FROM v_계약;"));
     }
 
     // ── 묻기 전에 세어 보이기 ────────────────────────────
@@ -221,9 +220,9 @@ public class DeletionTests : IDisposable
 
         _store.Delete(공고, wholeSeries: true);
 
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약;"));
         Assert.Equal(0, Count("SELECT COUNT(*) FROM project_link;"));
-        Assert.Equal("", Text("SELECT 공고명 FROM v_통합_v1;"));
+        Assert.Equal("", Text("SELECT 공고명 FROM v_통합;"));
     }
 
     // ── 접수 ─────────────────────────────────────────────
@@ -233,11 +232,11 @@ public class DeletionTests : IDisposable
     public void 접수를_지우면_계약면에서_사라진다()
     {
         _store.UpsertRequest(Request("000"));
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_접수_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_접수;"));
 
         _store.Delete(접수, wholeSeries: true);
 
-        Assert.Equal(0, Count("SELECT COUNT(*) FROM v_접수_v1;"));
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM v_접수;"));
         Assert.Equal(0, Count("SELECT COUNT(*) FROM request_item;"));
     }
 
@@ -299,7 +298,7 @@ public class DeletionTests : IDisposable
         Assert.Equal(0, Count("SELECT COUNT(*) FROM request_item_link;"));
 
         // 접수 자체는 남는다. 공고가 사라졌다고 요청이 없던 일이 되지는 않는다.
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_접수_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_접수;"));
     }
 
     /// <summary>덮개도 손으로 지운다 — 세 종류를 한 표에 담아 외래키를 걸지 못했다.</summary>

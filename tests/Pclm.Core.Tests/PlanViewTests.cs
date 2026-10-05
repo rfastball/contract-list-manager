@@ -7,13 +7,13 @@ using Xunit;
 namespace Pclm.Core.Tests;
 
 /// <summary>
-/// <c>v_계획_v1</c> — 계획을 <b>분모</b>로 세운 뷰.
+/// <c>v_계획</c> — 계획을 <b>분모</b>로 세운 뷰.
 ///
 /// <para>여기서 붙들어 두는 것은 두 가지다. 첫째, <b>줄이 갈라지지 않는다</b>. 한 공고에 계약이
 /// 여럿 달릴 수 있는데 그때 줄을 가르면 계획 건수가 부풀어 세어지고, 분모로 쓰려고 세운 뷰가
 /// 분모 노릇을 못 한다. 둘째, <b>하나로 정할 수 없는 것을 하나인 양 내지 않는다</b> —
-/// 계약이 둘이면 계약번호·계약일자·계약금액을 비우고 계약건수만 낸다(<c>v_공고_v1</c> 의
-/// <c>SoleItem</c> 규율 그대로).</para>
+/// 계약이 둘이면 계약번호·계약일자·계약금액을 비우고 계약건수만 낸다(<c>v_공고</c> 의
+/// <c>UniformItem</c> 규율 그대로).</para>
 ///
 /// <para>「단계」는 <b>있는 것을 적는 것이지 판정이 아니다</b>(ADR-016). 늦었다·빠졌다를
 /// 기계가 가리지 않는다 — 어디까지 왔는지만 적는다.</para>
@@ -30,8 +30,7 @@ public class PlanViewTests : IDisposable
 
     public PlanViewTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -81,7 +80,7 @@ public class PlanViewTests : IDisposable
         Assert.Equal("R26BK09017075-000", row["입찰공고번호"]);
         Assert.Equal("2026/07/18", row["게시일시"]);
 
-        // 개찰은 공고 본문이 아니라 일정 표에서 온다 — v_공고_v1 과 같은 자리를 짚는다.
+        // 개찰은 공고 본문이 아니라 일정 표에서 온다 — v_공고 와 같은 자리를 짚는다.
         Assert.Equal("2026/07/25 11:00:00", row["개찰일시"]);
 
         Assert.Equal("0", row["계약건수"]);
@@ -143,7 +142,7 @@ public class PlanViewTests : IDisposable
 
     /// <summary>
     /// 계획에 없는 조달요구번호의 접수는 <b>이 뷰에 서지 않는다</b>. 이 뷰는 분모이고,
-    /// 계획 밖에서 들어온 것은 <c>v_통합_v2</c> 가 낸다.
+    /// 계획 밖에서 들어온 것은 <c>v_통합</c> 이 낸다.
     /// </summary>
     [Fact]
     public void 계획에_없는_조달요구번호의_접수는_서지_않는다()
@@ -187,7 +186,7 @@ public class PlanViewTests : IDisposable
 
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM v_계획_v1;";
+        command.CommandText = "SELECT * FROM v_계획;";
 
         using var reader = command.ExecuteReader();
         Assert.True(reader.Read());
@@ -225,7 +224,7 @@ public class PlanViewTests : IDisposable
     ///
     /// <para>계획 제 칸(요구명·담당자·예산금액…)은 <c>plan</c> 표에서 그대로 오지만, 이어 온
     /// 여덟 열은 계획의 값이 아니라 <b>접수·공고·계약의 값</b>이라 덮개 자리가 있다. 그래서
-    /// 원본 표가 아니라 <c>v_접수_v1</c>·<c>v_공고_v1</c>·<c>v_계약_v1</c> 에서 받아 온다.</para>
+    /// 원본 표가 아니라 <c>v_접수</c>·<c>v_공고</c>·<c>v_계약</c> 에서 받아 온다.</para>
     ///
     /// <para>원본에서 끌면 계약 탭에서 고친 계약금액이 계획 탭에는 옛 값으로 떠서, <b>같은
     /// 자료를 두 화면이 다르게 말한다</b> — 파서에서 그토록 경계한 그 일이 화면에 생긴다.</para>
@@ -297,7 +296,7 @@ public class PlanViewTests : IDisposable
     {
         using var connection = _database.OpenReadOnly();
 
-        return [.. connection.Query("SELECT * FROM v_계획_v1;")
+        return [.. connection.Query("SELECT * FROM v_계획;")
             .Cast<IDictionary<string, object>>()
             .Select(row => row.ToDictionary(c => c.Key, c => c.Value?.ToString() ?? ""))];
     }

@@ -23,8 +23,7 @@ public class DurableKeyTests : IDisposable
 
     public DurableKeyTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -38,7 +37,7 @@ public class DurableKeyTests : IDisposable
         _store.UpsertContract(Contract("01"));
 
         // 계약의 사용자 열은 계약 뷰에 붙고, 통합은 그 뷰를 통째로 받는다.
-        var row = Single("SELECT 차수, 진행상태 FROM v_통합_v1;");
+        var row = Single("SELECT 차수, 진행상태 FROM v_통합;");
 
         Assert.Equal("01", row["차수"]);
         Assert.Equal("납품", row["진행상태"]);
@@ -52,7 +51,7 @@ public class DurableKeyTests : IDisposable
 
         _store.UpsertNotice(Notice("001"));
 
-        var row = Single("SELECT 차수, 검토여부 FROM v_공고_v1;");
+        var row = Single("SELECT 차수, 검토여부 FROM v_공고;");
 
         Assert.Equal("001", row["차수"]);
         Assert.Equal("참여", row["검토여부"]);
@@ -70,7 +69,7 @@ public class DurableKeyTests : IDisposable
 
         _store.UpsertContract(Contract("01"));
 
-        var row = Single("SELECT 계약번호, 공고명 FROM v_통합_v1;");
+        var row = Single("SELECT 계약번호, 공고명 FROM v_통합;");
 
         Assert.Equal("R26TA0911050701", row["계약번호"]);
         Assert.Equal("수질측정기 구매", row["공고명"]);
@@ -88,7 +87,7 @@ public class DurableKeyTests : IDisposable
 
         _store.UpsertNotice(Notice("001") with { Title = "수질측정기 구매(변경)" });
 
-        var row = Single("SELECT 입찰공고번호, 공고명 FROM v_통합_v1;");
+        var row = Single("SELECT 입찰공고번호, 공고명 FROM v_통합;");
 
         Assert.Equal("R26BK09017075-001", row["입찰공고번호"]);
         Assert.Equal("수질측정기 구매(변경)", row["공고명"]);
@@ -103,7 +102,7 @@ public class DurableKeyTests : IDisposable
 
         _store.UpsertRequest(Request("001"));
 
-        var row = Single("SELECT 차수, 비고 FROM v_접수_v1;");
+        var row = Single("SELECT 차수, 비고 FROM v_접수;");
 
         Assert.Equal("001", row["차수"]);
         Assert.Equal("협의중", row["비고"]);
@@ -126,8 +125,8 @@ public class DurableKeyTests : IDisposable
             new EntityRef("contract", "R26TA09110507", "00"),
             new EntityRef("notice", "R26BK09017075", "000"), 1.0);
 
-        // 링크는 계열끼리라 차수가 올라도 통합 v2 의 접수 열이 그대로 채워진다.
-        var row = Single("SELECT 접수번호, 요청명 FROM v_통합_v2;");
+        // 링크는 계열끼리라 차수가 올라도 통합의 접수 열이 그대로 채워진다.
+        var row = Single("SELECT 접수번호, 요청명 FROM v_통합;");
 
         Assert.Equal("MPKPLA26910286-001", row["접수번호"]);
         Assert.Equal("윈치 8종 구매", row["요청명"]);
@@ -140,7 +139,7 @@ public class DurableKeyTests : IDisposable
         _store.UpsertContract(Contract("09"));
         _store.UpsertContract(Contract("10"));
 
-        Assert.Equal("10", Single("SELECT 차수 FROM v_계약_v1;")["차수"]);
+        Assert.Equal("10", Single("SELECT 차수 FROM v_계약;")["차수"]);
     }
 
     private static ContractRecord Contract(string seq) => new()

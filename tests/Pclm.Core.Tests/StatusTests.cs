@@ -25,8 +25,7 @@ public class StatusTests : IDisposable
 
     public StatusTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
     }
 
     /// <summary>

@@ -7,14 +7,13 @@ using Xunit;
 namespace Pclm.Core.Tests;
 
 /// <summary>
-/// 접수와 공고를 <b>품목의 수량·단가로</b> 잇는다(ADR-021).
+/// 접수와 공고를 <b>품목의 수량·단가로</b> 견준다(ADR-021).
 ///
 /// <para>접수서·공고서 어디에도 조달요구번호와 공고번호를 잇는 키가 없다. 그래서 줄 수가 같고
-/// (수량, 단가)가 다중집합으로 완전히 같을 때만 잇는다. <b>줄 차례는 다르다</b> —
+/// (수량, 단가)가 다중집합으로 완전히 같을 때만 막힘 없는 후보로 선다. <b>줄 차례는 다르다</b> —
 /// 접수는 요청번호순, 공고는 세부품명·수량순이라 자리끼리 맞추면 틀린다.</para>
 ///
-/// <para>여기서 지키는 자세는 <see cref="Linker"/> 와 같다 — <b>오확정이 아니라
-/// 사람에게 넘김으로 실패한다.</b></para>
+/// <para>기계는 잇지 않고 추천만 한다(ADR-029) — 잇는 것은 사람의 확정이다.</para>
 /// </summary>
 public class RequestLinkerTests : IDisposable
 {
@@ -27,8 +26,7 @@ public class RequestLinkerTests : IDisposable
 
     public RequestLinkerTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
         _linker = new RequestLinker(_database);
     }
@@ -47,17 +45,19 @@ public class RequestLinkerTests : IDisposable
     ];
 
     [Fact]
-    public void 차례가_달라도_다중집합이_같으면_자동으로_잇는다()
+    public void 차례가_달라도_다중집합이_같으면_막힘_없는_후보로_선다()
     {
         StoreRequest("MPKPLA26910286", AsReceived);
         StoreNotice("R26BK09018047", AsPosted);
 
-        var result = _linker.AutoConfirm();
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.Equal("MPKPLA26910286-000", candidate.Request.Display);
+        Assert.Equal("R26BK09018047-000", candidate.Notice.Display);
+        Assert.Null(candidate.Blocker);
+        Assert.Contains("품목 8줄 · 수량·단가 전부 일치", candidate.Reason);
 
-        var link = Assert.Single(result.Linked);
-        Assert.Equal("MPKPLA26910286-000", link.Request.Display);
-        Assert.Equal("R26BK09018047-000", link.Notice.Display);
-        Assert.Contains("품목 8줄 · 수량·단가 전부 일치", link.Evidence);
+        // 추천만 한다 — 판정을 통과한 유일 후보여도 기계는 잇지 않는다(ADR-029).
+        Assert.Empty(Links());
     }
 
     /// <summary>줄 수가 블로킹 키다. 다르면 <b>후보에도 오르지 않는다</b>.</summary>
@@ -66,8 +66,6 @@ public class RequestLinkerTests : IDisposable
     {
         StoreRequest("MPKPLA26910286", AsReceived);
         StoreNotice("R26BK09018047", [.. AsPosted.Take(7)]);
-
-        Assert.Empty(_linker.AutoConfirm().Linked);
 
         var row = Assert.Single(_linker.Work().Requests);
         Assert.Equal(0, row.CandidateCount);
@@ -84,8 +82,6 @@ public class RequestLinkerTests : IDisposable
         어긋난[3] = (14, 1_874_001m);
         StoreNotice("R26BK09018047", 어긋난);
 
-        Assert.Empty(_linker.AutoConfirm().Linked);
-
         // 줄 수는 같으니 후보로는 오른다 — 사람이 무엇이 다른지 보고 판단할 자리다.
         var candidate = Assert.Single(_linker.Work().Candidates);
         Assert.Equal("수량·단가가 다릅니다", candidate.Blocker);
@@ -94,15 +90,13 @@ public class RequestLinkerTests : IDisposable
         Assert.False(facet.Agrees);
     }
 
-    /// <summary>통과 후보가 둘이면 <b>기계가 고르지 않는다</b> — 사람 큐로 간다.</summary>
+    /// <summary>통과 후보가 둘이면 둘 다 <b>「여럿입니다」</b>를 단다 — 수량·단가로는 가를 수 없다.</summary>
     [Fact]
-    public void 통과_후보가_둘이면_사람_큐로_간다()
+    public void 통과_후보가_둘이면_둘_다_걸리는_점을_단다()
     {
         StoreRequest("MPKPLA26910286", AsReceived);
         StoreNotice("R26BK09018047", AsPosted);
         StoreNotice("R26BK09019999", AsPosted);
-
-        Assert.Empty(_linker.AutoConfirm().Linked);
 
         var row = Assert.Single(_linker.Work().Requests);
         Assert.Equal(2, row.CandidateCount);
@@ -119,15 +113,17 @@ public class RequestLinkerTests : IDisposable
     /// 공고가 하나뿐인데도 사람 큐로 밀려난다 — 실측에서 그렇게 걸린 것이 셋이었다.</para>
     /// </summary>
     [Fact]
-    public void 줄_수가_같은_공고가_여럿이어도_수량단가가_맞는_것이_하나면_잇는다()
+    public void 줄_수가_같은_공고가_여럿이어도_수량단가가_맞는_것이_하나면_막힘_없이_선다()
     {
         StoreRequest("MPKPLA26910286", [(12, 1_652_300m), (14, 1_126_700m)]);
         StoreNotice("R26BK09018047", [(14, 1_126_700m), (12, 1_652_300m)]);
         StoreNotice("R26BK09018048", [(3, 400_000m), (7, 55_000m)]);
         StoreNotice("R26BK09018049", [(12, 1_652_301m), (14, 1_126_700m)]);
 
-        var link = Assert.Single(_linker.AutoConfirm().Linked);
-        Assert.Equal("R26BK09018047-000", link.Notice.Display);
+        var 맞는것 = Assert.Single(_linker.Work().Candidates, c => c.Blocker is null);
+        Assert.Equal("R26BK09018047-000", 맞는것.Notice.Display);
+
+        Confirm("MPKPLA26910286", "R26BK09018047");
 
         // 이어지고 나면 그 공고는 후보에서 빠지고, 남은 둘은 제 까닭을 그대로 단다.
         var candidates = _linker.Work().Candidates;
@@ -159,7 +155,7 @@ public class RequestLinkerTests : IDisposable
     {
         StoreRequest("MPKPLA26910286", AsReceived);
         StoreNotice("R26BK09018047", AsPosted);
-        _linker.AutoConfirm();
+        Confirm("MPKPLA26910286", "R26BK09018047");
 
         Assert.Equal([1, 4, 6, 7, 8, 5, 3, 2], ItemLinks());
     }
@@ -170,7 +166,7 @@ public class RequestLinkerTests : IDisposable
     {
         StoreRequest("MPKPLA26910286", AsReceived);
         StoreNotice("R26BK09018047", AsPosted);
-        _linker.AutoConfirm();
+        Confirm("MPKPLA26910286", "R26BK09018047");
 
         _linker.Unlink(new EntityRef("request", "MPKPLA26910286", "000"));
 
@@ -215,7 +211,6 @@ public class RequestLinkerTests : IDisposable
             new EntityRef("request", "MPKPLA26910286", "000"),
             new EntityRef("notice", "R26BK09018047", "000"));
 
-        Assert.Empty(_linker.AutoConfirm().Linked);
         Assert.Empty(_linker.Work().Candidates);
     }
 
@@ -229,7 +224,7 @@ public class RequestLinkerTests : IDisposable
         StoreRequest("MPKPLA26910286", AsReceived, detailNumber: "2510190301");
         StoreNotice("R26BK09018047", AsPosted, detailNumber: "9999999999");
 
-        Assert.Single(_linker.AutoConfirm().Linked);
+        Assert.Null(Assert.Single(_linker.Candidates()).Blocker);
     }
 
     /// <summary>차수가 여럿이어도 <b>최신 것만</b> 견준다. 섞으면 줄이 두 배가 되어 판정이 무너진다.</summary>
@@ -240,15 +235,16 @@ public class RequestLinkerTests : IDisposable
         StoreRequest("MPKPLA26910286", AsReceived, seq: "001");
         StoreNotice("R26BK09018047", AsPosted);
 
-        var link = Assert.Single(_linker.AutoConfirm().Linked);
-        Assert.Equal("MPKPLA26910286-001", link.Request.Display);
+        var candidate = Assert.Single(_linker.Candidates());
+        Assert.Equal("MPKPLA26910286-001", candidate.Request.Display);
+        Assert.Null(candidate.Blocker);
     }
 
     /// <summary>접수가 아직 없으면 아무 일도 없다.</summary>
     [Fact]
     public void 빈_DB에서도_돈다()
     {
-        Assert.Empty(_linker.AutoConfirm().Linked);
+        Assert.Empty(_linker.Candidates());
         Assert.Empty(_linker.Work().Requests);
     }
 
@@ -257,12 +253,12 @@ public class RequestLinkerTests : IDisposable
     /// <summary>
     /// <b>이 바뀜의 실질적 값이다.</b> 조립대는 취소 뒤 재채번되어 본번호가 갈렸고, 품목이
     /// 같아 수량·단가가 모두 맞는 공고가 둘로 서 있었다 — 「모두 맞는 공고가 2건입니다」로
-    /// 막혀 사람 큐로 밀리던 것이 한 건이 되면서 유일해져 기계가 스스로 잇는다.
+    /// 막히던 것이 한 건이 되면서 유일해져 막힘 없는 후보로 선다.
     ///
     /// <para>후보로 오르는 번호도 건 이름(<c>R26BK09011054</c>)이 아니라 <b>현행 공고</b>다.</para>
     /// </summary>
     [Fact]
-    public void 재공고_건은_후보가_하나라_자동으로_잇는다()
+    public void 재공고_건은_후보가_하나라_막힘_없이_선다()
     {
         조립대();
         StoreRequest("MBKLMH26930006", AsReceived);
@@ -271,8 +267,7 @@ public class RequestLinkerTests : IDisposable
         Assert.Equal("R26BK09012082-000", 후보.Notice.Display);
         Assert.Null(후보.Blocker);
 
-        var 이음 = Assert.Single(_linker.AutoConfirm().Linked);
-        Assert.Equal("R26BK09012082-000", 이음.Notice.Display);
+        _linker.Confirm(후보.Request, 후보.Notice, 후보.Confidence);
 
         // 링크가 매달리는 자리는 건이다 — 이름은 가장 이른 본번호다.
         Assert.Equal(["MBKLMH26930006|R26BK09011054"], Links());
@@ -322,7 +317,6 @@ public class RequestLinkerTests : IDisposable
             new EntityRef("request", "MBKLMH26930006", "000"),
             new EntityRef("notice", "R26BK09012082", "000"));
 
-        Assert.Empty(_linker.AutoConfirm().Linked);
         Assert.Empty(_linker.Work().Candidates);
     }
 
@@ -397,6 +391,11 @@ public class RequestLinkerTests : IDisposable
         StoreNotice("R26BK09011054", AsPosted, seq: "001", related: ["R26BK09011054-000"]);
         StoreNotice("R26BK09012082", AsPosted, related: ["R26BK09011054-001", "R26BK09011054-000"]);
     }
+
+    private void Confirm(string requestBase, string noticeBase) =>
+        _linker.Confirm(
+            new EntityRef("request", requestBase, "000"),
+            new EntityRef("notice", noticeBase, "000"), 1.0);
 
     private List<string> Links() => Read(
         "SELECT request_base || '|' || notice_group FROM request_link ORDER BY 1;");

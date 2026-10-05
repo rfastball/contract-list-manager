@@ -1,3 +1,10 @@
+// 화면이 칸에 붙여 둔 이름표 — aria-label → title → <label> → 가장 가까운 [data-title]. 내보내기와 지금 보는 화면의
+// 이름표(capture.js 의 pclmScreenRows)가 같은 것을 쓴다.
+function pclmLabel(e) {
+  return String(e.getAttribute("aria-label") || e.title ||
+    [...(e.labels || [])].map(l => l.textContent).join(" ") || e.closest("[data-title]")?.getAttribute("data-title") || "").trim();
+}
+
 // MAIN world 수집. 페이지 이동이나 추가 조회 없이 현재 로딩된 업무 자료만 읽는다.
 function pclmExportPage() {
   if (location.origin !== "https://www.g2b.go.kr" || window !== window.top)
@@ -9,8 +16,7 @@ function pclmExportPage() {
   const internal = /password|passwd|pwd|token|session|cookie|csrf|account(?!ing)|actno|prsnno|rrno|rrn|atflpath|ipar|비밀번호|주민등록|계좌번호/i;
   const excluded = 'script, style, button, input[type="hidden"], input[type="password"], input[type="button"], input[type="submit"], input[type="reset"], input[type="file"], input[type="image"]';
   const component = id => { try { return window.$p?.getComponentById?.(id); } catch { return null; } };
-  const label = e => clean(e.getAttribute("aria-label") || e.title ||
-    [...(e.labels || [])].map(l => l.textContent).join(" ") || e.closest("[data-title]")?.getAttribute("data-title"));
+  const label = e => clean(pclmLabel(e));
   const valueOf = e => {
     if (!e || !visible(e) || e.matches(excluded) || internal.test(e.id + " " + label(e))) return "";
     if (e.matches('input[type="radio"]')) return e.checked ? clean(e.value) : "";

@@ -20,11 +20,20 @@ public sealed record MergeConflict(string 종류, string 키, MergeSide 실림, 
 
 /// <summary>취합 한 번의 결과. 수는 <b>다 지은 취합본에서</b> 세어 <c>pclm 현황</c> 과 맞춘다.</summary>
 /// <param name="제출본">실제로 합친 제출본 수. 거절한 것은 여기 들지 않는다.</param>
-/// <param name="거절한제출본">판이 이 프로그램보다 새로워 받지 않은 제출본의 파일 이름.</param>
+/// <param name="거절한제출본">받지 않은 파일과 그 까닭 — PCLM 이 아니거나, 판이 맞지 않거나, 제출본이
+/// 아닌 역할(취합본·백업·옮겨진 옛 자료)이다.</param>
 public sealed record MergeReport(
     int 제출본, int 조달요구, int 접수, int 공고, int 계약,
-    IReadOnlyList<string> 거절한제출본,
+    IReadOnlyList<MergeRejection> 거절한제출본,
     IReadOnlyList<MergeConflict> 겹친것);
+
+/// <summary>
+/// 취합에 넣지 않은 파일 하나. <b>까닭을 함께 든다</b> — 이름만 적으면 받는 사람은 프로그램을 새로
+/// 받아야 하는지, 파일을 잘못 골랐는지 가리지 못한다.
+/// </summary>
+/// <param name="파일">파일 이름(경로 없이).</param>
+/// <param name="까닭">사람이 읽을 짧은 까닭 — <see cref="Merger.옛시험판"/>·<see cref="Merger.새판"/> 따위.</param>
+public sealed record MergeRejection(string 파일, string 까닭);
 
 /// <summary>
 /// 제출본을 모아 취합본 하나로 짓는다.
@@ -39,9 +48,15 @@ public sealed record MergeReport(
 /// 지난 취합본을 고쳐 쓰면 지운 것이 영영 남는다. 그래서 취합본은 결과물이지 자료가 아니다 —
 /// 언제든 버리고 다시 지어도 같은 것이 나온다.</para>
 ///
-/// <para><b>제출본은 남의 파일이라 손대지 않는다.</b> 임시 폴더로 복사해서 열고, 끝나면 지운다.
-/// 옛 판 제출본은 그 복사본 위에서 지금 판으로 올려 받는다(마이그레이션은 앞으로만 간다).
-/// 판이 지금보다 새로운 것은 내릴 길이 없어 <b>거절하되 멈추지는 않는다</b> — 나머지는 합친다.</para>
+/// <para><b>제출본은 남의 파일이라 손대지 않는다.</b> 읽기 전용 연결의 <c>VACUUM INTO</c> 로 임시 폴더에
+/// 한 벌 떠서 열고, 끝나면 지운다. 옛 판 제출본은 그 사본 위에서 지금 판으로 올려 받는다(마이그레이션은
+/// 앞으로만 간다). 판이 지금보다 새로운 것은 내릴 길이 없고, 기준선보다 옛 시험판은 올릴 단계가 이
+/// 프로그램에 없어 <b>거절하되 멈추지는 않는다</b> — 나머지는 합친다.</para>
+///
+/// <para><b>무엇을 받을지는 파일 이름이 아니라 역할이 정한다</b>(<see cref="PclmFile.Inspect"/>).
+/// 제출본과 작업자료(사람이 자기 파일을 그대로 보내는 일이 있다)만 받는다. 취합본·백업·옮겨진 옛 자료는
+/// 이름이 무엇이든 거절한다 — 한동안 <c>취합_</c> 접두사로 가렸는데, 이름을 바꾼 취합본은 그대로 먹혔고
+/// 그 글자로 시작하는 제출본은 말없이 빠졌다.</para>
 /// </summary>
 public sealed class Merger
 {
@@ -84,7 +99,8 @@ public sealed class Merger
     /// </summary>
     // 수집 영수증의 datasetId·충돌 토큰은 원래 DB에서만 유효하다.
     // 취합본은 새 datasetId를 가지며 남의 영수증으로 저장 성공을 응답하지 않는다.
-    public static IReadOnlyList<string> Untouched => ["app_setting", "notice_group", "erp_dataset", "erp_capture", "erp_mapping"];
+    // 파일 이름표(pclm_file)는 취합본이 스스로 짓는다 — 역할도 신원도 제출본의 것이 아니다.
+    public static IReadOnlyList<string> Untouched => ["app_setting", "notice_group", "pclm_file", "erp_capture", "erp_mapping"];
 
     /// <param name="부모">딸린 줄일 때, 따라갈 표. 부모 키는 이 표 키의 <b>앞 두 열</b>이다.</param>
     private sealed record 표(string 이름, string[] 키, string? 시각, 규칙 규칙, string 종류, string? 부모 = null);
@@ -151,10 +167,11 @@ public sealed class Merger
     private const char 키이음 = '\u0001';
 
     /// <summary>
-    /// 폴더에서 제출본을 걷는다. <b>지난 취합본은 세지 않는다</b> — 취합본이 취합본을 먹는다.
+    /// 폴더에서 <c>.pclm</c> 을 걷는다. 걷는 자리가 명령줄과 창 두 곳이라 여기 둔다.
     ///
-    /// <para>취합본은 결과물이지 자료가 아니라, 다시 합칠 때 함께 들어가면 지난 취합에서
-    /// 밀려난 것이 남의 이름을 달고 되살아난다. 걷는 자리가 명령줄과 창 두 곳이라 여기 둔다.</para>
+    /// <para><b>여기서는 가리지 않는다.</b> 지난 취합본이 함께 걸려도 <see cref="Merge"/> 가 역할을 보고
+    /// 거절하며 보고에 적는다 — 취합본이 취합본을 먹으면 지난 취합에서 밀려난 것이 남의 이름을 달고
+    /// 되살아나는데, 그것을 막는 것은 이름이 아니라 <c>pclm_file.role</c> 이다.</para>
     ///
     /// <para>폴더가 없으면 빈 목록이다 — 부르는 쪽이 "제출본이 없다" 는 말을 하게 한다.</para>
     /// </summary>
@@ -165,7 +182,6 @@ public sealed class Merger
         return
         [
             .. Directory.GetFiles(folder, "*.pclm")
-                .Where(f => !Path.GetFileName(f).StartsWith("취합_", StringComparison.Ordinal))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Order(StringComparer.OrdinalIgnoreCase),
@@ -181,6 +197,10 @@ public sealed class Merger
     public MergeReport Merge(IEnumerable<string> sources, string outPath)
     {
         var target = Path.GetFullPath(outPath);
+
+        // 다 지은 뒤 덮는 자리에서도 막히지만, 그때는 제출본을 다 읽은 뒤다. 덮을 수 없는 자리면 먼저 멈춘다.
+        PclmFile.RequireOverwritable(target);
+
         var files = sources
             .Select(Path.GetFullPath)
             .Where(f => !string.Equals(f, target, StringComparison.OrdinalIgnoreCase))
@@ -205,11 +225,10 @@ public sealed class Merger
     private static MergeReport Build(IReadOnlyList<string> files, string target, string work)
     {
         // 임시 폴더에서 짓고 마지막에 한 벌 떠서 자리에 놓는다. 제출본과 같은 길이다
-        // (Database.Snapshot 의 VACUUM INTO) — 그래야 취합본도 -wal 없는 한 파일로 떨어진다.
+        // (PclmFile.Snapshot 의 VACUUM INTO) — 그래야 취합본도 -wal 없는 한 파일로 떨어진다.
         // 자리에 바로 지으면 짓는 동안의 WAL 이 그 옆에 남고, 그것을 치우려면 프로세스 전체의
         // 연결 풀을 비워야 한다 — 남의 연결까지 닫는 일이라 그 자리에서 하지 않는다.
-        var database = new Database(Path.Combine(work, "취합.pclm"));
-        database.Migrate();
+        var database = PclmFile.Create(Path.Combine(work, "취합.pclm"), PclmRole.Merged);
 
         // 열 목록은 취합본에서 읽는다. 제출본은 올려서 여니 같은 판이고, 어긋나면 읽는 자리에서
         // 시끄럽게 실패한다 — 조용히 한 열을 빠뜨리는 것보다 낫다.
@@ -218,7 +237,7 @@ public sealed class Merger
             t => t.이름, _ => new Dictionary<string, List<후보>>(StringComparer.Ordinal), StringComparer.Ordinal);
 
         var 제출자 = new List<string>();
-        var 거절 = new List<string>();
+        var 거절 = new List<MergeRejection>();
 
         // 복사본 이름은 제출본의 차례로 짓는다. 거절한 것도 한 자리를 쓴다 — 이름을 다시 쓰면
         // 앞의 것을 열었던 연결이 아직 파일을 쥐고 있을 때 덮어쓰기가 막힌다.
@@ -226,16 +245,22 @@ public sealed class Merger
 
         foreach (var file in files)
         {
-            // 남의 파일이다. 복사해서 열고, 옛 판이면 복사본 위에서 올린다.
-            //
-            // -wal·-shm 이 옆에 있으면 함께 나른다. pclm submit 이 뜬 제출본은 VACUUM INTO 라
-            // 언제나 한 파일이지만, 사람이 자기 pclm.db 를 그대로 이름만 바꿔 보내는 일이 있다 —
-            // 그때 본체만 복사하면 마지막 며칠이 WAL 에 남은 채로 조용히 빠진다.
-            var copy = Path.Combine(work, $"{차례++:D3}.pclm");
-            foreach (var suffix in new[] { "", "-wal", "-shm" })
-                if (File.Exists(file + suffix)) File.Copy(file + suffix, copy + suffix);
+            // 받을 것인지는 원본을 읽기만 해서 정한다 — Migrate 보다 먼저다. 마이그레이션은 앞으로만
+            // 가므로 새 판을 내릴 길이 없고, 기준선보다 옛 시험판은 Migrate 가 예외로 거절하는데 그 예외에
+            // 취합 전체가 멎지 않게 여기서 먼저 걸러 낸다.
+            if (Rejected(PclmFile.Inspect(file)) is { } 까닭)
+            {
+                거절.Add(new MergeRejection(Path.GetFileName(file), 까닭));
+                continue;
+            }
 
-            if (TooNew(copy)) { 거절.Add(Path.GetFileName(file)); continue; }
+            // 남의 파일이다. 읽기 전용 연결로 한 벌 떠서 열고, 옛 판이면 사본 위에서 올린다.
+            //
+            // 파일 셋(본체·-wal·-shm)을 따로 복사하지 않는다. 사람이 자기 작업자료를 이름만 바꿔
+            // 보내면서 아직 그 파일을 쓰고 있으면, 셋을 하나씩 나르는 사이에 어긋난 셋이 된다.
+            // VACUUM INTO 는 WAL 에 남은 마지막 것까지 커밋된 한 시점으로 뜬다.
+            var copy = Path.Combine(work, $"{차례++:D3}.pclm");
+            new Database(file, Access.Read).Snapshot(copy);
 
             var source = new Database(copy);
             source.Migrate();
@@ -283,21 +308,33 @@ public sealed class Merger
 
         // 사람이 자리를 짚어 만든 결과물이라 이미 있으면 덮는다 — 취합본은 매번 처음부터
         // 짓는 것이므로, 지난 것을 남겨 둘 까닭이 없다.
-        database.Snapshot(target, overwrite: true);
+        // 뜬 사본은 자기 신원을 새로 받는다 — 임시로 지은 것의 신원이 결과물에 남을 까닭이 없다.
+        PclmFile.Snapshot(database, target, PclmRole.Merged, overwrite: true);
         return report;
     }
 
+    /// <summary>거절 까닭. 보고 글이 그대로 적는다.</summary>
+    public const string PCLM아님 = "PCLM 파일이 아님";
+    public const string 옛시험판 = "옛 시험판";
+    public const string 새판 = "새 판";
+    public const string 파일없음 = "파일이 없음";
+
     /// <summary>
-    /// 판이 지금보다 새로운가. <b>Migrate 보다 먼저 본다</b> — 마이그레이션은 앞으로만 가므로
-    /// 새 판을 내릴 길이 없고, 그 위에서 뷰를 다시 짓다 무엇이 깨질지 알 수 없다.
+    /// 받지 않을 까닭. 받으면 <c>null</c>.
+    ///
+    /// <para>받는 것은 제출본과 작업자료다. 취합본을 받으면 지난 취합에서 밀려난 것이 되살아나고,
+    /// 백업과 옮겨진 옛 자료는 어느 작업자료의 옛 모습이라 같은 사람의 것이 두 번 들어간다.
+    /// 그 셋의 까닭은 역할의 이름(취합본·백업·옮겨진 옛 자료) 그대로다.</para>
     /// </summary>
-    private static bool TooNew(string path)
+    private static string? Rejected(PclmInfo info) => info switch
     {
-        using var connection = new Database(path).OpenReadOnly();
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        return Convert.ToInt32(command.ExecuteScalar()) > Schema.Version;
-    }
+        { Kind: PclmKind.Ok, Role: PclmRole.Submission or PclmRole.Work } => null,
+        { Kind: PclmKind.Ok } => PclmRole.Name(info.Role),
+        { Kind: PclmKind.TooOld } => 옛시험판,
+        { Kind: PclmKind.TooNew } => 새판,
+        { Kind: PclmKind.NotFound } => 파일없음,
+        _ => PCLM아님,
+    };
 
     /// <summary>제출자 이름. 제출본의 설정에서 읽되 <b>그것만</b> 읽는다.</summary>
     private static string Submitter(SqliteConnection connection)

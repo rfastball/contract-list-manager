@@ -10,12 +10,89 @@ import mappingJson from "../../src/Pclm.Core/Erp/mapping.json?raw";
  */
 
 import type {
-  Candidate, DeletionPlan, EntityType, LinkContract, LinkFacet, LinkRequest, MergeResult,
+  CaptureDay, CaptureEntry, Candidate, DeletionPlan, ExtensionStatus, EntityType, ImportResult, LinkContract, LinkFacet, LinkRequest, MergeResult,
+  ExtensionProblem, ExtensionSettings, MirrorField, MirrorItem, MirrorShot, MirrorState, MirrorTab, ScreenRow, SupportedScreen,
   NoticeChoice, Outline, OutlineContract, OutlineNotice, OutlineNoticeGroup, OutlineRequest,
   PlanImportResult, PlanPick,
-  RequestCandidate, RequestLinkFacet, Row, Settings, Sheet, StatusReport, SubmitResult, Summary,
-  UserColumn,
+  RequestCandidate, RequestLinkFacet, Row, Session, Settings, Sheet, StatusReport, SubmitResult, Summary,
+  SwitchResult, UserColumn, WindowPrefs, WorkfilePlan,
 } from "./types";
+
+/**
+ * 가짜 다리의 갈림 스위치. <code>열람</code> 이면 열람 창처럼 답한다 — 띠가 서고 고치는 요청이 거절된다.
+ * 기본은 작업자료 창이고, 미리보기에서는 주소에 <code>?열람</code> 을 붙여 켠다.
+ *
+ * <p>시험은 이 객체의 값을 바꾼다. 응답을 가로채는 것으로는 모자라다 — 화면이 처음 뜰 때 동시에 나가는
+ * 요청은 시험의 엿듣개를 거치지 않고 이 모듈의 본래 <code>invoke</code> 로 가는 일이 있다.</p>
+ */
+export const 스위치 = {
+  열람: typeof location !== "undefined" && new URLSearchParams(location.search).has("열람"),
+  /**
+   * 확장이 어디까지 깔렸는가. 미리보기에서는 주소에 <code>?확장=설치 전</code> 처럼 붙여 바꾼다.
+   * <code>없음</code> 이면 진짜 다리가 개발 실행·시험 홈에서 하듯 상태 읽기를 거절한다.
+   */
+  확장: ((typeof location !== "undefined" && new URLSearchParams(location.search).get("확장")) || "연결") as
+    "없음" | "설치 전" | "기다림" | "옛 판" | "연결" | "끊김",
+  /**
+   * 확장 상태를 통째로 갈아 끼운다. 시험이 판·인사 기록을 제 손으로 짓는 자리다 — 응답을 가로채면 처음 뜰 때
+   * 동시에 나가는 요청이 엿듣개를 비껴가 위의 꼴이 먼저 서는 일이 있다.
+   */
+  확장상태: null as ExtensionStatus | null,
+};
+
+/** 지금 로컬 날짜의 그 시각을 다리가 내는 꼴(<code>yyyy-MM-ddTHH:mm:ss</code>)로. */
+export const 오늘의 = (hhmm: string) => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${hhmm}:00`;
+};
+
+/**
+ * 가짜 다리의 수집 기록. 늦은 것부터 둔다. 번호와 건명은 아래 표본(지어낸 것)과 같아 「보기」 가 그 줄을 찾는다.
+ *
+ * <p>시험은 <code>줄</code> 맨 앞에 넣고 <code>판</code> 을 올려 새 수집이 들어온 것처럼 꾸민다 —
+ * <code>dataVersion</code> 이 이 판을 낸다.</p>
+ */
+export const 수집 = {
+  판: 0,
+  줄: [] as CaptureEntry[],
+};
+
+const 수집줄 = (at: string, kind: CaptureEntry["kind"], number: string, title: string, changed: boolean): CaptureEntry => ({
+  captureId: `${kind}-${number}-${at}`,
+  at,
+  entityType: kind === "접수" ? "request" : kind === "공고" ? "notice" : "contract",
+  kind, number, title, changed,
+  result: changed ? "저장" : "변경 없음",
+  scope: "live",
+});
+export { 수집줄 };
+
+/** 진짜 다리의 Bridge.Writes 와 같은 목록. 열람이면 이것들을 거절한다. */
+const 고치는요청 = new Set([
+  "addColumn", "updateColumn", "removeColumn", "moveColumn",
+  "setField", "setOverride", "clearOverride", "deleteEntity",
+  "saveSettings", "relinkExplicit",
+  "confirmLink", "rejectLink", "unlink",
+  "confirmRequestLink", "rejectRequestLink", "unlinkRequest",
+  "pickPlanExcel", "importPlan", "submit", "merge",
+  "prepareExtension", "openExtensionSetup", "erpTools",
+  "pickWorkfile", "moveWorkfile", "switchWorkfile", "newWorkfile", "backupWorkfile",
+  "importShot", "mirrorCommand", "extensionCommand",
+  "windowPrefs", "saveWindowPrefs",
+]);
+
+/** 가짜 다리의 창 몸가짐. 진짜 다리는 홈의 window.json 에 적는다. 시험이 처음 꼴로 되돌린다. */
+export const 창 = {
+  몸가짐: { closeToTray: false, autostart: false, autostartAvailable: true, autostartReason: null } as WindowPrefs,
+};
+
+/** 가짜 다리의 확장. 판과 폴더는 지어낸 것이다. */
+const 확장판 = "0.9.0";
+const 확장폴더 = "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\extension";
+
+/** 가짜 다리의 지금 작업자료. 경로는 지어낸 것이다. */
+const 작업자료 = "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\계약자료.pclm";
 
 const 통합열 = [
   "계약번호", "계약본번호", "차수", "계약건명", "계약일자", "계약방법", "계약구분",
@@ -85,8 +162,8 @@ const 통합의접수열 = [
   "기관담당자", "기관담당자전화",
 ];
 
-/** v_통합_v1 에 접수 아홉 열을 더한 것. v1 은 계약면 약속이라 손대지 않고 나란히 세운다. */
-const 통합열_v2 = [...통합열, ...통합의접수열];
+/** v_통합 이 내는 열. 계약·공고 몸통(통합열) 끝에 접수 아홉 열이 붙는다. */
+const 통합표열 = [...통합열, ...통합의접수열];
 
 /** 레코드를 가리키는 열. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다. Views.KeyColumns 와 같다. */
 const 키열 = [
@@ -97,7 +174,7 @@ const 키열 = [
 ];
 
 /** 통합이 공고·접수 뷰에서 붙여 오는 열. 이 줄의 키로 주소가 잡히지 않아 통합에서는 잠근다. */
-const 통합의붙은열 = 통합열_v2.slice(통합열_v2.indexOf("입찰공고번호"));
+const 통합의붙은열 = 통합표열.slice(통합표열.indexOf("입찰공고번호"));
 
 /** 파서가 읽은 값을 고칠 수 있는 열 — 키 열도 사람 열도 아닌 나머지. Bridge.ReadSheet 와 같은 셈이다. */
 const 고칠수있는열 = (columns: string[], editable: string[], 통합 = false) =>
@@ -234,8 +311,8 @@ function 계획행(i: number): Row {
 }
 
 /**
- * 통합 한 줄. v1 과 v2 가 같은 값에서 나오고 <b>열 목록만 다르다</b> — 붙는 열이 다를 뿐
- * 계약 쪽 몸통은 한 벌이라, 두 벌로 적으면 한쪽이 조용히 늙는다.
+ * 통합 한 줄. 계약 시트와 통합 시트가 같은 값에서 나오고 <b>열 목록만 다르다</b> — 붙는 열이
+ * 다를 뿐 계약 쪽 몸통은 한 벌이라, 두 벌로 적으면 한쪽이 조용히 늙는다.
  *
  * <p>접수는 1:1 이라 <b>한 줄에만</b> 매단다. 여러 계약에 같은 접수를 붙이면 화면 감이
  * 실제와 달라진다.</p>
@@ -268,7 +345,7 @@ function 통합행(i: number, columns: string[] = 통합열): Row {
     계약금액: 돈(s.금액),
     지체상금률: "0.075",
     하자보수보증금률: "3",
-    하자담보책임기간: "36개월",
+    하자담보책임기간: "3년",
     납품기한: "2026/09/20",
     인도조건: "지정장소도착도",
     납품장소: "수요처 지정 창고",
@@ -302,16 +379,15 @@ function 통합행(i: number, columns: string[] = 통합열): Row {
 /**
  * 계약이 아직 없는 통합 줄.
  *
- * <p>v2 의 줄 하나는 계약이 아니라 <b>조달 건</b>이다 — 접수만 온 것도, 공고까지만 온 것도
- * 표에 선다. 그래야 구조 보기와 표 보기가 같은 것을 센다. v1 은 계약을 줄기로 세운 옛 시트라
- * 계약이 있는 것만 낸다.</p>
+ * <p>통합의 줄 하나는 계약이 아니라 <b>조달 건</b>이다 — 접수만 온 것도, 공고까지만 온 것도
+ * 표에 선다. 그래야 구조 보기와 표 보기가 같은 것을 센다.</p>
  */
 function 생애주기행(i: number, 공고까지: boolean): Row {
   const r = 접수씨앗[i];
   const s = 씨앗[i % 씨앗.length];
   const n = String(i + 60).padStart(2, "0");
 
-  return 줄(통합열_v2, {
+  return 줄(통합표열, {
     접수번호: `${r.base}-000`,
     조달요구번호: r.요구번호.join(", "),
     요청명: r.요청명,
@@ -342,7 +418,7 @@ function 생애주기행(i: number, 공고까지: boolean): Row {
   });
 }
 
-/** 접수 한 줄. 끝 일곱 열은 v_공고_v1 의 규율대로 <b>세부품명이 한 가지일 때만</b> 채운다. */
+/** 접수 한 줄. 끝 일곱 열은 v_공고 의 규율대로 <b>칸마다 모든 줄이 같을 때만</b> 채운다. */
 function 접수행(i: number): Row {
   const r = 접수씨앗[i];
   const 하나 = r.요구번호.length === 1;
@@ -427,23 +503,14 @@ const 갈린공고: Row[] = [
 );
 
 const sheets: Record<string, Sheet> = {
-  "v_통합_v1": {
-    name: "v_통합_v1",
-    columns: 통합열,
-    editable: ["진행상태", "메모"],
-    correctable: 고칠수있는열(통합열, ["진행상태", "메모"], true),
-    // 손으로 고친 칸을 하나 세워 둔다 — 표시와 되돌리기를 볼 자리다.
-    overrides: { "R26TA0911050100": { 계약금액: "164,872,340" } },
-    rows: Array.from({ length: 42 }, (_, i) => 통합행(i)),
-  },
-  "v_공고_v1": {
-    name: "v_공고_v1",
+  "v_공고": {
+    name: "v_공고",
     columns: 공고열,
     editable: ["검토여부", "메모"],
     correctable: 고칠수있는열(공고열, ["검토여부", "메모"]),
     overrides: {},
     // 갈린 건에서는 <b>현행 한 장만</b> 선다 — 취소된 원공고와 취소공고는 대체되어 빠진다.
-    // 그 셋이 나란히 서는 것을 보려면 「차수」 눈으로 옮긴다(v_공고차수_v1).
+    // 그 셋이 나란히 서는 것을 보려면 「차수」 눈으로 옮긴다(v_공고차수).
     rows: [...씨앗.map((s, i) =>
       줄(공고열, {
         입찰공고번호: `R26BK090170${String(i + 1).padStart(2, "0")}-000`,
@@ -462,7 +529,7 @@ const sheets: Record<string, Sheet> = {
         추정가격: 돈(Math.round(s.금액 * 1.1)),
         기초금액: 돈(Math.round(s.금액 * 1.19)),
         분할납품: "가능",
-        하자담보기간: "36",
+        하자담보기간: "3년",
         공고기관: "국방부조달본부",
         공고담당자: "홍길동",
         개찰일시: "2026/07/11 11:00:00",
@@ -486,25 +553,25 @@ const sheets: Record<string, Sheet> = {
       }),
     ), 갈린공고[2]],
   },
-  // 통합 탭이 보는 것은 이쪽이다. v1 은 계약면 약속이라 남겨 두고 나란히 세운다.
-  "v_통합_v2": {
-    name: "v_통합_v2",
-    columns: 통합열_v2,
+  // 통합 탭이 보는 것. 손으로 고친 칸을 하나 세워 둔다 — 표시와 되돌리기를 볼 자리다.
+  "v_통합": {
+    name: "v_통합",
+    columns: 통합표열,
     editable: ["진행상태", "메모"],
-    correctable: 고칠수있는열(통합열_v2, ["진행상태", "메모"], true),
+    correctable: 고칠수있는열(통합표열, ["진행상태", "메모"], true),
     overrides: { "R26TA0911050100": { 계약금액: "164,872,340" } },
     // 계약이 아직 없는 두 줄을 끝에 세운다 — 접수+공고 하나, 접수만 하나.
     // 화면이 그런 줄을 어떻게 가리키고 어떻게 잠그는지 보는 자리다.
     rows: [
-      ...Array.from({ length: 42 }, (_, i) => 통합행(i, 통합열_v2)),
+      ...Array.from({ length: 42 }, (_, i) => 통합행(i, 통합표열)),
       생애주기행(0, true),
       생애주기행(2, false),
     ],
   },
   // 계획. 분모라 아직 아무것도 오지 않은 줄(미착수)이 대부분이고, 뒤로 갈수록 차 있다.
   // 이름·번호는 모두 지어낸 것이다.
-  "v_계획_v1": {
-    name: "v_계획_v1",
+  "v_계획": {
+    name: "v_계획",
     columns: 계획열,
     // 읽기 전용이다. 진짜 다리도 계획 뷰에는 빈 목록을 낸다(Bridge.ReadSheet).
     editable: [],
@@ -512,16 +579,16 @@ const sheets: Record<string, Sheet> = {
     overrides: {},
     rows: Array.from({ length: 24 }, (_, i) => 계획행(i)),
   },
-  "v_접수_v1": {
-    name: "v_접수_v1",
+  "v_접수": {
+    name: "v_접수",
     columns: 접수열,
     editable: ["확인여부", "메모"],
     correctable: 고칠수있는열(접수열, ["확인여부", "메모"]),
     overrides: {},
     rows: 접수씨앗.map((_, i) => 접수행(i)),
   },
-  "v_계약_v1": {
-    name: "v_계약_v1",
+  "v_계약": {
+    name: "v_계약",
     columns: 계약열,
     editable: ["진행상태", "메모"],
     correctable: 고칠수있는열(계약열, ["진행상태", "메모"]),
@@ -556,10 +623,10 @@ const userColumns: Record<Entity, UserColumn[]> = {
 const 모든열 = () => [...userColumns.contract, ...userColumns.notice, ...userColumns.request];
 
 /**
- * 통합 v3 이 내는 열. v2 끝에 <b>둘만 더한 것</b>이다 — 이름을 바꾼 것이 아니라 더한 것이라
- * 저쪽에 저장된 필드 연결이 끊기지 않는다.
+ * v_통합차수 가 내는 열. v_통합 끝에 <b>둘만 더한 것</b>이다 — 실제 뷰도 그렇고, 계약면 시험이
+ * 그 성질을 붙들고 있다.
  */
-const 통합열_v3 = [...통합열_v2, "공고건", "현행공고"];
+const 통합차수열 = [...통합표열, "공고건", "현행공고"];
 
 // ── 차수를 편 표 셋 ─────────────────────────────────────────────
 //
@@ -570,36 +637,36 @@ const 통합열_v3 = [...통합열_v2, "공고건", "현행공고"];
 // 시트 목록에도 들지 않는다 — 거기 넣으면 사람 열을 세울 때 editable 이 채워져, 고칠 수 없어야
 // 할 표가 조용히 열린다.
 
-sheets["v_공고차수_v1"] = {
-  name: "v_공고차수_v1",
+sheets["v_공고차수"] = {
+  name: "v_공고차수",
   columns: 공고열,
   editable: [],
   correctable: [],
   overrides: {},
   // 최신 표의 마지막 줄이 갈린 건의 현행이다. 그 자리를 셋으로 펴 놓는다.
-  rows: [...sheets["v_공고_v1"].rows.slice(0, -1), ...갈린공고],
+  rows: [...sheets["v_공고"].rows.slice(0, -1), ...갈린공고],
 };
 
-sheets["v_계약차수_v1"] = {
-  name: "v_계약차수_v1",
+sheets["v_계약차수"] = {
+  name: "v_계약차수",
   columns: 계약열,
   editable: [],
   correctable: [],
   overrides: {},
   // 지어낸 이 자료에는 변경계약이 없어 최신 표와 줄이 같다. 없는 것을 지어 넣지 않는다 —
   // 차수 뷰가 늘 더 많은 줄을 낸다고 믿게 만드는 편이 빈 것보다 나쁘다.
-  rows: sheets["v_계약_v1"].rows,
+  rows: sheets["v_계약"].rows,
 };
 
-sheets["v_통합_v3"] = {
-  name: "v_통합_v3",
-  columns: 통합열_v3,
+sheets["v_통합차수"] = {
+  name: "v_통합차수",
+  columns: 통합차수열,
   editable: [],
   correctable: [],
   overrides: {},
   rows: [
-    ...sheets["v_통합_v2"].rows.map((r) =>
-      줄(통합열_v3, {
+    ...sheets["v_통합"].rows.map((r) =>
+      줄(통합차수열, {
         ...r,
         // 갈리지 않은 건이라 공고번호에서 차수만 떼면 그것이 곧 건 이름이다.
         공고건: r.입찰공고번호 ? r.입찰공고번호.slice(0, -4) : "",
@@ -608,7 +675,7 @@ sheets["v_통합_v3"] = {
     ),
     // 갈린 건은 공고 셋이 나란히 서고 계약·접수 열은 빈 채로 남는다 — 이어진 것이 없어서다.
     ...갈린공고.map((n) =>
-      줄(통합열_v3, {
+      줄(통합차수열, {
         입찰공고번호: n.입찰공고번호,
         공고명: n.공고명,
         공고종류: n.공고종류,
@@ -633,11 +700,11 @@ for (const [name, sheet] of Object.entries(sheets)) {
   };
 }
 
-/** 그 개체의 사람 열이 서는 시트들. 통합은 계약 쪽이라 v1·v2 가 함께 움직인다. */
+/** 그 개체의 사람 열이 서는 시트들. 통합은 계약 쪽이라 계약 시트와 함께 움직인다. */
 const 시트 = (entityType: Entity) => ({
-  contract: ["v_통합_v1", "v_통합_v2", "v_계약_v1"],
-  notice: ["v_공고_v1"],
-  request: ["v_접수_v1"],
+  contract: ["v_통합", "v_계약"],
+  notice: ["v_공고"],
+  request: ["v_접수"],
 }[entityType]);
 
 function 열맞추기(entityType: Entity) {
@@ -733,7 +800,7 @@ const 미연결수 = () => 계약줄.filter((c) => c.noticeKey === null).length;
 
 // ── 접수 ↔ 공고 ──────────────────────────────────────
 // 계약 쪽과 얼개는 같고 판정만 다르다 — 건명이 아니라 품목 줄 수로 좁히고, 수량·단가
-// 다중집합이 완전히 같을 때만 통과한다. 통과 후보가 둘이면 기계가 잇지 않고 사람에게 넘긴다.
+// 다중집합이 완전히 같을 때만 통과한다. 통과 후보가 둘이면 둘 다 「여럿입니다」를 단다.
 
 /** 접수 쪽 견줌. 세부품명번호는 <b>어긋나도 막지 않는다</b> — 협의·요청 누락으로 다를 수 있다. */
 function 접수견줌(요청명: string, 공고명: string): RequestLinkFacet[] {
@@ -954,9 +1021,9 @@ const 줄키 = (row: Row) =>
  * 붙임표를 달아, 모양으로 가리면 접수를 공고로 읽는다. 쌓인 줄에서 찾아 정한다.
  */
 const 어느것: { entityType: Entity; view: string; 제목열: string; 차수길이: number }[] = [
-  { entityType: "contract", view: "v_계약_v1", 제목열: "계약건명", 차수길이: 2 },
-  { entityType: "notice", view: "v_공고_v1", 제목열: "공고명", 차수길이: 3 },
-  { entityType: "request", view: "v_접수_v1", 제목열: "요청명", 차수길이: 3 },
+  { entityType: "contract", view: "v_계약", 제목열: "계약건명", 차수길이: 2 },
+  { entityType: "notice", view: "v_공고", 제목열: "공고명", 차수길이: 3 },
+  { entityType: "request", view: "v_접수", 제목열: "요청명", 차수길이: 3 },
 ];
 
 /** 지우면 무엇이 사라지는지. 진짜 다리는 DB 를 세지만 여기서는 그럴듯한 수를 낸다. */
@@ -1027,23 +1094,295 @@ const 현황: StatusReport = {
   ],
 };
 
+/** 미리보기의 오늘 수집. 표본의 번호·건명을 그대로 쓴다 — 모두 지어낸 것이다. */
+
+// ── 지금 보는 화면(ADR-036) ─────────────────────────────
+// Chrome 에 열린 나라장터 탭 셋 — 새 차수인 계약, 사람이 고친 칸이 화면과 다른 계약, 수집 규칙에 없는 화면.
+// 번호·건명·금액은 모두 지어낸 것이다. 시험은 <code>지금화면</code> 의 값을 바꾼다.
+
+const 칸 = (column: string, kind: MirrorField["kind"], value: string, extra: Partial<MirrorField> = {}): MirrorField =>
+  ({ column, kind, value, old: null, raw: null, human: null, choiceId: null, sources: [], from: "", ...extra });
+
+/** 칸을 채우는 화면의 자리와 그 이름표. */
+const 자리 = (source: string, from: string): Partial<MirrorField> => ({ sources: [source], from });
+
+const 품목 = (line: string, name: string, quantity: string, unit: string, price: string, amount: string,
+  before: MirrorItem["before"] = null): MirrorItem =>
+  ({ line, name, spec: "", quantity, unit, price, amount, before, added: false, source: `table:contract_item:${line}` });
+
+const 화면줄 = (group: string, label: string, text: string, source = ""): ScreenRow => ({ group, label, text, source });
+
+const 새차수화면 = (): MirrorShot => ({
+  entityType: "contract", kind: "계약", number: "R26TA0000010101", base: "R26TA00000101", seq: "01", title: "시험 음향설비 개선",
+  status: "새 차수", changes: 3, compareSeq: "00", latestSeq: "00", view: "v_계약", viewColumns: 30,
+  fields: [
+    칸("계약번호", "id", "R26TA0000010101", 자리("ctrtNoOrd", "계약번호")), 칸("계약본번호", "id", "R26TA00000101", 자리("ctrtNoOrd", "계약번호")),
+    칸("차수", "id", "01", 자리("ctrtNoOrd", "계약번호")),
+    칸("계약건명", "same", "시험 음향설비 개선", 자리("ctrtNm", "계약명")),
+    칸("계약일자", "changed", "2026/10/02", { old: "2026/09/14", raw: "2026-10-02", ...자리("ctrtDt", "계약일자") }),
+    칸("계약방법", "same", "제한경쟁", 자리("ctrtMthdCd", "계약방법")),
+    // 품목에서 셈하는 총액 — 화면의 한 칸에서 오지 않아 잇는 자리가 없다.
+    칸("계약금액", "changed", "34,400,000", { old: "30,400,000" }),
+    칸("수요기관", "same", "가온시험기관", 자리("dmstUntyGrpNm", "기관명")),
+    칸("계약상대자", "same", "주식회사 시험음향", { sources: ["table:erp_partner"], from: "" }), 칸("대표자", "same", "홍길동"), 칸("사업자등록번호", "same", "123-45-67890"),
+  ],
+  rest: 19,
+  items: [
+    품목("1", "디지털 믹서", "1", "식", "18,400,000", "18,400,000"),
+    품목("2", "무선마이크 세트", "8", "세트", "2,000,000", "16,000,000", { quantity: "6", unit: "세트", price: "2,000,000", amount: "12,000,000" }),
+  ],
+  itemChanges: 1, itemRows: 2, itemsAllRead: true,
+  place: [
+    { kind: "접수", state: "missing", number: "", collected: false, source: null },
+    { kind: "공고", state: "ref", number: "R26BK00000101", collected: false, source: "bidPbancNo" },
+    { kind: "계약", state: "here", number: "R26TA0000010101", collected: true, source: null },
+  ],
+  rounds: [
+    { seq: "00", amount: "30,400,000", savedOn: "09/16", state: "stored" },
+    { seq: "01", amount: "34,400,000", savedOn: "", state: "ghost" },
+  ],
+  baseToken: "mock-새차수", blocked: null,
+});
+
+const 검토화면 = (): MirrorShot => ({
+  entityType: "contract", kind: "계약", number: "R26TA0000010201", base: "R26TA00000102", seq: "01", title: "시험동 배기설비 보수",
+  status: "검토 대기", changes: 0, compareSeq: "01", latestSeq: "01", view: "v_계약", viewColumns: 30,
+  fields: [
+    칸("계약번호", "id", "R26TA0000010201"), 칸("계약본번호", "id", "R26TA00000102"), 칸("차수", "id", "01"),
+    칸("계약건명", "same", "시험동 배기설비 보수"),
+    칸("납품장소", "override", "시험동 지하 기계실", { human: "시험동 B1 기계실", choiceId: "override/납품장소" }),
+    칸("계약상대자", "override", "주식회사 바른시험", { human: "(주)바른시험", choiceId: "override/계약상대자" }),
+    칸("대표자", "same", "홍길동"),
+  ],
+  rest: 23,
+  items: [품목("1", "배기팬 교체", "1", "식", "31,200,000", "31,200,000")],
+  itemChanges: 0, itemRows: 1, itemsAllRead: true,
+  place: [
+    { kind: "접수", state: "missing", number: "", collected: false, source: null },
+    { kind: "공고", state: "linked", number: "R26BK00000102-000", collected: true, source: "bidPbancNo" },
+    { kind: "계약", state: "here", number: "R26TA0000010201", collected: true, source: null },
+  ],
+  rounds: [
+    { seq: "00", amount: "29,800,000", savedOn: "09/24", state: "stored" },
+    { seq: "01", amount: "31,200,000", savedOn: "09/30", state: "current" },
+  ],
+  baseToken: "mock-검토", blocked: null,
+});
+
+const 탭 = (tabId: number, screen: string, state: MirrorTab["state"], shot: MirrorShot | null, front = false,
+  screenRows: ScreenRow[] = [], menu = ""): MirrorTab => ({
+  id: `4242:${tabId}`, pid: 4242, tabId, browser: "Chrome", title: "나라장터", screen, menu, state,
+  readAt: 오늘의("09:20"), message: "", front, shot, error: null, screenRows,
+});
+
+/** 화면 그대로 — 확장이 읽어 보낸 이름표와 보이는 글. 화면의 서식 그대로다(날짜의 줄표, 금액의 쉼표 없음). */
+const 새차수줄 = (): ScreenRow[] => [
+  화면줄("계약 기본정보", "계약번호", "R26TA00000101-01", "ctrtNoOrd"),
+  화면줄("계약 기본정보", "계약명", "시험 음향설비 개선", "ctrtNm"),
+  화면줄("계약 기본정보", "계약방법", "제한경쟁", "ctrtMthdCd"),
+  화면줄("계약 기본정보", "계약일자", "2026-10-02", "ctrtDt"),
+  화면줄("계약 기본정보", "공고번호", "R26BK00000101", "bidPbancNo"),
+  화면줄("수요기관", "기관명", "가온시험기관", "dmstUntyGrpNm"),
+  화면줄("품목내역", "1 디지털 믹서", "1식 · 18400000", "table:contract_item:1"),
+  화면줄("품목내역", "2 무선마이크 세트", "8세트 · 16000000", "table:contract_item:2"),
+];
+
+const 개찰줄 = (): ScreenRow[] => [
+  화면줄("", "공고번호", "R26BK00000101-000"),
+  화면줄("", "공고명", "시험 음향설비 개선"),
+  화면줄("", "개찰일시", "2026-09-08 14:00"),
+];
+
+/** 가짜 다리의 Chrome 탭. 시험은 <code>탭</code> 을 갈아 끼우고, <code>낡음</code> 이면 가져오기가 낡은 baseToken 으로 답한다. */
+export const 지금화면 = {
+  탭: [] as MirrorTab[],
+  /** 확장의 설정. null 이면 옛 확장처럼 알리지 않는다. */
+  설정: { pid: 4242, browser: "Chrome", panelMode: "always", shortcut: "Alt+Shift+S", siteAccess: true } as ExtensionSettings | null,
+  /** 오늘의 오류와 오늘 전의 마지막 오류. */
+  오류: [] as ExtensionProblem[],
+  지난오류: null as ExtensionProblem | null,
+  앞: "4242:1" as string | null,
+  낡음: false,
+  /** 앱이 보낸 명령. */
+  명령: [] as { tabId: number; command: string }[],
+  /** 가져온 요청. */
+  가져옴: [] as { tabId: number; baseToken: string; restore: string[]; captureId: string }[],
+  /** 수집하는 화면 — 진짜 다리는 매핑에서 화면을 단 프로필을 낸다(Mirror.SupportedScreens). */
+  수집화면: [] as SupportedScreen[],
+};
+
+/** 기본 매핑에서 화면을 단 프로필(src/Pclm.Core/Erp/mapping.json 의 screen) 그대로. */
+export const 기본수집화면 = (): SupportedScreen[] => [
+  { code: "01117", entityType: "request", kind: "접수", name: "조달요구 접수(목록형)" },
+  { code: "01179", entityType: "notice", kind: "공고", name: "입찰공고 상세" },
+  { code: "01579", entityType: "contract", kind: "계약", name: "계약 상세" },
+];
+
+export const 기본탭 = (): MirrorTab[] => [
+  탭(1, "계약 상세", "supported", 새차수화면(), true, 새차수줄(), "01579"),
+  탭(2, "계약 상세", "supported", 검토화면(), false, [], "01579"),
+  탭(3, "개찰 결과", "unsupported", null, false, 개찰줄(), "01175"),
+];
+지금화면.탭 = 기본탭();
+지금화면.수집화면 = 기본수집화면();
+
+function 기본수집(): CaptureEntry[] {
+  return [
+    수집줄(오늘의("09:12"), "계약", "R26TA0911050100", 씨앗[0].건명, true),
+    수집줄(오늘의("08:57"), "공고", "R26BK09017002-000", 씨앗[1].건명, false),
+    수집줄(오늘의("08:41"), "접수", `${접수씨앗[0].base}-000`, 접수씨앗[0].요청명, true),
+  ];
+}
+
+/** 진짜 다리(CaptureLog.Read)와 같은 셈 — 오늘 것만, 종류별 수, 바꾼 수, 마지막 하나. */
+function 수집날(줄: CaptureEntry[]): CaptureDay {
+  const today = 오늘의("00:00").slice(0, 10);
+  const entries = 줄.filter((e) => e.at.startsWith(today));
+  return {
+    today,
+    entries,
+    requests: entries.filter((e) => e.kind === "접수").length,
+    notices: entries.filter((e) => e.kind === "공고").length,
+    contracts: entries.filter((e) => e.kind === "계약").length,
+    saved: entries.filter((e) => e.changed).length,
+    last: 줄[0] ?? null,
+  };
+}
+
 /** 화면이 부르는 것을 그대로 받는다. 이름과 인자는 Bridge.cs 의 switch 와 같아야 한다. */
 export function invoke(method: string, args: unknown[]): Promise<unknown> {
+  if (method === "dataVersion") return Promise.resolve(수집.판);
   const wait = <T>(value: T) => new Promise<T>((r) => setTimeout(() => r(value), 60));
 
+  const 열람 = 스위치.열람;
+  if (열람 && 고치는요청.has(method))
+    return Promise.reject(new Error("열람 중인 자료라 고칠 수 없습니다 — 제출본 「제출_홍길동_20260901.pclm」 는 이 창에서 읽기만 합니다."));
+
   switch (method) {
+    case "session":
+      return wait<Session>(열람
+        ? { readOnly: true, role: "submission", roleName: "제출본", path: "C:\\Users\\홍길동\\Documents\\제출_홍길동_20260901.pclm" }
+        : { readOnly: false, role: "work", roleName: "작업자료", path: "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\계약자료.pclm" });
+
+    // 진짜 다리는 고르기 창을 열고, 고른 것이 쓸 수 있는 자리인지 본 뒤 그 뜻을 돌려준다. 아무것도 바꾸지 않는다.
+    // 바꾸기는 제출본을 고른 꼴(사본에서 새로)을 낸다 — 확인 창이 가장 많은 것을 말해야 하는 갈래다.
+    case "pickWorkfile": {
+      const 문서 = "C:\\Users\\홍길동\\Documents";
+      const plans: Record<string, WorkfilePlan> = {
+        move: { action: "move", path: "D:\\계약\\계약자료.pclm", source: 작업자료, sourceRoleName: null, current: 작업자료 },
+        switch: {
+          action: "snapshot", path: `${문서}\\계약자료.pclm`,
+          source: `${문서}\\제출_홍길동_20260901.pclm`, sourceRoleName: "제출본", current: 작업자료,
+        },
+        new: { action: "new", path: `${문서}\\계약자료.pclm`, source: null, sourceRoleName: null, current: 작업자료 },
+      };
+      const plan = plans[String(args[0])];
+      return plan ? wait(plan) : Promise.reject(new Error(`모르는 바꾸기입니다: ${String(args[0])}`));
+    }
+
+    // 진짜 다리는 바꾼 뒤 답을 보내고 창을 다시 띄운다. 여기서는 답의 꼴만 낸다.
+    case "moveWorkfile":
+    case "switchWorkfile":
+    case "newWorkfile":
+      return wait<SwitchResult>({ restart: true, path: String(args[args.length - 1]) });
+
+    case "backupWorkfile": {
+      const 오늘 = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      return wait({ path: `C:\\Users\\홍길동\\Documents\\계약자료_백업_${오늘}.pclm` });
+    }
+
+    // 진짜 다리는 고르기 창을 열고 새 창(열람 프로세스)을 띄운다. 여기서는 고른 꼴만 낸다.
+    case "openOther":
+      return wait({ path: "C:\\Users\\홍길동\\Documents\\제출_홍길동_20260901.pclm" });
+
+    // 진짜 다리는 확장을 홈에 풀고 브라우저 연결을 등록한다. 여기서는 준비한 것으로 치고 꼴만 낸다.
     case "prepareExtension":
+      스위치.확장 = "기다림";
+      return wait({ folder: 확장폴더, version: 확장판 });
+    // 진짜 다리는 브라우저의 확장 관리를 연다. 여기서는 연 것으로 친다.
     case "openExtensionSetup":
-    case "extensionStatus":
-      return Promise.reject(new Error("확장 설치 준비는 계약목록.exe에서 실행하세요."));
+      return wait(null);
+    case "extensionStatus": {
+      if (스위치.확장상태) return wait(스위치.확장상태);
+      const 꼴 = 스위치.확장;
+      if (꼴 === "없음") return Promise.reject(new Error("내장 확장 연결은 업무 홈에서만 준비합니다."));
+      const status: ExtensionStatus = {
+        prepared: 꼴 !== "설치 전",
+        embeddedVersion: 확장판,
+        diskVersion: 꼴 === "설치 전" ? null : 확장판,
+        contacts: 꼴 === "연결" || 꼴 === "끊김" ? [{ browser: "Chrome", version: 확장판, at: 오늘의("09:12") }]
+          : 꼴 === "옛 판" ? [{ browser: "Chrome", version: "0.8.0", at: 오늘의("09:12") }]
+          : [],
+        folder: 확장폴더,
+        // 지금 붙어 있는 것(상시 연결). 끊긴 꼴은 오늘 18:02 에 끊겼다.
+        live: 꼴 === "연결" ? [{ browser: "Chrome", version: 확장판, connectedAt: 오늘의("09:12") }]
+          : 꼴 === "옛 판" ? [{ browser: "Chrome", version: "0.8.0", connectedAt: 오늘의("09:12") }]
+          : [],
+        log: 꼴 === "연결" || 꼴 === "끊김" ? [
+          { at: 오늘의("08:30"), event: "updated", browser: "Chrome", version: 확장판, previous: "0.8.0" },
+          { at: 오늘의("08:31"), event: "connected", browser: "Chrome", version: 확장판, previous: "" },
+          { at: 오늘의("08:57"), event: "disconnected", browser: "Chrome", version: 확장판, previous: "" },
+          { at: 오늘의("09:12"), event: "connected", browser: "Chrome", version: 확장판, previous: "" },
+          ...(꼴 === "끊김" ? [{ at: 오늘의("18:02"), event: "disconnected" as const, browser: "Chrome", version: 확장판, previous: "" }] : []),
+        ] : 꼴 === "옛 판" ? [
+          { at: 오늘의("09:12"), event: "connected", browser: "Chrome", version: "0.8.0", previous: "" },
+        ] : [],
+        errors: 지금화면.오류,
+        pastError: 지금화면.지난오류,
+      };
+      return wait(status);
+    }
+    case "captures":
+      return wait(수집날(수집.줄.length > 0 ? 수집.줄 : 기본수집()));
+    // 진짜 다리는 홈의 탭 보고를 읽어 탭마다 작업자료에 비춘다(열람 창은 읽지 않는다). 여기서는 지어 둔 탭을 낸다.
+    case "mirror":
+      if (열람) return wait<MirrorState>({ readOnly: true, reporting: false, front: null, tabs: [], settings: null, screens: [] });
+      return wait<MirrorState>({ readOnly: false, reporting: true, front: 지금화면.앞,
+        tabs: 지금화면.탭.map((t) => ({ ...t, front: t.id === 지금화면.앞 })), settings: 지금화면.설정, screens: 지금화면.수집화면 });
+    case "mirrorCommand":
+      지금화면.명령.push({ tabId: Number(args[1]), command: String(args[2]) });
+      return wait({ sent: true });
+    // 진짜 다리는 확장의 설정 명령을 홈의 명령 폴더에 놓는다. 여기서는 확장이 바로 적용하고 다시 알린 것으로 친다.
+    case "extensionCommand":
+      지금화면.명령.push({ tabId: 0, command: String(args[1]) + (args[2] ? `:${String(args[2])}` : "") });
+      if (args[1] === "setPanelMode" && 지금화면.설정) 지금화면.설정 = { ...지금화면.설정, panelMode: String(args[2]) as "always" | "button" };
+      return wait({ sent: true });
+    // 진짜 다리는 확장의 저장과 같은 절차로 쓴다. 여기서는 그 탭을 「저장됨」 으로 바꾸고 수집 기록을 한 줄 더한다.
+    case "importShot": {
+      const tabId = Number(args[1]);
+      const restore = JSON.parse(String(args[3])) as string[];
+      지금화면.가져옴.push({ tabId, baseToken: String(args[2]), restore, captureId: String(args[4]) });
+      if (지금화면.낡음) return wait<ImportResult>({ status: "stale", message: "화면이나 작업자료가 바뀌었습니다. 다시 읽습니다." });
+      const now = new Date();
+      const p2 = (n: number) => String(n).padStart(2, "0");
+      const hhmm = `${p2(now.getHours())}:${p2(now.getMinutes())}`;
+      const tab = 지금화면.탭.find((t) => t.tabId === tabId);
+      const shot = tab?.shot;
+      if (!tab || !shot) return Promise.reject(new Error("화면이 바뀌었습니다."));
+      지금화면.탭 = 지금화면.탭.map((t) => t !== tab ? t : {
+        ...t, readAt: 오늘의(hhmm),
+        shot: { ...shot, status: "저장됨", changes: 0, itemChanges: 0, compareSeq: shot.seq, latestSeq: shot.seq,
+          fields: shot.fields.map((f) => f.kind === "changed" || f.kind === "new" ? { ...f, kind: "same", old: null }
+            : f.kind === "override" ? { ...f, kind: "same", value: restore.includes(f.choiceId ?? "") ? f.value : f.human ?? "", human: null, choiceId: null }
+            : f),
+          items: shot.items.map((i) => ({ ...i, before: null, added: false })),
+          rounds: shot.rounds.map((r) => r.state === "ghost" ? { ...r, state: "current", savedOn: `${p2(now.getMonth() + 1)}/${p2(now.getDate())}` } : r) },
+      });
+      수집.줄 = [수집줄(오늘의(hhmm), shot.kind, shot.number, shot.title, true), ...(수집.줄.length > 0 ? 수집.줄 : 기본수집())];
+      수집.판++;
+      return wait<ImportResult>({ status: "stored", entity: shot.number, changed: true, at: hhmm });
+    }
     case "erpTools":
       if (args[0] === "list") return wait({ active: JSON.parse(mappingJson), defaults: JSON.parse(mappingJson), versions: [] });
       return Promise.reject(new Error("개발 미리보기입니다. 매핑 검증·자료 저장은 메인 프로그램에서 실행하세요."));
     case "status":
       return wait(summary);
 
-    case "sheet":
-      return wait(sheets[args[0] as string]);
+    // 열람이면 진짜 다리처럼 고칠 수 있는 열을 비워 보낸다.
+    case "sheet": {
+      const sheet = sheets[args[0] as string];
+      return wait(열람 ? { ...sheet, editable: [], correctable: [], overrides: {} } : sheet);
+    }
 
     case "userColumns": {
       const which = args[0] as Entity | undefined;
@@ -1181,9 +1520,9 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       계약줄 = 계약줄.filter((c) => c.key !== key.slice(0, -2));
       접수줄 = 접수줄.filter((r) => r.key !== key.slice(0, -4));
 
-      summary.contractBases = sheets["v_계약_v1"].rows.length;
+      summary.contractBases = sheets["v_계약"].rows.length;
       summary.contractRows = summary.contractBases;
-      summary.requestBases = sheets["v_접수_v1"].rows.length;
+      summary.requestBases = sheets["v_접수"].rows.length;
       summary.requestRows = summary.requestBases;
       summary.unlinkedContracts = 미연결수();
       summary.unlinkedRequests = 미연결접수수();
@@ -1210,20 +1549,18 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
     case "linkCandidates":
       return wait({ contracts: 계약줄, candidates, notices: noticeChoices });
 
-    // 진짜 다리는 기계가 이은 것만 풀고 다시 판정한다. 여기서는 그 결과의 꼴만 낸다.
-    case "relink":
-      return wait({ linked: 1, released: 0 });
+    // 진짜 다리는 ERP 명시 참조로 다시 잇는다. 여기서는 그 결과의 꼴만 낸다.
+    case "relinkExplicit":
+      return wait({ linked: 1 });
 
     case "dataLocation":
       return wait({
-        path: "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\pclm.db",
+        path: "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\계약자료.pclm",
         folder: "C:\\Users\\홍길동\\AppData\\Local\\Pclm",
         sizeBytes: 192512,
-        isDefault: true,
-        configPath: "C:\\Users\\홍길동\\AppData\\Roaming\\Pclm\\config.json",
+        home: "C:\\Users\\홍길동\\AppData\\Local\\Pclm",
+        configPath: "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\config.json",
       });
-    case "moveDataLocation":
-      return wait({ folder: "D:\\계약목록_자료" });
     // 진짜 다리는 exe 안에 박힌 전문을 준다. 여기서는 꼴만.
     case "about":
       return wait({
@@ -1231,6 +1568,21 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
         license: "MIT License\n\nCopyright (c) 2026 JM\n\n(개발 미리보기 — 전문은 exe 안에 있습니다)",
         notices: "계약 목록 — 제3자 고지\n\n== nuget ClosedXML 0.105.1 — MIT\n== npm react 19.2.8 — MIT",
       });
+    case "windowPrefs":
+      return wait(창.몸가짐);
+
+    // 진짜 다리처럼 "true"·"false" 만 받는다.
+    case "saveWindowPrefs": {
+      const [closeToTray, autostart] = args as [string, string];
+      for (const v of [closeToTray, autostart])
+        if (v !== "true" && v !== "false") return Promise.reject(new Error(`켜짐·꺼짐이 아닙니다: ${v}`));
+      // 진짜 다리처럼 걸 수 없는 자리에서 자동 실행을 바꾸려 하면 아무것도 적지 않고 까닭을 낸다.
+      if ((autostart === "true") !== 창.몸가짐.autostart && !창.몸가짐.autostartAvailable)
+        return Promise.reject(new Error(창.몸가짐.autostartReason ?? "자동 실행을 걸 수 없습니다."));
+      창.몸가짐 = { ...창.몸가짐, closeToTray: closeToTray === "true", autostart: autostart === "true" };
+      return wait(창.몸가짐);
+    }
+
     case "revealDataFolder":
       return wait({ folder: "C:\\Users\\홍길동\\AppData\\Local\\Pclm" });
 

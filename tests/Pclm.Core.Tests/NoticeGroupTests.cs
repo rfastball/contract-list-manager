@@ -29,8 +29,7 @@ public class NoticeGroupTests : IDisposable
 
     public NoticeGroupTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -167,17 +166,17 @@ public class NoticeGroupTests : IDisposable
             """));
 
         Assert.Equal(기대, Read(
-            "SELECT DISTINCT 공고건, 현행공고 FROM v_공고_v1 ORDER BY 공고건;"));
+            "SELECT DISTINCT 공고건, 현행공고 FROM v_공고 ORDER BY 공고건;"));
     }
 
     // ── 차수를 편 표 ─────────────────────────────────────────────
 
     /// <summary>
-    /// <c>v_통합_v3</c> 의 줄 하나는 <b>공고 문서 한 장</b>이다 — 조립대 세 장, 절단기 두 장,
-    /// 흔한 1:1:1 은 한 장. 그 사이에 <c>v_통합_v2</c> 의 줄 수는 <b>건 수</b> 그대로다.
+    /// <c>v_통합차수</c> 의 줄 하나는 <b>공고 문서 한 장</b>이다 — 조립대 세 장, 절단기 두 장,
+    /// 흔한 1:1:1 은 한 장. 그 사이에 <c>v_통합</c> 의 줄 수는 <b>건 수</b> 그대로다.
     ///
-    /// <para>같은 자료를 두 표가 다르게 세는 것이 여기서는 옳다. v2 는 "조달 건이 몇이냐" 를,
-    /// v3 은 "그 건에 문서가 몇 장 있었느냐" 를 낸다.</para>
+    /// <para>같은 자료를 두 표가 다르게 세는 것이 여기서는 옳다. 통합은 "조달 건이 몇이냐" 를,
+    /// 통합차수는 "그 건에 문서가 몇 장 있었느냐" 를 낸다.</para>
     /// </summary>
     [Fact]
     public void 통합_v3_은_공고_한_장마다_한_줄이다()
@@ -193,16 +192,16 @@ public class NoticeGroupTests : IDisposable
 
         Assert.Equal(
             ["R26BK09011054|3", "R26BK09017030|2", "R26BK09017075|1"],
-            Read("SELECT 공고건, COUNT(*) FROM v_통합_v3 GROUP BY 공고건 ORDER BY 공고건;"));
+            Read("SELECT 공고건, COUNT(*) FROM v_통합차수 GROUP BY 공고건 ORDER BY 공고건;"));
 
-        Assert.Equal(6, Count("SELECT COUNT(*) FROM v_통합_v3;"));
-        Assert.Equal(3, Count("SELECT COUNT(*) FROM v_통합_v2;"));
+        Assert.Equal(6, Count("SELECT COUNT(*) FROM v_통합차수;"));
+        Assert.Equal(3, Count("SELECT COUNT(*) FROM v_통합;"));
         Assert.Equal(3, Count("SELECT COUNT(*) FROM notice_group;"));
     }
 
     /// <summary>
     /// 접수·계약 열은 그 건의 공고 줄마다 <b>되풀이된다</b>. 줄이 공고라 그것이 옳은 모습이다 —
-    /// v_통합_v2 에서 계약이 여럿인 건의 공고 열이 되풀이되는 것과 같은 자리다.
+    /// v_통합 에서 계약이 여럿인 건의 공고 열이 되풀이되는 것과 같은 자리다.
     ///
     /// <para>옛 차수 줄에도 「현행공고」는 <b>그 건의 현행</b>이 선다. 그래서 지금 서 있는
     /// 것이 무엇인지가 지나간 줄에서도 보인다.</para>
@@ -231,16 +230,16 @@ public class NoticeGroupTests : IDisposable
             ],
             Read("""
                  SELECT 입찰공고번호, 접수번호, 계약번호, 현행공고
-                 FROM v_통합_v3 ORDER BY 입찰공고번호;
+                 FROM v_통합차수 ORDER BY 입찰공고번호;
                  """));
 
-        // 줄 하나가 조달 건인 v2 는 그대로 한 줄이다.
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_통합_v2;"));
+        // 줄 하나가 조달 건인 통합은 그대로 한 줄이다.
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_통합;"));
     }
 
     /// <summary>
     /// 차수를 편 표에서도 <b>아직 안 들어온 것</b>이 보여야 한다 — 공고가 없는 접수와
-    /// 어디에도 매달리지 못한 계약이 공고 열을 비운 채 제 줄로 선다(v_통합_v2 와 같은 규칙).
+    /// 어디에도 매달리지 못한 계약이 공고 열을 비운 채 제 줄로 선다(v_통합 과 같은 규칙).
     /// 이 갈래를 빠뜨리면 「차수 펴기」를 켠 사람에게 그 줄들이 통째로 사라진다.
     /// </summary>
     [Fact]
@@ -253,7 +252,7 @@ public class NoticeGroupTests : IDisposable
             ["|MBKLMH26930006-000|", "||R26TA0908046900"],
             Read("""
                  SELECT 입찰공고번호, 접수번호, 계약번호
-                 FROM v_통합_v3 ORDER BY 접수번호 DESC;
+                 FROM v_통합차수 ORDER BY 접수번호 DESC;
                  """));
     }
 
@@ -512,7 +511,7 @@ public class NoticeGroupTests : IDisposable
         Assert.Equal(0, Count("SELECT COUNT(*) FROM project_link;"));
 
         // 계약은 남는다. 공고가 사라졌다고 계약이 없던 일이 되지는 않는다.
-        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약_v1;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM v_계약;"));
     }
 
     /// <summary>
@@ -536,71 +535,6 @@ public class NoticeGroupTests : IDisposable
             new EntityRef("request", "MBKLMH26930006", "000"), 공고, 1.0);
 
         Assert.True(_store.PlanDeletion(공고, wholeSeries: true).Linked);
-    }
-
-    /// <summary>
-    /// 옛 판으로 쌓아 둔 자료가 판올림을 타고 건까지 갖춘다. <b>남이 외래키로 가리키는 부모
-    /// 표를 갈아 끼우는 첫 판올림</b>이라(스키마 V15), 여기서 링크나 사람 값이 조용히 사라지면
-    /// 쓰던 사람은 앱을 다시 연 것밖에 한 일이 없다.
-    ///
-    /// <para>재공고에 매어 두었던 링크는 <b>건의 이름인 원공고 쪽으로</b> 따라온다.</para>
-    /// </summary>
-    [Fact]
-    public void 옛_판에서_올라와도_링크와_사람_값이_건으로_따라온다()
-    {
-        var 옛판 = Path.Combine(Path.GetTempPath(), $"pclm-v14-{Guid.NewGuid():N}.db");
-        var database = new Database(옛판);
-
-        try
-        {
-            using (var connection = database.Open())
-            {
-                // 판올림이 표를 갈아 끼우므로 그동안은 참조 검사를 끈다(Database.Migrate 와 같은 자세).
-                Run(connection, "PRAGMA foreign_keys = OFF;");
-                for (var v = 0; v < 14; v++) Run(connection, Schema.Migrations[v]);
-                Run(connection, "PRAGMA user_version = 14;");
-
-                Run(connection,
-                    """
-                    INSERT INTO notice_series (notice_base)
-                    VALUES ('R26BK09011054'), ('R26BK09012082');
-                    INSERT INTO notice (notice_base, seq, title, updated_at) VALUES
-                        ('R26BK09011054', '000', '지어낸 공고', '2026-07-17T09:00:00.0000000Z'),
-                        ('R26BK09012082', '000', '지어낸 재공고', '2026-07-17T09:00:00.0000000Z');
-                    INSERT INTO notice_relation (notice_base, seq, line_no, related)
-                    VALUES ('R26BK09012082', '000', 1, 'R26BK09011054-000');
-
-                    INSERT INTO contract_series (contract_base) VALUES ('R26TA09080469');
-                    INSERT INTO contract (contract_base, seq, title, updated_at)
-                    VALUES ('R26TA09080469', '00', '지어낸 계약', '2026-07-17T09:00:00.0000000Z');
-
-                    INSERT INTO project_link (contract_base, notice_base, confidence, confirmed_at)
-                    VALUES ('R26TA09080469', 'R26BK09012082', 1.0, '2026-07-19T09:00:00.0000000Z');
-                    INSERT INTO notice_user_field (notice_base, field_name, value, updated_at)
-                    VALUES ('R26BK09012082', '메모', '옛 판에서 적은 메모', '2026-07-19T09:00:00.0000000Z');
-                    """);
-            }
-
-            var change = database.Migrate();
-
-            Assert.NotNull(change);
-            Assert.Equal(1, change.이은건수);
-            Assert.False(change.있나);
-
-            using var 열림 = database.OpenReadOnly();
-            Assert.Empty(Read(열림, "PRAGMA foreign_key_check;"));
-            Assert.Equal(["R26BK09011054"], Read(열림, "SELECT group_base FROM notice_group;"));
-            Assert.Equal(
-                ["R26TA09080469|R26BK09011054"],
-                Read(열림, "SELECT contract_base, notice_group FROM project_link;"));
-            Assert.Equal(["옛 판에서 적은 메모"], Read(열림, "SELECT value FROM notice_user_field;"));
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            foreach (var suffix in new[] { "", "-wal", "-shm" })
-                File.Delete(옛판 + suffix);
-        }
     }
 
     // ── 지어낸 자료 ──────────────────────────────────────────────
@@ -684,7 +618,7 @@ public class NoticeGroupTests : IDisposable
     {
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM v_공고_v1 ORDER BY 1;";
+        command.CommandText = "SELECT * FROM v_공고 ORDER BY 1;";
 
         using var reader = command.ExecuteReader();
         var rows = new List<Dictionary<string, string>>();
@@ -718,13 +652,6 @@ public class NoticeGroupTests : IDisposable
                 .Select(i => reader.IsDBNull(i) ? "" : reader.GetValue(i).ToString())));
 
         return rows;
-    }
-
-    private static void Run(SqliteConnection connection, string sql)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
     }
 
     private long Count(string sql)

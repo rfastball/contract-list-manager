@@ -10,9 +10,14 @@ public sealed record FieldMap(string Source, string Target, string Transform = "
     Dictionary<string, string>? Codes = null, string? SecondarySource = null);
 public sealed record TableMap(string Source, string Target, string[] Keys, FieldMap[] Fields,
     bool Required = false, string? TotalSelector = null);
+/// <param name="Screen">이 프로필이 읽는 나라장터 화면(ADR-037). 이것이 있는 프로필만이 수집하는 화면이다 — 받는 화면의 허용
+/// 목록은 기본 매핑에서 이것을 단 프로필들이고, 그 화면의 고유키(<paramref name="IdentitySource"/>·<paramref name="BaseField"/>·
+/// <paramref name="SeqField"/>)가 같은 자리에 있다. 둘 다 기본 매핑의 것으로 고정이다(<see cref="Mapping.Validate"/>).</param>
 public sealed record MappingProfile(string Id, string EntityType, string IdentitySource,
     string BaseField, string SeqField, FieldMap[] Fields, TableMap[] Tables,
-    string? Heading = null, Dictionary<string, string>? Selectors = null);
+    string? Heading = null, Dictionary<string, string>? Selectors = null, MappingScreen? Screen = null);
+/// <summary>수집하는 화면 — 메뉴 번호(숫자 다섯)와 사람이 읽을 이름.</summary>
+public sealed record MappingScreen(string Code, string Name);
 public sealed record MappingSet(int Version, MappingProfile[] Profiles);
 public sealed record MappedRow(string Table, string SourceKey, Dictionary<string, string?> Values,
     Dictionary<string, string>? Origins = null);
@@ -37,8 +42,20 @@ public static class Mapping
     {
         var value = JsonSerializer.Deserialize<MappingSet>(json, Json)
             ?? throw new InvalidOperationException("매핑이 비어 있습니다.");
+        value = WithScreens(value);
         Validate(value);
         return value;
+    }
+    /// <summary>
+    /// 화면을 적기 전에 저장한 매핑(<c>screen</c> 이 없다)에 기본 매핑의 화면을 프로필 id 로 채운다. 고유키는 채우지 않는다 —
+    /// 기본과 다르면 <see cref="Validate"/> 가 거절해야 한다.
+    /// </summary>
+    private static MappingSet WithScreens(MappingSet set)
+    {
+        if (set.Profiles is null || set.Profiles.All(p => p is null || p.Screen is not null)) return set;
+        var defaults = Defaults().Profiles;
+        return set with { Profiles = set.Profiles.Select(p => p is null || p.Screen is not null ? p
+            : p with { Screen = defaults.SingleOrDefault(d => d.Id == p.Id)?.Screen }).ToArray() };
     }
     public static string Hash(object value) => Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, Json))));
@@ -55,6 +72,10 @@ public static class Mapping
             var original = defaults.Profiles.SingleOrDefault(x => x.Id == p.Id);
             if (original is null || original.EntityType != p.EntityType || p.Tables.Length > 12)
                 throw new InvalidOperationException("자료 종류나 프로필 ID는 바꿀 수 없습니다.");
+            // 받는 화면과 그 화면의 고유키는 한 자리(기본 매핑)에만 있다(ADR-037). 편집본이 바꾸면 허용 목록이 두 벌이 된다.
+            if (p.Screen != original.Screen || p.IdentitySource != original.IdentitySource ||
+                p.BaseField != original.BaseField || p.SeqField != original.SeqField)
+                throw new InvalidOperationException("화면 번호와 고유키는 바꿀 수 없습니다.");
             CheckPath(p.IdentitySource); CheckPath(p.BaseField); CheckPath(p.SeqField);
             CheckFields(p.Fields, original.Fields);
             if (!p.Fields.Any(f => f.Target == "title")) throw new InvalidOperationException("문서 제목 매핑이 필요합니다.");

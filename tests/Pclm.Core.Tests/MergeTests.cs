@@ -75,8 +75,7 @@ public class MergeTests : IDisposable
     private string 제출본(string 제출자, params string[] sql)
     {
         var path = In($"제출_{제출자}.pclm");
-        var database = new Database(path);
-        database.Migrate();
+        var database = PclmFile.Create(path, PclmRole.Submission);
 
         using var connection = database.Open();
         Run(connection, $"INSERT INTO app_setting (key, value) VALUES ('submit.name', '{제출자}');");
@@ -245,40 +244,30 @@ public class MergeTests : IDisposable
 
     // ── 판 ──────────────────────────────────────────────────────────
 
-    /// <summary>옛 판 제출본은 복사본 위에서 지금 판으로 올려 받는다. 마이그레이션은 앞으로만 간다.</summary>
+    /// <summary>
+    /// 기준선보다 옛 시험판 제출본은 올릴 단계가 이 프로그램에 없다. 판이 새로운 것처럼
+    /// <b>거절하되 멈추지는 않는다</b> — <c>Migrate</c> 의 예외에 취합 전체가 멎으면 나머지
+    /// 사람의 제출본까지 함께 묶인다.
+    /// </summary>
     [Fact]
-    public void 옛_판_제출본은_올려서_넣는다()
+    public void 옛_시험판_제출본은_거절하고_나머지는_합친다()
     {
         var 옛판 = In("제출_옛판.pclm");
-        var database = new Database(옛판);
-
-        using (var connection = database.Open())
+        using (var connection = new SqliteConnection($"Data Source={옛판}"))
         {
-            // 판올림이 표를 갈아 끼우므로 그동안은 참조 검사를 끈다(Database.Migrate 와 같은 자세).
-            Run(connection, "PRAGMA foreign_keys = OFF;");
-            for (var v = 0; v < 11; v++) Run(connection, Schema.Migrations[v]);
+            connection.Open();
+            Run(connection, "CREATE TABLE notice (notice_base TEXT, seq TEXT);");
             Run(connection, "PRAGMA user_version = 11;");
-
-            Run(connection, "INSERT INTO app_setting (key, value) VALUES ('submit.name', '옛판쓰는이');");
-
-            // 그 판에는 건이 없다(스키마 V15 가 세운다). 도우미를 쓰지 않고 그때의 꼴로 넣는다 —
-            // 옛 자료가 판올림을 타고 건까지 갖추는지가 이 시험이 보는 자리다.
-            Run(connection,
-                """
-                INSERT OR IGNORE INTO notice_series (notice_base) VALUES ('N-옛');
-                INSERT INTO notice (notice_base, seq, title, updated_at)
-                VALUES ('N-옛', '0', '옛 판에서 온 공고', '2026-08-20T09:00:00.0000000Z');
-                """);
         }
 
-        var 지금 = 제출본("홍길동", 공고("N-새", "지금 판에서 온 공고", "2026-08-20T09:00:00.0000000Z"));
+        var 홍 = 제출본("홍길동", 공고("N-1", "지금 판에서 온 공고", "2026-08-20T09:00:00.0000000Z"));
 
-        var report = new Merger().Merge([옛판, 지금], Out);
+        var report = new Merger().Merge([옛판, 홍], Out);
 
-        Assert.Empty(report.거절한제출본);
-        Assert.Equal(2, report.공고);
-        Assert.Equal(Schema.Version.ToString(), Read(Out, "PRAGMA user_version;")[0]);
-        Assert.Contains("옛 판에서 온 공고", Read(Out, "SELECT title FROM notice;"));
+        Assert.Equal([new MergeRejection("제출_옛판.pclm", Merger.옛시험판)], report.거절한제출본);
+        Assert.Equal(1, report.제출본);
+        Assert.Equal(["지금 판에서 온 공고"], Read(Out, "SELECT title FROM notice;"));
+        Assert.Contains("0.7.0", MergeReportText.Render(report, Out));
     }
 
     /// <summary>판이 새로운 것은 내릴 길이 없다. <b>거절하되 멈추지는 않는다.</b></summary>
@@ -293,7 +282,7 @@ public class MergeTests : IDisposable
 
         var report = new Merger().Merge([새판, 홍], Out);
 
-        Assert.Equal(["제출_앞서간이.pclm"], report.거절한제출본);
+        Assert.Equal([new MergeRejection("제출_앞서간이.pclm", Merger.새판)], report.거절한제출본);
         Assert.Equal(1, report.제출본);
         Assert.Equal(["지금 판에서 온 공고"], Read(Out, "SELECT title FROM notice;"));
     }
@@ -359,8 +348,8 @@ public class MergeTests : IDisposable
         Assert.Contains("notice|김철수칸", Read(Out, "SELECT entity_type, field_name FROM user_column;"));
 
         // 뷰는 열 정의를 읽어 짓는 것이라, 다시 짓지 않으면 그 칸이 계약면에 서지 않는다.
-        Assert.Equal(["홍길동이 적은 값"], Read(Out, "SELECT 홍길동칸 FROM v_계약_v1;"));
-        Assert.Equal(["나"], Read(Out, "SELECT 김철수칸 FROM v_공고_v1;"));
+        Assert.Equal(["홍길동이 적은 값"], Read(Out, "SELECT 홍길동칸 FROM v_계약;"));
+        Assert.Equal(["나"], Read(Out, "SELECT 김철수칸 FROM v_공고;"));
     }
 
     /// <summary>이름이 같은데 뜻이 다르면 먼저 온 것을 두고 <b>알린다</b> — 누가 옳은지 기계가 가리지 않는다.</summary>
@@ -406,8 +395,7 @@ public class MergeTests : IDisposable
     [Fact]
     public void 취합기가_아는_표가_스키마의_표_전부다()
     {
-        var database = new Database(In("스키마.db"));
-        database.Migrate();
+        var database = PclmFile.Create(In("스키마.db"), PclmRole.Work);
 
         using var connection = database.OpenReadOnly();
         using var command = connection.CreateCommand();
@@ -487,8 +475,7 @@ public class MergeTests : IDisposable
     public void 이름이_비면_파일_이름으로_부른다()
     {
         var 이름없음 = In("제출_20260729.pclm");
-        var database = new Database(이름없음);
-        database.Migrate();
+        var database = PclmFile.Create(이름없음, PclmRole.Work);
         using (var connection = database.Open())
             Run(connection, 계약("C-1", "이름 없는 이의 계약", "2026-08-28T09:00:00.0000000Z"));
 
@@ -503,20 +490,77 @@ public class MergeTests : IDisposable
 
     /// <summary>
     /// 지난 취합본은 제출본으로 세지 않는다 — <b>취합본이 취합본을 먹으면</b> 지난 취합에서
-    /// 밀려난 것이 남의 이름을 달고 되살아난다.
+    /// 밀려난 것이 남의 이름을 달고 되살아난다. 가르는 것은 <b>이름이 아니라 역할</b>이다:
+    /// 이름을 바꾼 취합본도 빠지고, <c>취합_</c> 으로 시작하는 제출본도 들어간다.
     /// </summary>
     [Fact]
-    public void 취합_로_시작하는_파일은_제출본으로_세지_않는다()
+    public void 취합본은_이름이_아니라_역할로_거절한다()
     {
-        제출본("홍길동", 계약("C-1", "홍길동의 것", "2026-08-22T09:00:00.0000000Z"));
+        var 홍 = 제출본("홍길동", 계약("C-1", "홍길동의 것", "2026-08-22T09:00:00.0000000Z"));
         제출본("김철수", 계약("C-2", "김철수의 것", "2026-08-23T09:00:00.0000000Z"));
 
-        // 지난 취합본이 같은 폴더에 있다. 받은 것을 그 자리에 풀면 늘 이렇게 된다.
-        File.Copy(In("제출_홍길동.pclm"), In("취합_20260829.pclm"));
+        // 지난 취합본이 같은 폴더에 있다 — 누가 이름을 바꿔 두었다.
+        new Merger().Merge([홍], In("지난것.pclm"));
+
+        // 이름이 취합_ 으로 시작하는 제출본. 예전에는 말없이 빠졌다.
+        var work = PclmFile.Create(Path.Combine(_root, "작업", "내것.pclm"), PclmRole.Work);
+        using (var connection = work.Open())
+            Run(connection, 계약("C-3", "이름이 헷갈리는 이의 것", "2026-08-24T09:00:00.0000000Z"));
+        PclmFile.Snapshot(work, In("취합_이몽룡.pclm"), PclmRole.Submission, overwrite: false);
 
         Assert.Equal(
-            ["제출_김철수.pclm", "제출_홍길동.pclm"],
+            ["제출_김철수.pclm", "제출_홍길동.pclm", "지난것.pclm", "취합_이몽룡.pclm"],
             Merger.FindSubmissions(_root).Select(Path.GetFileName));
+
+        var report = new Merger().Merge(Merger.FindSubmissions(_root), Out);
+
+        Assert.Equal([new MergeRejection("지난것.pclm", "취합본")], report.거절한제출본);
+        Assert.Equal(3, report.제출본);
+        Assert.Equal(["C-1", "C-2", "C-3"], Read(Out, "SELECT contract_base FROM contract ORDER BY 1;"));
+        Assert.Contains("지난것.pclm — 취합본", MergeReportText.Render(report, Out));
+    }
+
+    /// <summary>
+    /// 남의 파일은 읽기만 한다 — 판을 올리는 것도 사본에서다. PCLM 이 아닌 파일은 까닭을 달아 거절하고
+    /// 나머지는 합친다.
+    /// </summary>
+    [Fact]
+    public void 입력_파일은_한_바이트도_바뀌지_않고_PCLM_아닌_것은_까닭과_함께_거절한다()
+    {
+        var work = PclmFile.Create(Path.Combine(_root, "작업", "내것.pclm"), PclmRole.Work);
+        using (var connection = work.Open())
+            Run(connection, 계약("C-1", "지어낸 계약", "2026-08-24T09:00:00.0000000Z"));
+        var 제출 = PclmFile.Snapshot(work, In("제출_홍길동.pclm"), PclmRole.Submission, overwrite: false);
+
+        var 엉뚱 = In("제출_엉뚱.pclm");
+        using (var connection = new SqliteConnection($"Data Source={엉뚱};Pooling=False"))
+        {
+            connection.Open();
+            Run(connection, "CREATE TABLE notice (notice_base TEXT, seq TEXT);");
+        }
+
+        SqliteConnection.ClearAllPools();
+        var before = (File.ReadAllBytes(제출), File.ReadAllBytes(엉뚱));
+
+        var report = new Merger().Merge([제출, 엉뚱], Out);
+
+        Assert.Equal([new MergeRejection("제출_엉뚱.pclm", Merger.PCLM아님)], report.거절한제출본);
+        Assert.Equal(1, report.제출본);
+        Assert.Contains("제출_엉뚱.pclm — PCLM 파일이 아님", MergeReportText.Render(report, Out));
+
+        SqliteConnection.ClearAllPools();
+        Assert.Equal(before.Item1, File.ReadAllBytes(제출));
+        Assert.Equal(before.Item2, File.ReadAllBytes(엉뚱));
+        foreach (var file in new[] { 제출, 엉뚱 })
+        {
+            Assert.False(File.Exists(file + "-wal"));
+            Assert.False(File.Exists(file + "-shm"));
+        }
+
+        // 취합본은 자기 역할과 자기 신원을 갖는다.
+        var info = PclmFile.Inspect(Out);
+        Assert.Equal((PclmKind.Ok, PclmRole.Merged), (info.Kind, info.Role));
+        Assert.NotEqual(PclmFile.Inspect(제출).DatasetId, info.DatasetId);
     }
 
     /// <summary>
@@ -548,8 +592,7 @@ public class MergeTests : IDisposable
     public void 제출본을_다시_열면_같은_것이_들어_있다()
     {
         var path = In("원본.db");
-        var database = new Database(path);
-        database.Migrate();
+        var database = PclmFile.Create(path, PclmRole.Work);
 
         using (var connection = database.Open())
         {
@@ -573,8 +616,7 @@ public class MergeTests : IDisposable
     public void 덮어쓰기를_부르지_않으면_있는_파일을_지키다()
     {
         var path = In("원본.db");
-        var database = new Database(path);
-        database.Migrate();
+        var database = PclmFile.Create(path, PclmRole.Work);
 
         var 이미있음 = In("이미있음.pclm");
         File.WriteAllText(이미있음, "남의 것");

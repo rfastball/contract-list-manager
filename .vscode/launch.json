@@ -13,25 +13,25 @@
       "stopAtEntry": false
     },
     {
-      "//": "화면은 개발 서버에서, 다리와 DB 는 진짜. 화면을 고치면 창 안에서 곧바로 바뀐다.",
+      "//": "화면은 개발 서버에서, 다리와 DB 는 진짜(홈은 artifacts/dev-home). 화면을 고치면 창 안에서 곧바로 바뀐다.",
       "name": "창 · 개발 서버",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "개발 서버",
       "program": "${workspaceFolder}/src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe",
-      "args": ["--ui", "http://localhost:5173/"],
+      "args": ["--ui", "http://localhost:5173/", "--home", "${workspaceFolder}/artifacts/dev-home"],
       "cwd": "${workspaceFolder}/src/Pclm.App",
       "console": "internalConsole",
       "stopAtEntry": false
     },
     {
-      "//": "실제 자료를 건드리지 않고 띄운다. 판올림이나 넣기를 시험할 때.",
+      "//": "실제 자료를 건드리지 않고 띄운다(홈 artifacts/dev-home). 판올림이나 넣기를 시험할 때.",
       "name": "창 · 시험용 자료",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "빌드 (화면 포함)",
       "program": "${workspaceFolder}/src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe",
-      "args": ["--db", "${workspaceFolder}/artifacts/debug.db"],
+      "args": ["--home", "${workspaceFolder}/artifacts/dev-home"],
       "cwd": "${workspaceFolder}/src/Pclm.App",
       "console": "internalConsole",
       "stopAtEntry": false

@@ -651,8 +651,9 @@ public sealed class Store(Database database)
     /// 오류가 나지 않아 표가 이상해진 뒤에야 알게 된다. 그래서 뷰가 실제로 내는 열 이름을 읽어
     /// 견준다. 목록을 코드에 적어 두면 뷰를 고칠 때마다 어긋난다.</para>
     ///
-    /// <para><b>통합은 v1·v2 를 함께 본다.</b> v2 에만 있는 이름(접수 아홉 열)이 v1 만 보던
-    /// 시절의 검사를 그대로 지나면, 사람이 세운 열이 통합 v2 에서 조용히 부딪힌다.</para>
+    /// <para><b>통합은 <c>v_통합</c>·<c>v_통합차수</c> 를 함께 본다.</b> 통합에만 있는 이름(접수
+    /// 아홉 열, 「공고건」·「현행공고」)을 계약 뷰만 보는 검사가 그대로 지나면, 사람이 세운 열이
+    /// 통합에서 조용히 부딪힌다.</para>
     /// </summary>
     private static void CheckFree(
         SqliteConnection connection, string entityType, string name, string? allow = null)
@@ -666,21 +667,21 @@ public sealed class Store(Database database)
 
         // 사람이 채우는 열을 뺀 나머지가 파서·조인이 내는 이름이다.
         //
-        // 계약만 통합을 본다. 통합이 계약 뷰를 <c>k.*</c> 로 통째로 받으므로 계약 쪽 사람 열은
+        // 계약만 통합을 본다. 통합이 계약 뷰의 열을 사람 열까지 받으므로 계약 쪽 사람 열은
         // 거기까지 흘러가 공고·접수에서 붙여 온 이름과 부딪힐 수 있다. 공고·접수 열은 통합이
         // 이름을 짚어 골라 오므로(<see cref="Views.UnifiedNoticeColumns"/>) 흘러가지 않는다.
         //
-        // <b>통합은 v1·v2·v3 를 함께 본다.</b> v1 만 보면 v2 에만 있는 접수 아홉 열과 조용히
-        // 부딪히고, v3 를 빼면 거기 더한 「공고건」·「현행공고」와 부딪힌다 — v3 도 계약 뷰를
-        // 열째로 받으므로 계약 쪽 사람 열이 그대로 흘러간다.
+        // <b>통합은 v_통합·v_통합차수를 함께 본다.</b> v_통합차수를 빼면 거기 더한
+        // 「공고건」·「현행공고」와 조용히 부딪힌다 — v_통합차수도 계약 뷰를 열째로 받으므로
+        // 계약 쪽 사람 열이 그대로 흘러간다.
         //
-        // 차수 뷰 둘은 보지 않는다. 열이 v_공고_v1·v_계약_v1 과 한 글자도 같아(공고열·계약열
+        // 차수 뷰 둘은 보지 않는다. 열이 v_공고·v_계약 과 한 글자도 같아(공고열·계약열
         // 하나를 쓴다) 저쪽을 본 것이 곧 이쪽을 본 것이다.
         string[] views = entityType switch
         {
-            "contract" => ["v_통합_v1", "v_통합_v2", "v_통합_v3"],
-            "request" => ["v_접수_v1"],
-            _ => ["v_공고_v1"],
+            "contract" => ["v_통합", "v_통합차수"],
+            "request" => ["v_접수"],
+            _ => ["v_공고"],
         };
 
         var taken = views
@@ -796,12 +797,12 @@ public sealed class Store(Database database)
     /// </summary>
     public static string FaceView(string entityType) => entityType switch
     {
-        "notice" => "v_공고_v1",
-        "request" => "v_접수_v1",
-        _ => "v_계약_v1",
+        "notice" => "v_공고",
+        "request" => "v_접수",
+        _ => "v_계약",
     };
 
-    private static string FaceKey(string entityType) => entityType switch
+    internal static string FaceKey(string entityType) => entityType switch
     {
         "notice" => "입찰공고번호",
         "request" => "접수번호",

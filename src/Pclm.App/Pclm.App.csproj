@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- 알림 영역 아이콘(NotifyIcon) 하나 때문에 켠다. WPF 에는 그것이 없다. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>계약목록</AssemblyName>
     <RootNamespace>Pclm.App</RootNamespace>
     <StartupObject>Pclm.App.Program</StartupObject>
@@ -29,6 +31,13 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\LICENSE;..\..\THIRD-PARTY-NOTICES.txt"
                       Link="%(Filename)%(Extension)" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- WinForms 를 켜면 그 이름공간이 전역으로 열려 Application·MessageBox·OpenFileDialog 가 WPF 의 것과 겹친다.
+       알림 영역 아이콘(TrayIcon.cs)만 이름을 다 적어 쓴다. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <ItemGroup>

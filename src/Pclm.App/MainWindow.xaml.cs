@@ -33,7 +33,15 @@ public partial class MainWindow : Window
         _uiOrigin = uiOrigin;
         _profileDirectory = profileDirectory;
         InitializeComponent();
-        Loaded += async (_, _) => await StartAsync();
+        // 화면은 처음 보일 때 선다. 알림 영역에 숨었다 다시 보이는 창에 두 번째 WebView2 를 세우지 않게 한 번만.
+        var started = false;
+        Loaded += async (_, _) =>
+        {
+            if (started) return;
+            started = true;
+            await StartAsync();
+        };
+        Closed += (_, _) => _bridge.Dispose();
     }
 
     private async Task StartAsync()

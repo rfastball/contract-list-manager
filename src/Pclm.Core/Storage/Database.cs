@@ -3,80 +3,181 @@
 namespace Pclm.Core.Storage;
 
 /// <summary>
+/// <see cref="Database"/> 로 여는 연결이 쓸 수 있는가.
+///
+/// <para>화면에서 단추를 숨기는 것만으로는 새 쓰기 경로 하나를 빠뜨리는 순간 뚫린다. 손잡이에 붙여 두면
+/// 그 손잡이로 여는 모든 연결이 SQLite 수준에서 막힌다(ADR-031).</para>
+/// </summary>
+public enum Access
+{
+    Write,
+    Read,
+}
+
+/// <summary>
 /// SQLite 연결과 스키마 판올림.
 ///
 /// <para>WAL 모드로 연다 — 편집 화면이 쓰는 동안에도 소비 쪽이 막히지 않고 읽을 수 있어야 한다(ADR-006).</para>
 /// </summary>
 public sealed class Database
 {
-    /// <summary>
-    /// 자료가 쌓이는 자리. <b>창과 명령줄이 같은 곳을 본다.</b>
-    ///
-    /// <para>한동안 창은 여기를, 명령줄은 일하는 폴더의 <c>artifacts/pclm.db</c> 를 봤다.
-    /// 그러면 같은 컴퓨터에 DB 가 여럿 생기는데 — 실제로 배포 폴더에서 <c>pclm.exe</c> 를
-    /// 한 번 부른 것만으로 그 옆에 세 번째가 생겼다 — 어느 쪽이 진짜인지는 파일을 열어
-    /// 보기 전에는 알 수 없다. 밖에서 읽는 쪽(문서 자동 생성기)에는 <b>가리킬 자리가 하나</b>
-    /// 여야 하므로 기본값을 여기로 모은다. 다른 자료를 열 때는 <c>--db</c> 로 짚는다(ADR-017).</para>
-    ///
-    /// <para>프로그램 폴더가 아니라 사용자 앱 데이터에 두는 까닭은 권한과 개인정보다 —
-    /// 프로그램 폴더에는 쓰지 못하고, 바탕화면·문서 폴더는 클라우드 동기화로 흘러들 수 있다.</para>
-    /// </summary>
-    public static string DefaultPath { get; } = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Pclm", "pclm.db");
-
     public string Path { get; }
 
-    public Database(string path)
+    /// <summary>이 손잡이로 여는 연결이 쓸 수 있는가. <see cref="Open"/> 이 따른다.</summary>
+    public Access Access { get; }
+
+    /// <summary>
+    /// 파일을 가리키기만 한다. <b>아무것도 만들지 않는다</b> — 폴더도, 파일도.
+    ///
+    /// <para>한동안 여기서 폴더를 만들고 <see cref="Open"/> 이 없는 파일을 지었다. 그러면 쪽지가 가리키는
+    /// 파일이 지워졌거나 경로에 오타가 난 것만으로 빈 자료가 서고, 앱은 곧바로 확장까지
+    /// 그 빈 자료에 묶었다(ADR-030). 빈 자료가 서는 길은 <see cref="PclmFile.Create"/> 하나다.</para>
+    /// </summary>
+    public Database(string path, Access access = Access.Write)
     {
         Path = System.IO.Path.GetFullPath(path);
-
-        var directory = System.IO.Path.GetDirectoryName(Path);
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        Access = access;
     }
 
-    /// <summary>읽고 쓰는 연결. 없으면 파일을 만든다.</summary>
+    /// <summary>
+    /// 연결. <b>없는 파일은 만들지 않고 실패한다</b>(SQLite 코드 14).
+    ///
+    /// <para><see cref="Access.Read"/> 면 <c>Mode=ReadOnly</c> 에 <c>query_only</c> 까지 건다 —
+    /// <c>Store</c>·<c>Linker</c>·<c>SettingsStore</c> 가 어디서 열든 SQLite 가 쓰기를 거절하므로,
+    /// 새 쓰기 경로를 빠뜨려도 막힌다(ADR-031). WAL 로 바꾸는 것도 파일 머리를 고치는 쓰기라 하지 않는다.</para>
+    ///
+    /// <para><see cref="Access.Write"/> 면 <b>옮겨진 옛 파일(<c>retired</c>)을 거절한다</b>(ADR-031). 창이 작업자료를
+    /// 옮기기 전에 떠 있던 명령줄이나 두 번째 손잡이는 쪽지를 다시 보지 않으므로, 막지 않으면 아무도 다시 열지
+    /// 않을 파일에 계속 쓰고 그것은 다음 시작에 지워진다.</para>
+    /// </summary>
     public SqliteConnection Open()
     {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        if (Access == Access.Read)
         {
-            DataSource = Path,
+            var reader = OpenReadOnly();
+            Execute(reader, "PRAGMA query_only = ON;");
+            return reader;
+        }
+
+        var connection = new SqliteConnection(WriteConnectionString);
+
+        connection.Open();
+        try
+        {
+            RefuseRetired(connection);
+            Execute(connection, "PRAGMA journal_mode = WAL;");
+            Execute(connection, "PRAGMA foreign_keys = ON;");
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+        return connection;
+    }
+
+    /// <summary>
+    /// 역할이 <c>retired</c> 면 던진다. 열 때마다 도는 자리라 물음 하나로 끝낸다 — 이름표가 없는 파일
+    /// (판올림 전의 옛 v19, <see cref="CreateEmptyFile"/> 이 막 지은 빈 파일)에서만 실패하고, 그때만 표가
+    /// 정말 없는지 한 번 더 보고 넘어간다.
+    /// </summary>
+    private void RefuseRetired(SqliteConnection connection)
+    {
+        string? role;
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT role FROM pclm_file WHERE singleton = 1;";
+            role = command.ExecuteScalar() as string;
+        }
+        catch (SqliteException e) when (e.SqliteErrorCode == 1 && !HasPclmFile(connection))
+        {
+            return;
+        }
+
+        if (role == PclmRole.Retired)
+            throw new InvalidOperationException(
+                $"이 자료는 다른 자리로 옮겨졌습니다: {Path} — 지금 작업자료를 쓰려면 프로그램을 다시 실행하세요.");
+    }
+
+    private static bool HasPclmFile(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'pclm_file';";
+        return Convert.ToInt64(command.ExecuteScalar()) > 0;
+    }
+
+    /// <summary>
+    /// 빈 파일 하나를 짓는다. <b><c>ReadWriteCreate</c> 로 여는 곳은 여기 하나뿐이고</b>, 부르는 곳도
+    /// <see cref="PclmFile.Create"/> 하나뿐이다 — 그 밖의 길로 빈 자료가 서면 P1 이 되살아난다.
+    ///
+    /// <para>WAL 로 바꾸는 것까지 해 둔다. 머리를 한 번 적어야 파일이 실제로 디스크에 서고,
+    /// 작업자료는 어차피 WAL 로 쓴다.</para>
+    /// </summary>
+    internal static void CreateEmptyFile(string path)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
             Mode = SqliteOpenMode.ReadWriteCreate,
+            Pooling = false,
         }.ToString());
 
         connection.Open();
         Execute(connection, "PRAGMA journal_mode = WAL;");
-        Execute(connection, "PRAGMA foreign_keys = ON;");
-        return connection;
     }
 
     /// <summary>읽기 전용 연결. 소비 쪽에 넘길 때 쓴다.</summary>
     public SqliteConnection OpenReadOnly()
     {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = Path,
-            Mode = SqliteOpenMode.ReadOnly,
-        }.ToString());
-
+        var connection = new SqliteConnection(ReadOnlyConnectionString);
         connection.Open();
         return connection;
     }
 
     /// <summary>
+    /// 이 파일을 쥐고 풀에 남은 연결을 놓는다. 그 파일을 지우거나 저널 방식을 바꾸기 전에 부른다 —
+    /// 풀에 남은 연결이 열려 있으면 Windows 는 지우지 못하게 막는다.
+    ///
+    /// <para><c>ClearAllPools</c> 를 쓰지 않는다. 그것은 프로세스 전체의 풀을 비워, 다른 실마리가 막 연
+    /// 연결까지 폐기한다.</para>
+    /// </summary>
+    public void ReleasePool()
+    {
+        foreach (var connectionString in new[] { WriteConnectionString, ReadOnlyConnectionString })
+        {
+            using var connection = new SqliteConnection(connectionString);
+            SqliteConnection.ClearPool(connection);
+        }
+    }
+
+    private string WriteConnectionString => new SqliteConnectionStringBuilder
+    {
+        DataSource = Path,
+        Mode = SqliteOpenMode.ReadWrite,
+    }.ToString();
+
+    private string ReadOnlyConnectionString => new SqliteConnectionStringBuilder
+    {
+        DataSource = Path,
+        Mode = SqliteOpenMode.ReadOnly,
+    }.ToString();
+
+    /// <summary>
     /// 자료 한 벌을 <paramref name="targetPath"/> 로 뜬다. 뜬 자리의 온전한 경로를 낸다.
     ///
     /// <para><c>VACUUM INTO</c> 라 <c>-wal</c>·<c>-shm</c> 을 딸려 보내지 않고도 <b>한 파일로
-    /// 정합하게</b> 떨어진다 — 파일 셋을 손으로 복사하다 어긋나는 길을 아예 없앤다. 자리를
-    /// 옮길 때(<see cref="DataLocation"/>)도 제출본을 뜰 때(<c>pclm submit</c>)도 이 하나를 쓴다.</para>
+    /// 정합하게</b> 떨어진다 — 파일 셋을 손으로 복사하다 어긋나는 길을 아예 없앤다. 옛 자료를 홈으로
+    /// 옮겨 올 때(<see cref="Home"/>)도 제출본을 뜰 때(<see cref="PclmFile.Snapshot"/>)도 이 하나를 쓴다.</para>
     ///
-    /// <para><b>원본은 건드리지 않는다.</b> 그런데도 읽기 전용 연결로 열지 않는 것은
-    /// <c>VACUUM</c> 이 그 위에서 돌지 않기 때문이다.</para>
+    /// <para><b>원본은 건드리지 않는다 — 읽기 전용 연결로 뜬다.</b> <c>VACUUM INTO</c> 는 원본에 쓰지
+    /// 않으므로 읽기 전용 연결에서도 돈다(실측, Microsoft.Data.Sqlite 10.0.11). 한동안 여기 "읽기 전용으로는
+    /// 돌지 않는다" 고 적고 쓰기 연결로 열었는데, 틀린 말이었다 — 남의 제출본을 뜰 때(취합)도 그 파일에
+    /// 쓰기 잠금을 잡을 까닭이 없다. 뜬 결과는 WAL 이 아닌 일반 저널 한 파일이다.</para>
     ///
-    /// <para><paramref name="overwrite"/> 의 기본이 거짓인 데는 뜻이 있다. 자리를 옮기는 길은
-    /// <b>이미 자료가 있는 자리를 덮지 않는 것</b>으로 남의 자료를 지키는데
-    /// (<see cref="DataLocation.WhyNotMoveTo"/>), 여기서 말없이 덮으면 그 방벽이 무너진다.
-    /// 사람이 자리를 손수 짚어 뜨는 제출본만 참으로 부른다.</para>
+    /// <para><paramref name="overwrite"/> 의 기본이 거짓인 데는 뜻이 있다. 작업자료 자리는
+    /// <b>이미 자료가 있으면 덮지 않는 것</b>으로 남의 자료를 지키는데(ADR-031), 여기서 말없이 덮으면
+    /// 그 방벽이 무너진다. 사람이 자리를 손수 짚어 뜨는 제출본만 참으로 부른다.</para>
     /// </summary>
     public string Snapshot(string targetPath, bool overwrite = false)
     {
@@ -95,7 +196,9 @@ public sealed class Database
         using var source = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = Path,
-            Mode = SqliteOpenMode.ReadWrite,   // VACUUM 은 읽기 전용 연결로는 돌지 않는다
+            Mode = SqliteOpenMode.ReadOnly,
+            // 한 번 뜨고 마는 연결이라 풀에 남겨 원본을 쥐고 있을 까닭이 없다 — 남의 파일이면 더욱 그렇다.
+            Pooling = false,
         }.ToString());
 
         source.Open();
@@ -115,9 +218,32 @@ public sealed class Database
     /// 재공고를 한 건으로 만들면서 링크를 걷어내거나 접수 하나를 밀어낼 수 있는데, 둘 다
     /// 오류를 내지 않으므로 <b>부르는 쪽이 사람에게 전할 자리를 가져야 한다</b>. 올릴 것이
     /// 없었으면 <c>null</c> 이다 — 앱을 열 때마다 전수 재계산이 돌지 않는다.</para>
+    ///
+    /// <para>빈 파일(<c>user_version</c> 0)은 <see cref="Schema.Baseline"/> 으로 v19 를 곧장 짓고,
+    /// 그 위로 <see cref="Schema.Steps"/> 를 밟는다. 기준선보다 옛 시험판(v1~v18)은 <b>건드리지 않고</b>
+    /// 거절한다 — 그 판을 올리던 단계는 0.7.0 까지만 실려 있다.</para>
+    ///
+    /// <para><see cref="Access.Read"/> 이면 <b>아무것도 쓰지 않는다.</b> 올릴 것이 있으면 예외로 거절하고,
+    /// 지금 판이면 뷰도 다시 짓지 않는다 — 뷰는 이미 파일 안에 있고, 다시 짓는 것도 쓰기다.
+    /// 읽기로 연 남의 파일을 판올림하려면 사본을 떠서 그것을 올린다(취합이 하는 일).</para>
     /// </summary>
     public NoticeGroupChange? Migrate()
     {
+        RefusePreBaseline();
+
+        if (Access == Access.Read)
+        {
+            int version;
+            using (var probe = OpenReadOnly())
+                version = UserVersion(probe);
+
+            if (version < Schema.Version)
+                throw new InvalidOperationException(
+                    $"읽기 전용으로 연 자료라 판을 올리지 않습니다(v{version} → v{Schema.Version}): {Path}");
+
+            return null;
+        }
+
         using var connection = Open();
         var current = UserVersion(connection);
         NoticeGroupChange? change = null;
@@ -133,8 +259,14 @@ public sealed class Database
 
             using (var transaction = connection.BeginTransaction())
             {
-                for (var v = current; v < Schema.Migrations.Count; v++)
-                    Execute(connection, Schema.Migrations[v], transaction);
+                if (current == 0)
+                {
+                    Execute(connection, Schema.Baseline, transaction);
+                    current = Schema.BaselineVersion;
+                }
+
+                for (var v = current; v < Schema.Version; v++)
+                    Execute(connection, Schema.Steps[v - Schema.BaselineVersion], transaction);
 
                 // PRAGMA 는 매개변수를 받지 않아 값을 직접 넣는다. 상수라 주입 위험이 없다.
                 Execute(connection, $"PRAGMA user_version = {Schema.Version};", transaction);
@@ -143,8 +275,8 @@ public sealed class Database
 
             Execute(connection, "PRAGMA foreign_keys = ON;");
 
-            // 판올림은 건마다 계열 하나를 씨로 뿌려 둘 뿐이다(스키마 V15) — 관련공고를 타고
-            // 실제로 이어 붙이는 것은 여기다. 참조 검사보다 앞서야 옮겨진 링크가 검사를 지난다.
+            // 건을 관련공고를 타고 실제로 이어 붙이는 것은 판올림이 아니라 여기다.
+            // 참조 검사보다 앞서야 옮겨진 링크가 검사를 지난다.
             using (var transaction = connection.BeginTransaction())
             {
                 change = NoticeGroups.Rebuild(connection, transaction);
@@ -232,6 +364,24 @@ public sealed class Database
                 reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetInt64(4)));
 
         return columns;
+    }
+
+    /// <summary>
+    /// 기준선보다 옛 시험판이면 거절한다. <b>읽기 전용 연결로 먼저 본다</b> — <see cref="Open"/> 은
+    /// WAL 로 바꾸며 파일 머리를 고치므로, 받지 않을 파일에는 그것조차 하지 않는다.
+    /// </summary>
+    private void RefusePreBaseline()
+    {
+        if (!File.Exists(Path)) return;
+
+        int version;
+        using (var probe = OpenReadOnly())
+            version = UserVersion(probe);
+
+        if (Schema.IsPreBaseline(version))
+            throw new InvalidOperationException(
+                $"정식판 이전의 옛 시험판(v{version})으로 지은 자료라 이 프로그램이 올리지 못합니다. " +
+                $"0.7.0 으로 한 번 열어 v{Schema.BaselineVersion} 로 올린 뒤 다시 여세요: {Path}");
     }
 
     private static int UserVersion(SqliteConnection connection)

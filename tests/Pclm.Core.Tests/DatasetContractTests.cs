@@ -16,7 +16,8 @@ namespace Pclm.Core.Tests;
 /// 개인정보도 들어가지 않는다 — 그래서 이 박제는 저장소에 함께 둔다.</para>
 ///
 /// <para>일부러 바꿨다면 <c>PCLM_UPDATE_GOLDEN=1</c> 로 다시 쓰고, <b>같은 커밋에서
-/// 규약 문서도 함께 고친다</b>. 열을 바꾸는 것이 아니라 <c>_v2</c> 를 새로 두는 것이 원칙이다.</para>
+/// 규약 문서도 함께 고친다</b>. 뷰·열 이름은 제자리에서 바꾼다 — 옛 이름을 나란히 남기지
+/// 않는다(ADR-034). 박제는 바뀐 것이 <b>의도한 것뿐인지</b> 눈으로 보게 하는 장치다.</para>
 /// </summary>
 public class DatasetContractTests : IDisposable
 {
@@ -50,8 +51,7 @@ public class DatasetContractTests : IDisposable
 
     public DatasetContractTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
     }
 
     [Fact]
@@ -121,9 +121,9 @@ public class DatasetContractTests : IDisposable
     }
 
     /// <summary>
-    /// <see cref="Views.ContractColumns"/> 가 실제 <c>v_계약_v1</c> 과 같은가.
+    /// <see cref="Views.ContractColumns"/> 가 실제 <c>v_계약</c> 과 같은가.
     ///
-    /// <para><c>v_통합_v2</c> 는 계약 없는 줄도 내느라 계약 뷰를 <c>k.*</c> 로 받지 못하고
+    /// <para><c>v_통합</c> 은 계약 없는 줄도 내느라 계약 뷰를 <c>k.*</c> 로 받지 못하고
     /// 열 이름을 따로 들고 있다. 두 벌이라 어긋날 수 있는데, 어긋나면 <b>통합에서 그 열만
     /// 조용히 사라진다</b> — 아무 오류도 나지 않으므로 여기서 붙잡는다.</para>
     /// </summary>
@@ -132,16 +132,16 @@ public class DatasetContractTests : IDisposable
     {
         var 사람열 = new Store(_database).UserColumns("contract").Select(c => c.FieldName);
 
-        Assert.Equal([.. Views.ContractColumns, .. 사람열], ColumnsOf("v_계약_v1"));
+        Assert.Equal([.. Views.ContractColumns, .. 사람열], ColumnsOf("v_계약"));
     }
 
-    /// <summary>통합 v2 가 계약 뷰의 열을 하나도 빠뜨리지 않는가.</summary>
+    /// <summary><c>v_통합</c> 이 계약 뷰의 열을 하나도 빠뜨리지 않는가.</summary>
     [Fact]
     public void 통합이_계약_뷰의_열을_모두_담는다()
     {
-        var 통합 = ColumnsOf("v_통합_v2").ToHashSet();
+        var 통합 = ColumnsOf("v_통합").ToHashSet();
 
-        foreach (var column in ColumnsOf("v_계약_v1")) Assert.Contains(column, 통합);
+        foreach (var column in ColumnsOf("v_계약")) Assert.Contains(column, 통합);
     }
 
     /// <summary>
@@ -156,21 +156,108 @@ public class DatasetContractTests : IDisposable
     [Fact]
     public void 차수_뷰의_열이_본_뷰와_같다()
     {
-        Assert.Equal(ColumnsOf("v_공고_v1"), ColumnsOf("v_공고차수_v1"));
-        Assert.Equal(ColumnsOf("v_계약_v1"), ColumnsOf("v_계약차수_v1"));
+        Assert.Equal(ColumnsOf("v_공고"), ColumnsOf("v_공고차수"));
+        Assert.Equal(ColumnsOf("v_계약"), ColumnsOf("v_계약차수"));
     }
 
     /// <summary>
-    /// <c>v_통합_v3</c> 은 <c>v_통합_v2</c> 의 열을 <b>그대로 두고</b> 끝에 둘만 더한 것이다.
+    /// <c>v_통합차수</c> 는 <c>v_통합</c> 의 열을 <b>그대로 두고</b> 끝에 둘만 더한 것이다.
     ///
     /// <para>두 뷰가 공고·접수 열 이름을 각자 적고 있어(SQL 에는 "이 뷰의 열을 다 가져오되
     /// 하나만 갈아 끼워라" 라고 적을 말이 없다) 한쪽만 고치면 갈린다. 갈려도 아무것도
     /// 실패하지 않으므로 여기서 붙든다 — 열 차례까지 본다.</para>
     /// </summary>
     [Fact]
-    public void 통합_v3_는_v2_의_열에_둘만_더한_것이다()
+    public void 통합차수는_통합의_열에_둘만_더한_것이다()
     {
-        Assert.Equal([.. ColumnsOf("v_통합_v2"), "공고건", "현행공고"], ColumnsOf("v_통합_v3"));
+        Assert.Equal([.. ColumnsOf("v_통합"), "공고건", "현행공고"], ColumnsOf("v_통합차수"));
+    }
+
+    /// <summary>
+    /// 판을 붙여 부르던 옛 이름의 뷰가 남은 DB 를 열면 <b>하나도 남지 않는다</b>(ADR-034).
+    ///
+    /// <para>남으면 받는 쪽이 그것을 시트로 늘어놓고, 옛 뷰가 가리키던 표가 바뀌는 순간 깨진
+    /// 뷰가 된다 — 깨진 뷰 하나가 SQLite 의 표 고치기(<c>ALTER TABLE</c>)까지 막는다.
+    /// 옛 뷰끼리 서로 가리키던 모양(통합이 계약·공고·접수 위에 얹힌 것)까지 세워 두고 본다.</para>
+    /// </summary>
+    [Fact]
+    public void 옛_이름의_뷰는_열면_모두_치워진다()
+    {
+        using (var connection = new SqliteConnection($"Data Source={_path}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE VIEW v_공고_v1 AS SELECT * FROM v_공고;
+                CREATE VIEW v_계약_v1 AS SELECT * FROM v_계약;
+                CREATE VIEW v_접수_v1 AS SELECT * FROM v_접수;
+                CREATE VIEW v_공고품목_v1 AS SELECT * FROM v_공고품목;
+                CREATE VIEW v_품목_v1 AS SELECT * FROM v_계약품목;
+                CREATE VIEW v_접수품목_v1 AS SELECT * FROM v_접수품목;
+                CREATE VIEW v_공고차수_v1 AS SELECT * FROM v_공고차수;
+                CREATE VIEW v_계약차수_v1 AS SELECT * FROM v_계약차수;
+                CREATE VIEW v_ERP원천_v1 AS SELECT * FROM v_ERP원천;
+                CREATE VIEW v_계약업체_v1 AS SELECT * FROM v_계약업체;
+                CREATE VIEW v_ERP접수_v1 AS SELECT * FROM v_ERP접수;
+                CREATE VIEW v_통합_v1 AS
+                    SELECT k.*, g.공고명 FROM v_계약_v1 k LEFT JOIN v_공고_v1 g ON 0;
+                CREATE VIEW v_통합_v2 AS
+                    SELECT k.계약번호, r.요청명 FROM v_통합_v1 k LEFT JOIN v_접수_v1 r ON 0;
+                CREATE VIEW v_통합_v3 AS
+                    SELECT k.*, g.차수 AS 공고차수 FROM v_통합_v2 k LEFT JOIN v_공고차수_v1 g ON 0;
+                CREATE VIEW v_계획_v1 AS
+                    SELECT r.접수번호, g.입찰공고번호, k.계약번호
+                    FROM v_접수_v1 r LEFT JOIN v_공고_v1 g ON 0 LEFT JOIN v_계약_v1 k ON 0;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Equal(Views.LegacyNames.Order(), ViewNames().Intersect(Views.LegacyNames).Order());
+
+        SqliteConnection.ClearAllPools();
+        new Database(_path).Migrate();
+
+        var present = ViewNames();
+        Assert.Empty(present.Intersect(Views.LegacyNames));
+        foreach (var name in Views.Names) Assert.Contains(name, present);
+    }
+
+    /// <summary>옛 이름이 지금 이름과 겹치면 막 지은 뷰를 맨 앞의 치우기가 지운다.</summary>
+    [Fact]
+    public void 옛_이름은_지금_이름과_겹치지_않는다()
+    {
+        Assert.Empty(Views.LegacyNames.Intersect(Views.Names));
+        Assert.All(Views.LegacyNames, name => Assert.Matches(@"_v\d+$", name));
+    }
+
+    /// <summary>
+    /// 엑셀 시트 이름. 받는 쪽이 시트 이름으로 표를 짚으므로 이것도 계약면이다 — 이름이
+    /// 제자리에서 바뀐 뒤에도 머리 <c>v_</c> 만 떼어 이 차례로 나간다. 엑셀은 시트 이름을
+    /// 31자까지만 받고 같은 이름 둘을 받지 않는다.
+    /// </summary>
+    [Fact]
+    public void 엑셀_시트_이름은_머리만_뗀_뷰_이름이다()
+    {
+        var sheets = Views.Exported.Select(Views.SheetName).ToList();
+
+        Assert.Equal(
+            ["통합", "접수", "접수품목", "공고", "공고품목", "계약", "계약품목", "ERP원천", "계약업체", "ERP접수"],
+            sheets);
+        Assert.Equal(sheets.Count, sheets.Distinct().Count());
+        Assert.All(sheets, sheet => Assert.InRange(sheet.Length, 1, 31));
+    }
+
+    private List<string> ViewNames()
+    {
+        using var connection = _database.OpenReadOnly();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'view';";
+
+        using var reader = command.ExecuteReader();
+        var names = new List<string>();
+        while (reader.Read()) names.Add(reader.GetString(0));
+
+        return names;
     }
 
     private List<string> ColumnsOf(string view)

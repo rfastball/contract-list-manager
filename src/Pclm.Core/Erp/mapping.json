@@ -4,6 +4,10 @@
     {
       "id": "g2b-request-v1",
       "entityType": "request",
+      "screen": {
+        "code": "01117",
+        "name": "조달요구 접수(목록형)"
+      },
       "identitySource": "mf_wfm_container_gridView",
       "baseField": "ctrtDmndRcptNo",
       "seqField": "ctrtDmndRcptOrd",
@@ -210,9 +214,16 @@
               "transform": "integer"
             },
             {
-              "source": "devyCndtNm",
+              "source": "devyCndtCd",
               "target": "delivery_terms",
-              "transform": "text"
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
             },
             {
               "source": "dlvgdsTermNody",
@@ -475,9 +486,16 @@
               "transform": "integer"
             },
             {
-              "source": "devyCndtNm",
+              "source": "devyCndtCd",
               "target": "delivery_terms",
-              "transform": "text"
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
             },
             {
               "source": "dlvgdsTermNody",
@@ -534,6 +552,10 @@
     {
       "id": "g2b-notice-a-v1",
       "entityType": "notice",
+      "screen": {
+        "code": "01179",
+        "name": "입찰공고 상세"
+      },
       "identitySource": "pointInfo",
       "baseField": "bidPbancNo",
       "seqField": "bidPbancOrd",
@@ -794,9 +816,16 @@
               "transform": "text"
             },
             {
-              "source": "devyCndtNm",
+              "source": "devyCndtCd",
               "target": "delivery_terms",
-              "transform": "text"
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
             },
             {
               "source": "ctrtDmndRcptNo",
@@ -1089,9 +1118,16 @@
               "transform": "text"
             },
             {
-              "source": "devyCndtNm",
+              "source": "devyCndtCd",
               "target": "delivery_terms",
-              "transform": "text"
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
             },
             {
               "source": "ctrtDmndRcptNo",
@@ -1218,6 +1254,10 @@
     {
       "id": "g2b-contract-v1",
       "entityType": "contract",
+      "screen": {
+        "code": "01579",
+        "name": "계약 상세"
+      },
       "identitySource": "pointInfo",
       "baseField": "ctrtNoOrd",
       "seqField": "ctrtNoOrd",
@@ -1416,9 +1456,16 @@
               "transform": "text"
             },
             {
-              "source": "devyCndtNm",
+              "source": "devyCndtCd",
               "target": "delivery_terms",
-              "transform": "text"
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
             },
             {
               "source": "ctrtQty",

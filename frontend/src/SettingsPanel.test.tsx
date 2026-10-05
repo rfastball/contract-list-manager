@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { invoke } from "./mock";
+import { invoke, 스위치, 창 } from "./mock";
 
 /**
  * 설정 안의 <b>제출·취합</b>.
@@ -37,6 +37,8 @@ beforeAll(() => {
 beforeEach(() => {
   부름.mockClear();
   부름.mockImplementation(본디);
+  스위치.열람 = false;
+  창.몸가짐 = { closeToTray: false, autostart: false, autostartAvailable: true, autostartReason: null };
 });
 
 afterEach(cleanup);
@@ -98,81 +100,21 @@ describe("설정 — 제출·취합", () => {
 });
 
 
-it("내장 확장 준비 실패는 재시도할 수 있고 준비 후 브라우저 추가를 안내한다", async () => {
-  let complete: (value: unknown) => void = () => {};
+/**
+ * 브라우저 수집(확장 준비·상태·고급 JSON 검토)은 나라장터 화면으로 옮겼다 — 그 약속은 Nara.test 가 붙든다.
+ * 설정에는 그리로 가는 길 한 줄만 남는다.
+ */
+it("브라우저 수집 절은 나라장터를 가리키고, 누르면 설정을 닫고 그리로 간다", async () => {
   const { user, dialog } = await 설정열기();
-  await user.click(within(dialog).getByText("Edge · Chrome 확장 추가"));
-  const prepare = within(dialog).getByRole("button", { name: "확장 준비" });
-  가로채기("prepareExtension", () => Promise.reject(new Error("등록 권한을 확인하세요.")));
-  await user.click(prepare);
-  expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", "등록 권한을 확인하세요.");
-  expect(within(dialog).queryByRole("button", { name: "Edge 확장 관리 열기" })).toBeNull();
-  가로채기("prepareExtension", () => new Promise(resolve => { complete = resolve; }));
-  await user.click(prepare);
-  expect((prepare as HTMLButtonElement).disabled).toBe(true);
-  const folder = "C:\\Users\\테스트 사용자\\AppData\\Local\\Pclm\\extension";
-  complete({ folder, version: "0.3.0" });
-  expect(await within(dialog).findByText(/브라우저에서 추가를 완료하세요/)).toBeTruthy();
-  // 폴더 선택 창에 바로 붙여 넣게 경로를 복사해 둔다.
-  expect(await within(dialog).findByText(/폴더 경로를 복사했습니다/)).toBeTruthy();
-  expect(await navigator.clipboard.readText()).toBe(folder);
-  expect(within(dialog).getByLabelText(/확장 폴더 ·/)).toHaveProperty("value", folder);
-  expect(within(dialog).queryByRole("alert")).toBeNull();
-  가로채기("openExtensionSetup", () => Promise.resolve(null));
-  for (const [target, label] of [["edge", "Edge 확장 관리 열기"], ["chrome", "Chrome 확장 관리 열기"], ["folder", "확장 폴더 열기"]]) {
-    await user.click(within(dialog).getByRole("button", { name: label }));
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("openExtensionSetup", [target]));
-  }
-});
+  expect(within(dialog).getByText("브라우저 수집은 왼쪽 메뉴의 나라장터에서 봅니다.")).toBeTruthy();
+  expect(within(dialog).queryByText("Edge · Chrome 확장 추가")).toBeNull();
+  expect(within(dialog).queryByText("고급 · 수집 매핑과 JSON 검토")).toBeNull();
+  expect(within(dialog).queryByRole("button", { name: "확장 준비" })).toBeNull();
 
-it("고급 수집은 충돌 선택 전 저장을 막고 검토한 선택을 전달한다", async () => {
-  부름.mockImplementation(async (m, args) => {
-    if (m !== "erpTools" || args[0] === "list") return 본디(m, args);
-    if (args[0] === "saveMapping") return "revision";
-    if (args[0] === "inspect") return { entity: "R26BK00000001-001", itemCount: 1, baseToken: "token", unmatched: [],
-      changes: [{ id: "header/title", table: "notice", line: 0, field: "title", before: "이전", after: "새 제목", conflict: true }] };
-    if (args[0] === "capture") return { changed: true };
-    throw new Error("예상하지 않은 작업");
-  });
-  const { user, dialog } = await 설정열기();
-  await user.click(within(dialog).getByText("고급 · 수집 매핑과 JSON 검토"));
-  const file = await within(dialog).findByLabelText("JSON 파일 선택");
-  await waitFor(() => expect(file.closest("fieldset")!.disabled).toBe(false));
-  await user.upload(file, new File([JSON.stringify({ pointInfo: {}, tables: {} })], "공고.json", { type: "application/json" }));
-  await within(dialog).findByText("공고.json");
-  await user.click(within(dialog).getByRole("button", { name: "활성 매핑으로 미리보기" }));
-  const save = await within(dialog).findByRole("button", { name: "검토한 자료 저장" });
-  expect((save as HTMLButtonElement).disabled).toBe(true);
-  await user.selectOptions(within(dialog).getByLabelText("title 선택"), "keep");
-  await user.click(save);
-  await waitFor(() => expect(부름.mock.calls.some(([m, args]) => m === "erpTools" && args[0] === "capture")).toBe(true));
-  const args = 부름.mock.calls.find(([m, args]) => m === "erpTools" && args[0] === "capture")![1];
-  expect(JSON.parse(String(args[1])).choices).toEqual({ "header/title": "keep" });
-  expect(await within(dialog).findByText("검토한 자료를 저장했습니다.")).toBeTruthy();
-});
-
-it("확장 상태는 연결이 없거나, 같은 판이 돌거나, 옛 판이 돌고 있음을 한 줄로 보인다", async () => {
-  const 상태 = (contacts: { browser: string; version: string; at: string }[]) =>
-    가로채기("extensionStatus", () => Promise.resolve({ prepared: true, embeddedVersion: "0.4.1", diskVersion: "0.4.1", contacts }));
-
-  상태([]);
-  let { dialog } = await 설정열기();
-  expect(await within(dialog).findByText("확장 파일은 준비했지만 아직 브라우저에서 연결된 적이 없습니다.")).toBeTruthy();
-  expect(within(dialog).getByText(/개발자 모드/)).toBeTruthy();
-  // 폴더 경로는 아직 보이지 않으므로 「위 확장 폴더」 를 가리키지 않는다.
-  expect(within(dialog).getByText(/「확장 준비」를 누르면 보이는 확장 폴더/)).toBeTruthy();
-  cleanup();
-
-  상태([{ browser: "Edge", version: "0.4.1", at: "2026-09-28T14:02:37" }]);
-  ({ dialog } = await 설정열기());
-  expect(await within(dialog).findByText("Edge 연결됨 · 확장 0.4.1 · 마지막 연결 2026/09/28 14:02")).toBeTruthy();
-  expect(within(dialog).queryByText(/연결된 적이 없습니다/)).toBeNull();
-  cleanup();
-
-  상태([{ browser: "Chrome", version: "0.4.0", at: "2026-09-27T09:00:00" }]);
-  ({ dialog } = await 설정열기());
-  expect(await within(dialog).findByText(
-    "Chrome 확장이 옛 판(0.4.0)입니다. 나라장터 화면을 열면 새 판을 스스로 불러옵니다. 그대로면 확장 관리에서 새로고침하세요.")).toBeTruthy();
+  await user.click(within(dialog).getByRole("button", { name: "나라장터 열기" }));
+  expect(screen.queryByRole("dialog", { name: "설정" })).toBeNull();
+  expect(screen.getByRole("tab", { name: /^나라장터/ }).getAttribute("aria-selected")).toBe("true");
+  expect(await screen.findByRole("heading", { name: "나라장터", level: 1 })).toBeTruthy();
 });
 
 /** 고지는 100KB 쯤이라 설정을 열 때마다 끌어오지 않는다 — 처음 열 때 한 번, 닫았다 다시 열어도 다시 부르지 않는다. */
@@ -194,4 +136,180 @@ it("라이선스 정보를 열면 about 을 한 번만 부르고 판과 라이�
   await user.click(link);
   expect(await within(await screen.findByRole("dialog", { name: "라이선스 정보" })).findByLabelText("라이선스")).toBeTruthy();
   expect(부름.mock.calls.filter(([m]) => m === "about")).toHaveLength(1);
+});
+
+/**
+ * 작업자료 바꾸기(ADR-032). 고르기만으로는 바꾸지 않는다 — 고른 자리와 그 뜻을 확인 창에 보이고, 확인을 받아야
+ * 바꾸기를 부른다. 바꾸면 창이 다시 뜨고 브라우저 수집 대상이 바뀌는 일이라서다.
+ */
+describe("설정 — 작업자료", () => {
+  const 바꾸는요청 = ["moveWorkfile", "switchWorkfile", "newWorkfile"];
+  const 바꿨나 = () => 부름.mock.calls.some(([m]) => 바꾸는요청.includes(m));
+
+  it("옮기기는 고른 자리·재시작·수집·옛 파일 삭제를 보이고 확인한 뒤에야 옮긴다", async () => {
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "작업자료 옮기기…" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("pickWorkfile", ["move"]));
+    const confirm = await screen.findByRole("dialog", { name: "작업자료 옮기기" });
+    expect(confirm.textContent).toContain("D:\\계약\\계약자료.pclm");
+    expect(confirm.textContent).toMatch(/창을 다시 띄웁니다/);
+    expect(confirm.textContent).toMatch(/브라우저 수집은 이제 새 자리에 저장합니다/);
+    expect(confirm.textContent).toMatch(/옛 파일을 지웁니다.+계약자료\.pclm/);
+    expect(바꿨나()).toBe(false);
+
+    await user.click(within(confirm).getByRole("button", { name: "옮기고 다시 띄우기" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("moveWorkfile", ["D:\\계약\\계약자료.pclm"]));
+    expect(await screen.findByText(/작업자료를 바꿨습니다 — 창을 다시 띄웁니다/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "작업자료 옮기기" })).toBeNull();
+  });
+
+  it("확인 창에서 취소하면 아무것도 바꾸지 않는다", async () => {
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "새 계약자료…" }));
+
+    const confirm = await screen.findByRole("dialog", { name: "새 계약자료 만들기" });
+    expect(confirm.textContent).toMatch(/지금 작업자료는 그대로 남습니다/);
+    await user.click(within(confirm).getByRole("button", { name: "취소" }));
+
+    expect(screen.queryByRole("dialog", { name: "새 계약자료 만들기" })).toBeNull();
+    expect(바꿨나()).toBe(false);
+  });
+
+  it("제출본으로 바꾸면 원본은 그대로 두고 사본을 새 계약자료로 만든다고 말한 뒤 둘을 함께 넘긴다", async () => {
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "작업자료 바꾸기…" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("pickWorkfile", ["switch"]));
+    const confirm = await screen.findByRole("dialog", { name: "새 계약자료로 이어 쓰기" });
+    expect(confirm.textContent).toMatch(/제출본의 사본을/);
+    expect(confirm.textContent).toMatch(/원본은 바뀌지 않습니다/);
+    expect(confirm.textContent).toMatch(/열려 있던 확장 검토 화면은 다시 확인해야 합니다/);
+
+    await user.click(within(confirm).getByRole("button", { name: "만들고 다시 띄우기" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("switchWorkfile", [
+      "C:\\Users\\홍길동\\Documents\\제출_홍길동_20260901.pclm",
+      "C:\\Users\\홍길동\\Documents\\계약자료.pclm",
+    ]));
+  });
+
+  it("새 계약자료는 확인한 뒤 newWorkfile 을 부른다", async () => {
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "새 계약자료…" }));
+
+    const confirm = await screen.findByRole("dialog", { name: "새 계약자료 만들기" });
+    await user.click(within(confirm).getByRole("button", { name: "만들고 다시 띄우기" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("newWorkfile", ["C:\\Users\\홍길동\\Documents\\계약자료.pclm"]));
+  });
+
+  /** 고르다 그만둔 것은 실패가 아니다. 확인 창도 알림도 서지 않는다. */
+  it("고르기를 그만두면 확인 창이 뜨지 않는다", async () => {
+    가로채기("pickWorkfile", () => Promise.resolve(null));
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "작업자료 옮기기…" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("pickWorkfile", ["move"]));
+    expect(screen.queryByRole("dialog", { name: "작업자료 옮기기" })).toBeNull();
+    expect(바꿨나()).toBe(false);
+  });
+
+  /** 쓸 수 없는 자리는 고른 자리에서 거절된다 — 확인을 받은 뒤에 거절하지 않는다. */
+  it("고른 자리를 쓸 수 없으면 까닭을 알리고 확인 창을 띄우지 않는다", async () => {
+    가로채기("pickWorkfile", () => Promise.reject(new Error("그 자리에 이미 파일이 있어 덮지 않습니다 — 다른 이름을 고르세요")));
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "작업자료 옮기기…" }));
+
+    expect(await screen.findByText(/이미 파일이 있어 덮지 않습니다/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "작업자료 옮기기" })).toBeNull();
+  });
+
+  it("백업은 확인 없이 뜨고 떨어진 자리를 알린다", async () => {
+    const { user, dialog } = await 설정열기();
+    await user.click(within(dialog).getByRole("button", { name: "백업 만들기…" }));
+
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("backupWorkfile", []));
+    expect(await screen.findByText(/백업을 만들었습니다.+계약자료_백업_\d{8}\.pclm/)).toBeTruthy();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);   // 설정만 — 확인 창이 서지 않았다
+  });
+});
+
+/**
+ * 「창」 — 이 컴퓨터에서 창을 어떻게 다룰지. 자료가 아니라 저장 단추를 타지 않고 누르는 그 자리에서 다리로 간다.
+ * 다리의 값은 글이라 켜짐·꺼짐은 "true"·"false" 로 간다.
+ */
+describe("설정 — 창", () => {
+  const 알림영역 = (dialog: HTMLElement) =>
+    within(dialog).findByRole("checkbox", { name: "닫아도 끝내지 않고 알림 영역에 둡니다" });
+
+  it("알림 영역 두기를 켜고 끄면 그 자리에서 saveWindowPrefs 를 부른다", async () => {
+    const { user, dialog } = await 설정열기();
+    const box = await 알림영역(dialog);
+    expect((box as HTMLInputElement).checked).toBe(false);
+
+    await user.click(box);
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveWindowPrefs", ["true", "false"]));
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(true));
+
+    await user.click(box);
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveWindowPrefs", ["false", "false"]));
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(false));
+    expect(부름.mock.calls.some(([m]) => m === "saveSettings")).toBe(false);
+  });
+
+  /** 하나를 바꿀 때 다른 하나는 지금 값 그대로 함께 간다 — 빠뜨리면 다리가 그것을 꺼짐으로 바꾼다. */
+  it("자동 실행을 켜면 알림 영역 두기는 지금 값 그대로 함께 넘긴다", async () => {
+    창.몸가짐 = { ...창.몸가짐, closeToTray: true };
+    const { user, dialog } = await 설정열기();
+    const box = await within(dialog).findByRole("checkbox", { name: "Windows 에 로그인하면 자동으로 켭니다" });
+    expect(within(dialog).getByText("알림 영역 두기가 켜져 있으면 창 없이 조용히 시작합니다.")).toBeTruthy();
+
+    await user.click(box);
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveWindowPrefs", ["true", "true"]));
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(true));
+    expect((within(dialog).getByRole("checkbox", { name: "닫아도 끝내지 않고 알림 영역에 둡니다" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  /** 시험 홈의 창은 컴퓨터에 하나뿐인 자동 실행을 건드리지 않는다 — 칸은 잠기고 까닭이 그 자리에 선다. */
+  it("자동 실행을 바꿀 수 없는 자리면 칸을 잠그고 까닭을 보인다", async () => {
+    창.몸가짐 = {
+      ...창.몸가짐,
+      autostartAvailable: false,
+      autostartReason: "시험 홈(--home)으로 띄운 창이라 자동 실행을 바꾸지 않습니다. 업무 홈의 창에서 바꾸세요.",
+    };
+    const { dialog } = await 설정열기();
+    const box = await within(dialog).findByRole("checkbox", { name: "Windows 에 로그인하면 자동으로 켭니다" });
+
+    expect((box as HTMLInputElement).disabled).toBe(true);
+    expect(within(dialog).getByText(/시험 홈\(--home\)으로 띄운 창이라/)).toBeTruthy();
+    expect(within(dialog).queryByText("알림 영역 두기가 켜져 있으면 창 없이 조용히 시작합니다.")).toBeNull();
+    // 알림 영역 두기는 그대로 열려 있다.
+    expect((within(dialog).getByRole("checkbox", { name: "닫아도 끝내지 않고 알림 영역에 둡니다" }) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("바꾸지 못하면 까닭을 알리고 칸을 되돌린다", async () => {
+    가로채기("saveWindowPrefs", () => Promise.reject(new Error("홈에 쓰지 못했습니다")));
+    const { user, dialog } = await 설정열기();
+    const box = await 알림영역(dialog);
+
+    await user.click(box);
+    expect(await screen.findByText("홈에 쓰지 못했습니다")).toBeTruthy();
+    await waitFor(() => expect((box as HTMLInputElement).checked).toBe(false));
+  });
+
+  /** 열람 창은 따로 뜬 프로세스라 알림 영역에 두지 않는다 — 절이 서지 않고, 다리도 거절한다. */
+  it("열람 창에는 창 절이 서지 않는다", async () => {
+    스위치.열람 = true;
+    const { dialog } = await 설정열기();
+    await within(dialog).findByText("열람 중인 자료");
+    // 가짜 다리가 답하고도 남을 만큼 기다린 뒤에 본다 — 아직 읽지 않아 비어 있는 것과 갈라야 한다.
+    // (처음 뜰 때의 요청은 엿듣개를 비껴갈 수 있어 그 답을 직접 기다리지 못한다.)
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(within(dialog).queryByText("닫아도 끝내지 않고 알림 영역에 둡니다")).toBeNull();
+    expect(within(dialog).queryByText("Windows 에 로그인하면 자동으로 켭니다")).toBeNull();
+    expect(부름.mock.calls.some(([m]) => m === "saveWindowPrefs")).toBe(false);
+  });
 });

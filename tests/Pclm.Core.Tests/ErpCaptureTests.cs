@@ -18,12 +18,11 @@ public sealed class ErpCaptureTests : IDisposable
 
     public ErpCaptureTests()
     {
-        var database = new Database(DbPath);
-        database.Migrate();
+        var database = PclmFile.Create(DbPath, PclmRole.Work);
         using var connection = database.Open();
-        connection.Execute("UPDATE erp_dataset SET environment = 'development';");
-        _dataset = connection.QuerySingle<string>("SELECT dataset_id FROM erp_dataset;");
-        _host = new(DbPath);
+        _dataset = connection.QuerySingle<string>("SELECT dataset_id FROM pclm_file;");
+        // 시험은 개발 호스트처럼 돈다 — 확장 판·연결 기록 같은 업무 호스트만의 일은 그 시험이 따로 세운다.
+        _host = new(DbPath, environment: "development");
     }
 
     public void Dispose()
@@ -33,7 +32,7 @@ public sealed class ErpCaptureTests : IDisposable
             using var c = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = DbPath, Mode = mode }.ToString());
             SqliteConnection.ClearPool(c);
         }
-        SqliteConnection.ClearAllPools(); // 자리 옮기기 시험이 연 다른 DB 들
+        SqliteConnection.ClearAllPools(); // 쪽지 시험이 연 다른 DB 들
         Directory.Delete(_root, recursive: true);
     }
 
@@ -57,14 +56,14 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal("hnfnknkojoobmpcgnimdjkpnmannhigc", prepared.ExtensionId);
         var script = File.ReadAllText(Path.Combine(prepared.Folder, "background.js"));
         File.WriteAllText(Path.Combine(prepared.Folder, "background.js"), "old");
-        File.WriteAllText(Path.Combine(directory, "erp-connection.json"), "existing DB binding");
+        File.WriteAllText(Path.Combine(directory, "config.json"), "existing home config");
         var moved = Path.Combine(_root, "옮긴 앱.exe");
         File.Move(exe, moved);
         var updated = BundledExtension.Prepare(directory, moved);
         Assert.Equal(prepared.Folder, updated.Folder);
         Assert.Equal(prepared.ExtensionId, updated.ExtensionId);
         Assert.Equal(script, File.ReadAllText(Path.Combine(updated.Folder, "background.js")));
-        Assert.Equal("existing DB binding", File.ReadAllText(Path.Combine(directory, "erp-connection.json")));
+        Assert.Equal("existing home config", File.ReadAllText(Path.Combine(directory, "config.json")));
         using var host = JsonDocument.Parse(File.ReadAllText(updated.ManifestPath));
         Assert.Equal(moved, host.RootElement.GetProperty("path").GetString());
         Assert.Equal(ErpConnection.HostName, host.RootElement.GetProperty("name").GetString());
@@ -78,7 +77,7 @@ public sealed class ErpCaptureTests : IDisposable
 
         // 앱을 켤 때마다 불린다. 같은 것이면 아무것도 쓰지 않는다.
         var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
-            .Where(f => Path.GetFileName(f) != "erp-connection.json").ToArray();
+            .Where(f => Path.GetFileName(f) != "config.json").ToArray();
         var old = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         foreach (var file in files) File.SetLastWriteTimeUtc(file, old);
         Assert.False(BundledExtension.Prepare(directory, moved).Changed);
@@ -150,12 +149,12 @@ public sealed class ErpCaptureTests : IDisposable
     }
 
     private static CaptureInput Snapshot(string title = "검증용 공고") => new(
-        "g2b-public-notice-header-v1", Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
+        "g2b-notice-a-v1", Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
         {
-            pointInfo = new { noticeBase = "R26BK00000001", seq = "001", title, notice_kind = "실공고(변경공고)",
-                posted_at = "2026/09/24 10:00:00", award_method = "적격심사제", contract_method = "제한경쟁", notice_agency = "시험기관" },
+            pointInfo = new { bidPbancNo = "R26BK00000001", bidPbancOrd = "001", bidPbancNm = title, pbancKndCd = "공440002",
+                scsbdMthdCd = "낙030001", stdCtrtMthdCd = "계030003", pbancInstUntyGrpNm = "시험기관" },
             tables = new { }
-        }), "live");
+        }), "live", Screen: "01179");
 
     private object Request(CaptureInput snapshot, string? token = null, string? id = null)
     {
@@ -195,6 +194,51 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal(timestamp, connection.QuerySingle<string>("SELECT updated_at FROM notice;"));
     }
 
+    /// <summary>
+    /// 사람이 고친 칸은 이번 수집이 그 아래 값을 바꿀 때만 다시 묻는다. 바뀐 것이 없는데 수집할 때마다
+    /// 고르게 하면 단축키 저장이 영영 막힌다. 복원은 그 차수의 덮개만 걷는다(ADR-020).
+    /// </summary>
+    [Fact]
+    public void 정정값은_수집이_그_아래_값을_바꿀_때만_묻고_복원은_그_차수의_덮개만_걷는다()
+    {
+        using var connection = new Database(DbPath).Open();
+        Assert.True(Call("capture", Request(Snapshot())).GetProperty("ok").GetBoolean());
+        connection.Execute("""
+            INSERT INTO notice(notice_base, seq, title, updated_at) VALUES ('R26BK00000001', '002', '다음 차수 제목', 'before');
+            INSERT INTO field_override(entity_type, base, seq, column_name, value, original, updated_at) VALUES
+                ('notice', 'R26BK00000001', '001', '공고명', '사람이 고친 제목', '검증용 공고', 'before'),
+                ('notice', 'R26BK00000001', '001', '공고기관', '사람이 고친 기관', '시험기관', 'before'),
+                ('notice', 'R26BK00000001', '002', '공고명', '다음 차수 정정', '다음 차수 제목', 'before');
+            """);
+        int Overrides() => connection.ExecuteScalar<int>("SELECT count(*) FROM field_override;");
+        // 002 가 서 있어 001 은 옛 차수다 — 최신 차수만 내는 v_공고 에는 없어도 읽혀야 한다.
+
+        // 같은 화면을 다시 수집 — 덮개 아래 값이 그대로라 고를 것이 없고, 선택 없이 저장된다.
+        var same = _host.Inspect(Snapshot());
+        Assert.DoesNotContain(same.Changes, ch => ch.Field == "__override");
+        var inspected = Call("inspect", new { datasetId = _dataset, snapshot = Snapshot() });
+        Assert.Empty(inspected.GetProperty("result").GetProperty("changes").EnumerateArray());
+        _host.Save(Snapshot(), same.BaseToken, Guid.NewGuid().ToString(), new());
+        Assert.Equal(3, Overrides());
+        Assert.Equal("사람이 고친 제목", connection.QuerySingle<string>("SELECT 공고명 FROM v_공고차수 WHERE 입찰공고번호 = 'R26BK00000001-001';"));
+
+        // 제목이 바뀌면 그 칸만 묻고, 새로 읽은 값을 보인다. 미리 보느라 쓴 것은 남지 않는다.
+        var changed = _host.Inspect(Snapshot("바뀐 공고명"));
+        var ask = Assert.Single(changed.Changes, ch => ch.Field == "__override");
+        Assert.True(ask.Conflict);
+        Assert.Equal(("공고명", "사람이 고친 제목", "바뀐 공고명"), (ask.Override, ask.Before, ask.After));
+        Assert.Equal("검증용 공고", connection.QuerySingle<string>("SELECT title FROM notice WHERE seq = '001';"));
+        Assert.Equal(3, Overrides());
+        var plain = changed.Changes.Where(ch => ch.Conflict && ch.Field != "__override").ToDictionary(ch => ch.Id, _ => "apply");
+        Assert.Throws<InvalidOperationException>(() => _host.Save(Snapshot("바뀐 공고명"), changed.BaseToken, Guid.NewGuid().ToString(), plain));
+
+        // 복원은 이 차수의 이 칸 덮개만 걷는다.
+        _host.Save(Snapshot("바뀐 공고명"), changed.BaseToken, Guid.NewGuid().ToString(), new(plain) { [ask.Id] = "apply" });
+        Assert.Equal(new[] { ("001", "공고기관"), ("002", "공고명") },
+            connection.Query<(string, string)>("SELECT seq, column_name FROM field_override ORDER BY seq, column_name;"));
+        Assert.Equal("바뀐 공고명", connection.QuerySingle<string>("SELECT 공고명 FROM v_공고차수 WHERE 입찰공고번호 = 'R26BK00000001-001';"));
+    }
+
     [Fact]
     public void 미리보기_뒤_수정된_자료나_다른_DB에는_저장하지_않는다()
     {
@@ -205,67 +249,87 @@ public sealed class ErpCaptureTests : IDisposable
     }
 
     /// <summary>
-    /// 확장 설정 창은 자리를 옮기는 두 번째 입구다. 앱과 같은 검증을 거쳐 <b>예약만</b> 하고,
-    /// 옮기는 것은 여전히 다음 앱 실행 맨 앞이다.
+    /// 확장은 자료 자리를 보지도 옮기지도 못한다(ADR-032). 수집 통로가 저장 구조를 고치는 통로를 겸하면
+    /// 브라우저 쪽의 실수 하나가 사람의 자료 자리를 바꾼다.
     /// </summary>
     [Fact]
-    public void 확장은_업무_DB의_자리만_보이고_옮기기는_다음_실행으로_예약만_한다()
+    public void 확장_호스트는_자료_자리를_보거나_옮기는_요청을_받지_않는다()
     {
-        var config = Path.Combine(_root, "config.json");
-        var host = new ErpCapture(DbPath, config);
-        string? Error(JsonElement reply) => reply.GetProperty("ok").GetBoolean() ? null
-            : reply.GetProperty("error").GetProperty("message").GetString();
-        JsonElement Stage(string folder, string? dataset = null) =>
-            Call("stageDataMove", new { datasetId = dataset ?? _dataset, folder }, host);
-        var target = Path.Combine(_root, "새 자리", DataLocation.FolderName);
+        var host = new ErpCapture(DbPath);   // 업무 호스트
+        foreach (var method in new[] { "dataLocation", "stageDataMove" })
+        {
+            var reply = Call(method, new { datasetId = _dataset, folder = Path.Combine(_root, "새 자리") }, host);
+            Assert.False(reply.GetProperty("ok").GetBoolean());
+        }
+        Assert.False(Directory.Exists(Path.Combine(_root, "새 자리")));
+    }
 
-        // 개발 DB 는 격리된 고정 자리다.
-        Assert.Contains("개발 DB", Error(Call("dataLocation", null, host)));
-        Assert.Contains("개발 DB", Error(Stage(Path.Combine(_root, "새 자리"))));
-        using (var c = new Database(DbPath).Open()) c.Execute("UPDATE erp_dataset SET environment = 'production';");
-        var viaFiles = JsonSerializer.SerializeToElement(host.Dispatch(JsonSerializer.SerializeToElement(new
-            { protocolVersion = 2, requestId = Guid.NewGuid().ToString(), method = "dataLocation" }), filesAllowed: true), Mapping.Json);
-        Assert.Contains("개발 DB", Error(viaFiles));
+    /// <summary>
+    /// 확장 호스트는 쓰기 잠금을 쥔 뒤 쪽지를 다시 읽는다. 검토하는 사이 창이 다른 작업자료로 바꿨으면
+    /// 옛 자료에 저장하지 않고 거절한다.
+    /// </summary>
+    [Fact]
+    public void 쪽지가_다른_작업자료를_가리키면_저장을_거절한다()
+    {
+        var home = new Home(Path.Combine(_root, "home"));
+        var host = new ErpCapture(DbPath, environment: "development", home: home);
+        var request = Request(Snapshot());
 
-        // 쪽지가 가리키는 자리(여기서는 쪽지가 없어 기본 자리)가 바인딩된 DB 와 다르면 옮길 자료를 믿을 수 없다.
-        Assert.Contains("다시 실행", Error(Stage(Path.Combine(_root, "새 자리"))));
-        Assert.False(File.Exists(config));
+        home.WriteConfig(Path.Combine(_root, "다른.pclm"), "ffff");
+        Assert.False(Call("capture", request, host).GetProperty("ok").GetBoolean());
 
-        DataLocation.Save(new DataLocationConfig { DataDir = _root }, config);
-        var shown = Call("dataLocation", null, host).GetProperty("result");
-        Assert.Equal(DbPath, shown.GetProperty("path").GetString(), ignoreCase: true);
-        Assert.Equal(DataLocation.FolderName, shown.GetProperty("folderName").GetString());
-        Assert.Equal(JsonValueKind.Null, shown.GetProperty("pending").ValueKind);
+        home.WriteConfig(DbPath, _dataset);
+        Assert.True(Call("capture", request, host).GetProperty("ok").GetBoolean());
+    }
 
-        foreach (var bad in new[] { "", "   ", @"상대\폴더", @"D:상대", "C:\\a|b" })
-            Assert.NotNull(Error(Stage(bad)));
-        Assert.NotNull(Error(Stage(Path.Combine(_root, "새 자리"), dataset: "other")));
-        var busy = Path.Combine(_root, "쓰는 중");
-        new Database(DataLocation.DbIn(Path.Combine(busy, DataLocation.FolderName))).Migrate();
-        Assert.Contains("이미 계약 목록 자료가 있습니다", Error(Stage(busy)));
-        Assert.Equal(_root, DataLocation.Load(config).DataDir);
-        Assert.Null(DataLocation.Load(config).PendingMoveFrom);
+    /// <summary>
+    /// 전환 경합. 창이 나가는 자료의 쓰기 잠금을 쥔 채 쪽지를 바꾸는 동안 저장이 줄을 서면, 잠금이 풀린 뒤
+    /// <b>새 쪽지</b>를 보고 거절해야 한다 — 잠금을 얻기 전에 읽은 쪽지로 판단하면 옛 자료에 쓰고 성공을 알린다.
+    /// </summary>
+    [Fact]
+    public async Task 전환_중에_줄_선_저장은_잠금이_풀린_뒤_새_쪽지를_보고_거절한다()
+    {
+        var home = new Home(Path.Combine(_root, "home"));
+        home.WriteConfig(DbPath, _dataset);
+        var host = new ErpCapture(DbPath, environment: "development", home: home);
+        var request = Request(Snapshot());
 
-        var staged = Stage(Path.Combine(_root, "새 자리"));
-        Assert.Null(Error(staged));
-        Assert.Equal(target, staged.GetProperty("result").GetProperty("folder").GetString(), ignoreCase: true);
-        Assert.Equal(target, DataLocation.Load(config).DataDir, ignoreCase: true);
-        Assert.Equal(_root, DataLocation.Load(config).PendingMoveFrom, ignoreCase: true);
-        Assert.False(File.Exists(DataLocation.DbIn(target))); // 예약만 했다.
-        var pending = Call("dataLocation", null, host).GetProperty("result").GetProperty("pending");
-        Assert.Equal(_root, pending.GetProperty("from").GetString(), ignoreCase: true);
-        Assert.Equal(target, pending.GetProperty("to").GetString(), ignoreCase: true);
+        using var holder = new Database(DbPath).Open();
+        using (var transaction = holder.BeginTransaction(deferred: false))
+        {
+            var pending = Task.Run(() => Call("capture", request, host));
+            await Task.Delay(500);
+            Assert.False(pending.IsCompleted);   // 잠금 앞에 줄 서 있다
 
-        // 다시 고르면 목적지만 바뀐다. 자료는 여전히 바인딩된 옛 자리에 있다.
-        var other = Path.Combine(_root, "다른 자리", DataLocation.FolderName);
-        Assert.Null(Error(Stage(Path.Combine(_root, "다른 자리"))));
-        Assert.Equal(_root, DataLocation.Load(config).PendingMoveFrom, ignoreCase: true);
-        Assert.Equal(other, DataLocation.Load(config).DataDir, ignoreCase: true);
+            home.WriteConfig(Path.Combine(_root, "새 자리.pclm"), _dataset);
+            transaction.Commit();
 
-        // 다음 앱 실행 맨 앞에서 실제로 옮겨진다.
-        var resolved = DataLocation.Resolve(config);
-        Assert.Equal(DataLocation.DbIn(other), resolved.DbPath, ignoreCase: true);
-        Assert.True(File.Exists(DataLocation.DbIn(other)));
+            Assert.False((await pending).GetProperty("ok").GetBoolean());
+        }
+
+        Assert.Equal(0, holder.ExecuteScalar<int>("SELECT count(*) FROM notice;"));
+        Assert.Equal(0, holder.ExecuteScalar<int>("SELECT count(*) FROM erp_capture;"));
+    }
+
+    /// <summary>옮긴 뒤의 옛 파일(retired)에는 쪽지를 모르는 쓰기도 잠금 안에서 막힌다.</summary>
+    [Fact]
+    public async Task 잠금을_쥔_사이_옮겨진_옛_파일이_되면_줄_선_저장을_거절한다()
+    {
+        var request = Request(Snapshot());
+
+        using var holder = new Database(DbPath).Open();
+        using (var transaction = holder.BeginTransaction(deferred: false))
+        {
+            var pending = Task.Run(() => Call("capture", request));
+            await Task.Delay(500);
+
+            holder.Execute("UPDATE pclm_file SET role = 'retired';", transaction: transaction);
+            transaction.Commit();
+
+            Assert.False((await pending).GetProperty("ok").GetBoolean());
+        }
+
+        Assert.Equal(0, holder.ExecuteScalar<int>("SELECT count(*) FROM notice;"));
     }
 
     [Fact]
@@ -294,9 +358,10 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal("invalid_request", Call("hello", host: new(absent)).GetProperty("error").GetProperty("code").GetString());
         Assert.False(Directory.Exists(Path.GetDirectoryName(absent)));
         using var connection = new Database(DbPath).Open();
-        connection.Execute("UPDATE erp_dataset SET environment = 'unbound';");
-        Assert.Throws<InvalidOperationException>(() => ErpDevelopment.MarkInitialized(new Database(DbPath)));
+        // 작업자료가 아닌 파일에는 쓰지 않는다 — 그 자리에 제출본이 놓였어도 그렇다.
+        connection.Execute("UPDATE pclm_file SET role = 'submission';");
         Assert.Equal("invalid_request", Call("hello").GetProperty("error").GetProperty("code").GetString());
+        connection.Execute("UPDATE pclm_file SET role = 'work';");
         connection.Execute("PRAGMA user_version = 15;");
         Assert.Equal("invalid_request", Call("hello").GetProperty("error").GetProperty("code").GetString());
         Assert.Equal(15, connection.ExecuteScalar<int>("PRAGMA user_version;"));
@@ -373,7 +438,7 @@ public sealed class ErpCaptureTests : IDisposable
         var duplicate = JsonDocument.Parse(sample.Data.GetRawText().Replace("\"002\"", "\"001\"")).RootElement;
         Assert.Throws<InvalidOperationException>(() => Mapping.Map(set, sample.Profile, duplicate));
         // 실제 화면 수집도 건수 선택자 없이 번호만 맞으면 검토로 넘어간다.
-        Assert.Equal(2, new ErpCapture(db).Inspect(sample with { Scope = "live" }).ItemCount);
+        Assert.Equal(2, new ErpCapture(db).Inspect(sample with { Scope = "live", Screen = "01117" }).ItemCount);
     }
 
     [Fact]
@@ -386,7 +451,7 @@ public sealed class ErpCaptureTests : IDisposable
             pointInfo = title is null ? new Dictionary<string, string> { ["ctrtNoOrd"] = "R26TA00000009-00" }
                 : new Dictionary<string, string> { ["ctrtNoOrd"] = "R26TA00000009-00", ["ctrtNm"] = title },
             tables,
-        }), "live");
+        }), "live", Screen: "01579");
         var full = Contract(new Dictionary<string, object> { ["mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis"] = new[] {
             new { ctrtNo = "R26TA00000009", ctrtChgOrd = "00", ctrtItemSqno = 1, ctrtAmt = 1000 } } }, "시험 계약");
         host.Save(full, host.Inspect(full).BaseToken, Guid.NewGuid().ToString(), new());
@@ -401,7 +466,8 @@ public sealed class ErpCaptureTests : IDisposable
     private static CaptureInput SampleRequest(MappingSet mapping, string title) => new(
         "g2b-request-v1", Mapping.Hash(mapping), JsonSerializer.SerializeToElement(new
         {
-            pointInfo = new { ctrtDmndBizNm = title, wrtYmd = "20260927", totlPymtAmt = "0" },
+            // 접수 목록형 화면(메뉴 01117)의 JSON — 받는 화면은 메뉴 경로로 가린다(ADR-037).
+            pointInfo = new { ctrtDmndBizNm = title, wrtYmd = "20260927", totlPymtAmt = "0", depth1 = "01001", depth2 = "01117", depth3 = "" },
             tables = new Dictionary<string, object> { ["mf_wfm_container_gridView"] = new[] {
                 new { ctrtDmndRcptNo = "RC001", ctrtDmndRcptOrd = "000", ctrtDmndRcptItemSqno = "001", ndfsPrcmDmndNo = "REQ1", ctrtDmndQty = "1" },
                 new { ctrtDmndRcptNo = "RC001", ctrtDmndRcptOrd = "000", ctrtDmndRcptItemSqno = "002", ndfsPrcmDmndNo = "REQ1", ctrtDmndQty = "2" },
@@ -442,6 +508,8 @@ public sealed class ErpCaptureTests : IDisposable
                 point.TryGetProperty("bidPbancText", out _) ? "g2b-notice-b-v1" : "g2b-notice-a-v1";
             try {
                 Assert.NotEmpty(Mapping.Map(mapping, profile, document.RootElement).Rows);
+                // 저장까지 가는 것은 허용 목록의 화면뿐이다(ADR-037).
+                if (Screens.ProfileFor(mapping, Screens.Leaf(point))?.Id != profile) continue;
                 var service = new ErpCapture(new Database(DbPath));
                 var input = new CaptureInput(profile, Mapping.Hash(mapping), document.RootElement);
                 var preview = service.Inspect(input);
@@ -494,8 +562,28 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal("RC001", c.QuerySingle<string>("SELECT request_base FROM request_series"));
         Assert.Equal("RC001", c.QuerySingle<string>("SELECT entity_base FROM erp_source WHERE entity_type='request'"));
         Assert.Equal("RC001", c.QuerySingle<string>("SELECT entity_base FROM erp_capture"));
-        Assert.Equal("RC001-000", c.QuerySingle<string>("SELECT 접수번호 FROM v_접수_v1"));
+        Assert.Equal("RC001-000", c.QuerySingle<string>("SELECT 접수번호 FROM v_접수"));
         Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM request WHERE request_base LIKE 'ERP:%'"));
+    }
+
+    /// <summary>
+    /// 공고 화면은 인도조건의 이름 칸(<c>devyCndtNm</c>)을 비워 보내고 코드(<c>devyCndtCd</c>)만
+    /// 채운다. 이름 칸을 읽는 동안 인도조건은 한 번도 담기지 않았다.
+    /// </summary>
+    [Fact]
+    public void 공고_품목의_인도조건은_코드에서_이름을_얻는다()
+    {
+        var db = new Database(DbPath); var host = new ErpCapture(db); var set = Mapping.Defaults();
+        var input = new CaptureInput("g2b-notice-a-v1", Mapping.Hash(set), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new { bidPbancNo = "R26BK00000077", bidPbancOrd = "000", bidPbancNm = "시험 공고" },
+            tables = new Dictionary<string, object> { ["mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List"] = new[] {
+                new { bidClsfNo = "0", bidPbancItemSqno = "1", dtlsPrnmNm = "시험품", devyCndtNm = "", devyCndtCd = "인010004" },
+            } }
+        }), "live", Screen: "01179");
+        host.Save(input, host.Inspect(input).BaseToken, Guid.NewGuid().ToString(), new());
+        using var c = db.Open();
+        Assert.Equal("납품장소 입고도", c.QuerySingle<string>("SELECT delivery_terms FROM notice_item"));
     }
 
     private static byte[] Frame(byte[] payload)

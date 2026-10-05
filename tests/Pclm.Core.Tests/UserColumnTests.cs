@@ -22,8 +22,7 @@ public class UserColumnTests : IDisposable
 
     public UserColumnTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 
@@ -52,13 +51,13 @@ public class UserColumnTests : IDisposable
     {
         _store.AddUserColumn("request", "비고", "text", []);
 
-        Assert.Contains("비고", ViewColumns("v_접수_v1"));
+        Assert.Contains("비고", ViewColumns("v_접수"));
         Assert.Equal(["비고"], _store.UserColumns("request").Select(c => c.FieldName));
     }
 
     /// <summary>
-    /// <c>v_통합_v2</c> 에만 있는 이름과도 부딪히지 않는다. v1 만 보던 시절에는 계약 열에
-    /// <c>요청명</c> 을 세울 수 있었고, 그것이 통합 v2 에서 조용히 <c>요청명:1</c> 이 되었다.
+    /// <c>v_통합</c> 에만 있는 이름과도 부딪히지 않는다. 계약 쪽만 보던 시절에는 계약 열에
+    /// <c>요청명</c> 을 세울 수 있었고, 그것이 통합에서 조용히 <c>요청명:1</c> 이 되었다.
     /// </summary>
     [Theory]
     [InlineData("요청명")]
@@ -77,8 +76,8 @@ public class UserColumnTests : IDisposable
     {
         _store.AddUserColumn("contract", "담당", "text", []);
 
-        Assert.Contains("담당", ViewColumns("v_계약_v1"));
-        Assert.Contains("담당", ViewColumns("v_통합_v1"));
+        Assert.Contains("담당", ViewColumns("v_계약"));
+        Assert.Contains("담당", ViewColumns("v_통합"));
     }
 
     [Fact]
@@ -121,7 +120,7 @@ public class UserColumnTests : IDisposable
         _store.SetUserField(Contract, "메모", "선금 신청함");
 
         _store.RemoveUserColumn("contract", "메모");
-        Assert.DoesNotContain("메모", ViewColumns("v_계약_v1"));
+        Assert.DoesNotContain("메모", ViewColumns("v_계약"));
 
         _store.AddUserColumn("contract", "메모", "text", []);
         Assert.Equal("선금 신청함", Cell("메모"));
@@ -136,7 +135,7 @@ public class UserColumnTests : IDisposable
 
         Assert.Equal(["메모", "진행상태"], _store.UserColumns("contract").Select(c => c.FieldName));
 
-        var view = ViewColumns("v_계약_v1");
+        var view = ViewColumns("v_계약");
         Assert.True(view.IndexOf("메모") < view.IndexOf("진행상태"));
     }
 
@@ -157,7 +156,7 @@ public class UserColumnTests : IDisposable
 
         // 막았으니 뷰는 멀쩡하다 — 다시 지어도 터지지 않아야 한다.
         _database.RefreshViews();
-        Assert.DoesNotContain(name, ViewColumns("v_계약_v1"));
+        Assert.DoesNotContain(name, ViewColumns("v_계약"));
     }
 
     /// <summary>
@@ -270,7 +269,7 @@ public class UserColumnTests : IDisposable
     {
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT \"{column}\" FROM v_계약_v1;";
+        command.CommandText = $"SELECT \"{column}\" FROM v_계약;";
 
         return command.ExecuteScalar()?.ToString() ?? "";
     }

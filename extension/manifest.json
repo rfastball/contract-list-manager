@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Vqq8ybBbhBd/sVOlEGOc2iYacMENJHe6zhn9TJ0rkFxJ3ak2cRG3KDkSUNi65AMzbh57bSSstaNK8TYMry902WqcKGB3pnW37g8VjEJrhbzMJBU5iW9JQWQ0fmR/DuwW+37eKukxaED8wk7EmV6IhQguuFPm9mJIcJJa51qNRdSHaI5cwnjrUn/TOHLYlwg9YKbPhcJOEEzG7GCOtPE0MulZt1JNvKThpnLURD8r9dHs7x1o2PPSvYs4fMXR2C0oFTS34XwM3rOQF3aAl013FxyVnWz8UOYTSFbQG6DJyvpHGiG0Trl8T0hzMMKHKWiLvbABAadL3FWNYNc8gmRbQIDAQAB",
   "name": "계약 목록 — ERP 수집",
-  "version": "0.6.0",
+  "version": "0.9.0",
   "description": "나라장터 접수·공고·계약을 활성 매핑으로 검토하여 계약 목록에 저장합니다.",
   "permissions": [
     "activeTab",

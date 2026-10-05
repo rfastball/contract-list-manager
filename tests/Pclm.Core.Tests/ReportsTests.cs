@@ -23,8 +23,7 @@ public class ReportsTests : IDisposable
 
     public ReportsTests()
     {
-        _database = new Database(_path);
-        _database.Migrate();
+        _database = PclmFile.Create(_path, PclmRole.Work);
         _store = new Store(_database);
     }
 

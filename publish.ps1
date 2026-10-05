@@ -58,7 +58,27 @@ $wwwroot = 'src/Pclm.App/wwwroot/index.html'
 if (-not (Test-Path $wwwroot)) { throw "화면이 나오지 않았습니다: $wwwroot" }
 
 # ── 실행 파일 ─────────────────────────────────────────────────────────────────
-if (Test-Path $Output) { Remove-Item $Output -Recurse -Force }
+# 브라우저가 켜져 있으면 확장의 상시 연결 호스트가 지난 배포물의 exe 를 붙들고 있다(ADR-035) — 지우기·덮어쓰기는
+# 막히고 이름 바꾸기는 된다. 그 exe 를 출력 폴더 **밖**(옆 폴더)으로 비켜 두고 진행한다. 안에 남기면 배포물이
+# 파일 하나가 아니게 된다. 호스트는 제 exe 가 비켜진 것을 보고 떠나고, 확장이 그 자리의 새 exe 로 다시 붙는다.
+# 지난번에 비켜 둔 것은 이제 놓였을 테니 먼저 치운다(아직 쥐고 있으면 다음 번으로).
+$beside = Split-Path -Parent $Output
+if (-not $beside) { $beside = '.' }
+if (Test-Path -LiteralPath $beside) {
+    Get-ChildItem -LiteralPath $beside -File | Where-Object { $_.Name -match '^계약목록\.old(-\d+)?\.exe$' } |
+        ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } catch { } }
+}
+if (Test-Path $Output) {
+    try { Remove-Item $Output -Recurse -Force -ErrorAction Stop }
+    catch {
+        $held = Join-Path $Output '계약목록.exe'
+        if (-not (Test-Path -LiteralPath $held)) { throw }
+        $aside = Join-Path $beside ('계약목록.old-{0}.exe' -f (Get-Date -Format 'yyyyMMddHHmmss'))
+        Move-Item -LiteralPath $held -Destination $aside
+        Write-Host "붙들린 exe 를 비켰습니다: $aside — 브라우저의 확장이 쥐고 있었습니다. 다음 배포 때 치웁니다." -ForegroundColor Yellow
+        Remove-Item $Output -Recurse -Force
+    }
+}
 
 $common = @(
     '-c', 'Release',

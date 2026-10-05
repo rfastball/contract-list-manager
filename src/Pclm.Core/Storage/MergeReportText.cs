@@ -30,9 +30,15 @@ public static class MergeReportText
         if (report.거절한제출본.Count > 0)
         {
             text.AppendLine();
-            text.AppendLine($"  받지 않은 제출본 {report.거절한제출본.Count}개 — 판이 이 프로그램보다 새롭습니다");
-            foreach (var rejected in report.거절한제출본) text.AppendLine($"    {rejected}");
-            text.AppendLine("    새 판으로 지은 자료는 내릴 길이 없습니다. 이 프로그램을 새로 받아 다시 합치세요.");
+            text.AppendLine($"  받지 않은 파일 {report.거절한제출본.Count}개");
+            foreach (var rejected in report.거절한제출본) text.AppendLine($"    {rejected.파일} — {rejected.까닭}");
+
+            // 할 일이 있는 까닭만 풀어 적는다. 취합본·백업이 섞인 것은 고를 때 빼면 되는 일이라 말을 보태지 않는다.
+            var 까닭들 = report.거절한제출본.Select(r => r.까닭).ToHashSet();
+            if (까닭들.Contains(Merger.새판))
+                text.AppendLine("    새 판으로 지은 자료는 내릴 길이 없습니다. 이 프로그램을 새로 받아 다시 합치세요.");
+            if (까닭들.Contains(Merger.옛시험판))
+                text.AppendLine("    정식판 이전의 옛 시험판 자료는 0.7.0 으로 한 번 열어 올린 뒤 다시 제출받으세요.");
         }
 
         if (report.겹친것.Count > 0)

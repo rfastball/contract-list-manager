@@ -137,9 +137,9 @@ describe("LinkPanel", () => {
     expect(계약일?.className).toBe("unknown");
   });
 
-  it("자동으로 연결하지 않은 까닭을 보여 준다", () => {
+  it("후보마다 확인할 점을 보여 준다", () => {
     draw();
-    expect(screen.getAllByText(/자동으로 연결하지 않았습니다\. 같은 이름 공고가 2건입니다/))
+    expect(screen.getAllByText(/확인할 점: 같은 이름 공고가 2건입니다/))
       .toHaveLength(2);
   });
 

@@ -72,12 +72,12 @@ public sealed class Status(Database database, IReadOnlyList<Metric>? metrics = n
             """, null),
         new("쌓인 것", "계약", "SELECT COUNT(DISTINCT contract_base) FROM contract;", null),
 
-        // 단계 — v_계획_v1 이 낸 것을 그대로 센다. 세는 곳과 보는 곳이 같아야
+        // 단계 — v_계획 이 낸 것을 그대로 센다. 세는 곳과 보는 곳이 같아야
         // 「17건」을 눌러 열었을 때 17줄이 선다.
-        new("단계", "미착수", "SELECT COUNT(*) FROM v_계획_v1 WHERE 단계 = '미착수';", "단계=미착수"),
-        new("단계", "접수", "SELECT COUNT(*) FROM v_계획_v1 WHERE 단계 = '접수';", "단계=접수"),
-        new("단계", "공고", "SELECT COUNT(*) FROM v_계획_v1 WHERE 단계 = '공고';", "단계=공고"),
-        new("단계", "계약", "SELECT COUNT(*) FROM v_계획_v1 WHERE 단계 = '계약';", "단계=계약"),
+        new("단계", "미착수", "SELECT COUNT(*) FROM v_계획 WHERE 단계 = '미착수';", "단계=미착수"),
+        new("단계", "접수", "SELECT COUNT(*) FROM v_계획 WHERE 단계 = '접수';", "단계=접수"),
+        new("단계", "공고", "SELECT COUNT(*) FROM v_계획 WHERE 단계 = '공고';", "단계=공고"),
+        new("단계", "계약", "SELECT COUNT(*) FROM v_계획 WHERE 단계 = '계약';", "단계=계약"),
     ];
 
     private readonly Database _database = database;

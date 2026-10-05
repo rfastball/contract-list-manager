@@ -30,8 +30,8 @@ public sealed class Exporter(Database database)
         using var connection = _database.OpenReadOnly();
         using var workbook = new XLWorkbook();
 
-        // Names 가 아니라 Exported 를 돈다. 통합을 v1·v2 두 장으로 내면 받는 쪽이 어느 것을
-        // 볼지 헷갈린다 — 파일에는 v2 만 싣는다.
+        // Names 가 아니라 Exported 를 돈다. 차수를 편 뷰까지 함께 내면 같은 건이 여러 장에
+        // 되풀이되어 받는 쪽이 어느 것을 셀지 헷갈린다.
         foreach (var view in Views.Exported)
             WriteSheet(workbook, connection, view);
 

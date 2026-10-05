@@ -64,9 +64,11 @@
     fixture.querySelector('#mf_wfm_container_mainWframe').append(input);
   });
   // 실제 origin이나 Chrome 권한을 변경하지 않는다. 기존 단위 테스트와 같은 함수 인자 대역이다.
-  const fakeLocation = { origin: 'https://www.g2b.go.kr', pathname: '/preview' }, fakeWindow = {};
+  // 화면 번호(ADR-037)는 나라장터의 함수 대역이 입찰공고 상세(01179)라고 답한다 — 수집은 허용 목록의 화면만 받는다.
+  const fakeLocation = { origin: 'https://www.g2b.go.kr', pathname: '/preview' }, fakeWindow = { com: { gfnGetMenuNo: () => '01179' } };
   fakeWindow.top = fakeWindow;
-  const profiles = [{ id: 'preview-notice', identitySource: 'pointInfo', baseField: 'reference', seqField: 'reference', tables: [],
+  // 수집하는 화면은 프로필이 단 screen 이다 — 같은 프로필이 그 화면의 고유키를 든다.
+  const profiles = [{ id: 'preview-notice', screen: { code: '01179', name: '입찰공고 상세' }, identitySource: 'pointInfo', baseField: 'reference', seqField: 'reference', tables: [],
     fields: [{ source: 'title' }], selectors: { reference: '#preview-field-0', title: '#preview-title' } }];
   const read = () => new Function('document', 'window', 'location', 'profiles', captureSource + ';return pclmReadMapped(profiles);')(sourceDoc, fakeWindow, fakeLocation, profiles);
   const exportPage = () => new Function('document', 'window', 'location', exportSource + ';return pclmExportPage();')(sourceDoc, fakeWindow, fakeLocation);
@@ -80,6 +82,9 @@
       sendMessage: message => new Promise(resolve => listeners.forEach(fn => fn(message, mode === 'popup'
         ? { id: 'preview', url: chrome.runtime.getURL('popup.html') }
         : { id: 'preview', url: fakeLocation.origin + '/', frameId: 0, tab: { id: 1 }, documentId: 'preview' }, resolve))),
+      // 상시 연결 포트는 미리보기에서 열린 채로 둔다 — 끊김을 흉내 낼 일이 없다.
+      connectNative: () => ({ postMessage() {}, disconnect() {}, onMessage: { addListener() {} }, onDisconnect: { addListener() {} } }),
+      onStartup: { addListener() {} },
       openOptionsPage: () => { document.getElementById('instructions').textContent = '설정 창 열기 요청 (미리보기에서는 열지 않음)'; },
       sendNativeMessage: async (_host, request) => {
         await new Promise(resolve => setTimeout(resolve, 180));

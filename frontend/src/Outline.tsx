@@ -8,6 +8,7 @@ import { useFindShortcut } from "./useFindShortcut";
 
 type Props = {
   tree: Tree;
+  /** 자료가 하나도 없을 때 가는 자리 — 자료가 들어오는 나라장터 화면이다. */
   onSetup?: () => void;
   onOpen?: (kind: "접수" | "공고" | "계약", number: string, revisions: boolean) => void;
   onLink?: (kind: "접수" | "계약", key: string) => void;
@@ -227,9 +228,9 @@ export function Outline({ tree, onSetup, onOpen, onLink }: Props) {
             <h2>{tree.chains.length === 0 ? "등록된 조달 자료가 없습니다" : "검색 결과가 없습니다"}</h2>
             <p>{tree.chains.length > 0
               ? "다른 검색어로 찾아보세요."
-              : "브라우저 확장으로 나라장터 화면을 수집하거나, 설정 → 고급에서 ERP JSON 을 가져오세요."}</p>
+              : "왼쪽 메뉴의 나라장터에서 브라우저 확장을 설치하거나 JSON 파일을 가져오세요."}</p>
             {tree.chains.length === 0
-              ? onSetup && <button className="action primary" onClick={onSetup}>설정 열기</button>
+              ? onSetup && <button className="action primary" onClick={onSetup}>나라장터 열기</button>
               : <button className="action" onClick={() => { setQuery(""); search.current?.focus(); }}>검색 지우기</button>}
           </div>
         ) : (

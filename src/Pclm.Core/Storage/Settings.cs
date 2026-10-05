@@ -4,7 +4,7 @@ namespace Pclm.Core.Storage;
 
 /// <summary>
 /// DB 안에 적어 두는 설정. 자료를 어디서 가져올지는 여기 없다 — 자료는 확장·ERP JSON·계획
-/// 엑셀로 들어오고(ADR-028), 쌓이는 자리는 DB 밖 <c>config.json</c> 이 적는다(<see cref="DataLocation"/>).
+/// 엑셀로 들어오고(ADR-028), 어느 작업자료를 열지는 DB 밖 홈의 <c>config.json</c> 이 적는다(<see cref="Home"/>).
 /// </summary>
 /// <param name="SubmitterName">
 /// 제출본 파일 이름에 쓸 내 이름. <b>쓰임은 그것뿐이다.</b>
@@ -35,7 +35,7 @@ public sealed record AppSettings(string SubmitterName = "", string PlanPath = ""
 /// 설정을 읽고 쓴다.
 ///
 /// <para><b>설정은 DB 안에 둔다.</b> 따로 파일로 두면 자료와 설정이 각자 옮겨 다니다 어긋난다 —
-/// <c>--db</c> 로 다른 자료를 열면 그쪽의 계획 엑셀이 따라오는 것이 맞다.</para>
+/// 다른 작업자료를 열면 그쪽의 계획 엑셀이 따라오는 것이 맞다.</para>
 /// </summary>
 public sealed class SettingsStore(Database database)
 {

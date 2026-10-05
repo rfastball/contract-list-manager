@@ -12,20 +12,23 @@
     -Dev 가 이 스크립트가 있는 까닭이다. `npm run dev` 는 브라우저에 가짜 다리(mock.ts)를
     물려 화면만 손보게 해 주는데, 그러면 **진짜 다리와 어긋난 것은 드러나지 않는다**.
     -Dev 는 창(WebView2)이 개발 서버를 열게 해서 화면은 고칠 때마다 바뀌고 다리와 DB 는
-    진짜를 쓴다. 어긋남이 여기서 잡힌다.
+    진짜를 쓴다. 어긋남이 여기서 잡힌다. 다만 홈은 artifacts/dev-home 이다 — 진짜 DB 이되
+    실제 자료는 아니다. 실제 홈에서 띄우려면 -HomeDir 로 짚는다.
 
     디버그 빌드에서는 개발자 도구가 열린다(F12). 배포본에는 그 문이 아예 없다 —
     깃발이 아니라 빌드 설정에 매달아 두었다(MainWindow.xaml.cs).
 
-.PARAMETER DbPath
-    다른 자료를 연다. 짚지 않으면 창을 그냥 열었을 때와 같은 자리다 —
-    **실제 자료다.** 시험 삼아 넣고 지울 것이라면 ./run.ps1 -DbPath artifacts/debug.db 처럼 짚는다.
+.PARAMETER HomeDir
+    다른 홈을 연다(--home). 홈은 작업자료를 가리키는 쪽지·백업·WebView2 프로필이 사는 폴더다.
+    -Dev 는 짚지 않아도 artifacts/dev-home 을 쓴다 — 화면을 고치며 넣고 지우는 것이 실제 자료에
+    닿지 않게. 그 밖에는 짚지 않으면 창을 그냥 열었을 때와 같은 홈이다 — **실제 자료다.**
+    처음 여는 홈이면 그 안에 빈 작업자료(계약자료.pclm)가 선다.
 
-    (-Db 가 아닌 까닭: CmdletBinding 이 붙여 주는 -Debug 의 별칭이 이미 Db 다.)
+    (-Home 이 아닌 까닭: $Home 은 PowerShell 이 이미 쥔 자동 변수다.)
 
 .EXAMPLE
     ./run.ps1 -Dev
-    ./run.ps1 -DbPath artifacts/debug.db
+    ./run.ps1 -HomeDir artifacts/dev-home
     ./run.ps1 -Cli status
 #>
 # PositionalBinding 을 끈다 — 켜 두면 "-Cli status" 의 status 가 자리 인자로 읽혀
@@ -34,7 +37,7 @@
 param(
     [switch]$Dev,
     [switch]$Cli,
-    [string]$DbPath,
+    [string]$HomeDir,
     [int]$Port = 5173,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Rest
@@ -54,27 +57,76 @@ function Need($command, $hint) {
 
 function Step($message) { Write-Host "== $message" -ForegroundColor Cyan }
 
+# 확장 호스트(업무·개발)가 이 저장소의 창 빌드 출력을 가리키면, 브라우저가 켜진 동안 상시 연결 호스트가 그 dll 을
+# 붙들어 빌드가 덮어쓰지 못한다(ADR-035). 등록된 경로를 보고 그 폴더에서 **붙들린 것만** 같은 자리에서
+# <이름>.old-<시각><확장자> 로 비킨다 — 이름 바꾸기는 붙들린 채로도 된다. 호스트는 제 어셈블리가 비켜진 것을 보고
+# 떠나고, 확장이 새 빌드로 다시 붙는다. 빌드가 다시 만드는 것(dll 과 계약목록.exe)만 비킨다: 등록 스크립트가 만든
+# 개발 호스트 사본(pclm-erp-dev.exe)은 빌드가 되살리지 않으므로 건드리지 않는다.
+function Move-HeldOutputs {
+    $bin = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'src/Pclm.App/bin'))
+    $folders = @()
+    foreach ($name in 'kr.rfastball.pclm.erp', 'kr.rfastball.pclm.erp.dev') {
+        foreach ($browser in 'Google\Chrome', 'Microsoft\Edge') {
+            $key = Get-Item -LiteralPath "HKCU:\Software\$browser\NativeMessagingHosts\$name" -ErrorAction SilentlyContinue
+            if (-not $key) { continue }
+            $manifest = $key.GetValue('')
+            if (-not $manifest -or -not (Test-Path -LiteralPath $manifest)) { continue }
+            try { $exe = (Get-Content -Raw -Encoding UTF8 -LiteralPath $manifest | ConvertFrom-Json).path } catch { continue }
+            if (-not $exe) { continue }
+            $folder = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($exe))
+            if ($folder.StartsWith($bin + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+                $folders += $folder
+            }
+        }
+    }
+    foreach ($folder in ($folders | Sort-Object -Unique)) { Move-HeldFiles $folder }
+}
+
+# 한 폴더에서: 지난번에 비켜 둔 것을 치우고(아직 쥐고 있으면 남긴다), 지금 붙들린 빌드 출력을 비킨다.
+function Move-HeldFiles($folder) {
+    if (-not (Test-Path -LiteralPath $folder)) { return }
+    $stamp = Get-Date -Format 'yyyyMMddHHmmss'
+    Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -match '\.old-\d+\.(dll|exe)$' } |
+        ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } catch { } }
+    Get-ChildItem -LiteralPath $folder -File |
+        Where-Object { $_.Extension -eq '.dll' -or $_.Name -eq '계약목록.exe' } |
+        ForEach-Object {
+            try { [System.IO.File]::Open($_.FullName, 'Open', 'ReadWrite', 'None').Dispose(); return } catch { }
+            $aside = Join-Path $folder ('{0}.old-{1}{2}' -f $_.BaseName, $stamp, $_.Extension)
+            $file = $_.Name
+            try {
+                Move-Item -LiteralPath $_.FullName -Destination $aside -ErrorAction Stop
+                Write-Host "붙들린 출력 비킴  $file → $(Split-Path -Leaf $aside)" -ForegroundColor DarkGray
+            } catch {
+                Write-Warning "$file 을 비키지 못했습니다: $($_.Exception.Message) — 브라우저를 닫고 다시 하세요."
+            }
+        }
+}
+
 Need dotnet '.NET 8 SDK 를 설치해 주세요.'
 
-# 어느 자료를 여는지 늘 적는다. 디버그로 띄운 창이 조용히 실제 자료를 건드리는 일이
-# 없게 — 정본은 Pclm.Core 의 Database.DefaultPath 다.
-$dbArgs = @()
-if ($DbPath) {
+# 어느 홈을 여는지 늘 적는다. 디버그로 띄운 창이 조용히 실제 자료를 건드리는 일이
+# 없게 — 정본은 Pclm.Core 의 Home.Default 다. 홈의 config.json 이 작업자료를 가리킨다.
+if ($Dev -and -not $HomeDir) { $HomeDir = 'artifacts/dev-home' }
+$homeArgs = @()
+if ($HomeDir) {
     # Path.GetFullPath(경로, 기준) 은 .NET Framework 에 없다 — 5.1 에서는 여기서 터진다.
-    $rooted = if ([System.IO.Path]::IsPathRooted($DbPath)) { $DbPath }
-              else { Join-Path (Get-Location).Path $DbPath }
+    # 창과 명령줄의 작업 폴더가 달라도 같은 홈을 보게 온전한 경로로 넘긴다.
+    $rooted = if ([System.IO.Path]::IsPathRooted($HomeDir)) { $HomeDir }
+              else { Join-Path (Get-Location).Path $HomeDir }
+    $rooted = [System.IO.Path]::GetFullPath($rooted)
 
-    $dbArgs = @('--db', $DbPath)
-    Write-Host "자료  $([System.IO.Path]::GetFullPath($rooted))" -ForegroundColor Yellow
+    $homeArgs = @('--home', $rooted)
+    Write-Host "홈    $rooted" -ForegroundColor Yellow
 } else {
-    Write-Host "자료  $(Join-Path $env:LOCALAPPDATA 'Pclm/pclm.db')  (실제 자료)" -ForegroundColor Yellow
+    Write-Host "홈    $(Join-Path $env:LOCALAPPDATA 'Pclm')  (실제 자료)" -ForegroundColor Yellow
 }
 
 # ── 명령줄 ────────────────────────────────────────────────────────────────────
 if ($Cli) {
     if (-not $Rest) { $Rest = @('help') }
     Step "명령줄 (pclm $($Rest -join ' '))"
-    dotnet run --project src/Pclm.Cli -- @Rest @dbArgs
+    dotnet run --project src/Pclm.Cli -- @Rest @homeArgs
     exit $LASTEXITCODE
 }
 
@@ -113,7 +165,8 @@ if (-not $Dev) {
     }
 
     Step '창 띄우기 (Debug · 개발자 도구 F12)'
-    dotnet run --project src/Pclm.App -- @dbArgs
+    Move-HeldOutputs
+    dotnet run --project src/Pclm.App -- @homeArgs
     exit $LASTEXITCODE
 }
 
@@ -148,7 +201,8 @@ try {
     if (-not $ready) { throw "개발 서버가 열리지 않았습니다: $origin" }
 
     Step '창 띄우기 (Debug · 화면은 개발 서버에서 · 다리와 DB 는 진짜)'
-    dotnet run --project src/Pclm.App -- --ui $origin @dbArgs
+    Move-HeldOutputs
+    dotnet run --project src/Pclm.App -- --ui $origin @homeArgs
     $code = $LASTEXITCODE
 } finally {
     if ($vite -and -not $vite.HasExited) {
