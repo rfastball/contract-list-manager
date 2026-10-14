@@ -42,7 +42,8 @@
           "transform": "code",
           "codes": {
             "계030001": "일반경쟁",
-            "계030003": "제한경쟁"
+            "계030003": "제한경쟁",
+            "계030004": "수의계약"
           }
         },
         {
@@ -314,7 +315,8 @@
           "transform": "code",
           "codes": {
             "계030001": "일반경쟁",
-            "계030003": "제한경쟁"
+            "계030003": "제한경쟁",
+            "계030004": "수의계약"
           }
         },
         {
@@ -574,6 +576,11 @@
           }
         },
         {
+          "source": "pbancPstgDt",
+          "target": "posted_at",
+          "transform": "datetime"
+        },
+        {
           "source": "scsbdMthdCd",
           "target": "award_method",
           "transform": "code",
@@ -593,7 +600,8 @@
           "transform": "code",
           "codes": {
             "계030001": "일반경쟁",
-            "계030003": "제한경쟁"
+            "계030003": "제한경쟁",
+            "계030004": "수의계약"
           }
         },
         {
@@ -918,6 +926,10 @@
     {
       "id": "g2b-notice-b-v1",
       "entityType": "notice",
+      "screen": {
+        "code": "01196",
+        "name": "입찰공고상세조회(통합)"
+      },
       "identitySource": "pointInfo",
       "baseField": "bidPbancText",
       "seqField": "bidPbancText",
@@ -1283,7 +1295,8 @@
           "transform": "code",
           "codes": {
             "계030001": "일반경쟁",
-            "계030003": "제한경쟁"
+            "계030003": "제한경쟁",
+            "계030004": "수의계약"
           }
         },
         {
@@ -1512,6 +1525,325 @@
         },
         {
           "source": "mf_wfm_container_grdEtpsLst",
+          "target": "erp_partner",
+          "keys": [
+            "ctentUntyGrpNo"
+          ],
+          "fields": [
+            {
+              "source": "ctentUntyGrpNo",
+              "target": "source_id",
+              "transform": "text"
+            },
+            {
+              "source": "ctentUntyGrpNm",
+              "target": "name",
+              "transform": "text"
+            },
+            {
+              "source": "bzmnRegNo",
+              "target": "business_number",
+              "transform": "text"
+            },
+            {
+              "source": "rprsvNm",
+              "target": "representative",
+              "transform": "text"
+            },
+            {
+              "source": "etpsAddr",
+              "target": "address",
+              "transform": "text"
+            },
+            {
+              "source": "etpsTlphNo",
+              "target": "phone",
+              "transform": "text"
+            },
+            {
+              "source": "etpsFaxNo",
+              "target": "fax",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtSharRat",
+              "target": "share_rate",
+              "transform": "decimal"
+            },
+            {
+              "source": "ctrtSharAmt",
+              "target": "share_amount",
+              "transform": "decimal"
+            }
+          ],
+          "required": false
+        },
+        {
+          "source": "*_grdFile",
+          "target": "contract_attachment",
+          "keys": [
+            "atchFileSqno"
+          ],
+          "fields": [
+            {
+              "source": "atchFileDscr",
+              "target": "document_type",
+              "transform": "text"
+            },
+            {
+              "source": "orgnlAtchFileNm",
+              "target": "file_name",
+              "transform": "text"
+            }
+          ],
+          "required": false
+        }
+      ],
+      "heading": null,
+      "selectors": {}
+    },
+    {
+      "id": "g2b-contract-change-v1",
+      "entityType": "contract",
+      "screen": {
+        "code": "01608",
+        "name": "물품·일반용역 변경계약서 작성"
+      },
+      "identitySource": "mf_wfm_container_grdCtrtLis",
+      "baseField": "ctrtNo",
+      "seqField": "ctrtChgOrd",
+      "fields": [
+        {
+          "source": "ctrtNm",
+          "target": "title",
+          "transform": "text"
+        },
+        {
+          "source": "frstCtrtDt",
+          "target": "first_contracted_on",
+          "transform": "date"
+        },
+        {
+          "source": "ctrtMthdNm",
+          "target": "contract_method",
+          "transform": "text"
+        },
+        {
+          "source": "atcsNm",
+          "target": "law_clause",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtTyCd",
+          "target": "contract_kind",
+          "transform": "code",
+          "codes": {
+            "계120001": "총액계약",
+            "계120002": "일반단가계약"
+          }
+        },
+        {
+          "source": "ctrtChrsSeCd",
+          "target": "contract_character",
+          "transform": "code"
+        },
+        {
+          "source": "ctrtFee",
+          "target": "fee",
+          "transform": "decimal"
+        },
+        {
+          "source": "lqdmRat",
+          "target": "delay_penalty_rate",
+          "transform": "decimal"
+        },
+        {
+          "source": "dcmtGtnrt",
+          "target": "warranty_bond_rate",
+          "transform": "decimal"
+        },
+        {
+          "source": "ctrtPrdCn",
+          "target": "contract_period",
+          "transform": "text"
+        },
+        {
+          "source": "prttnDlvgdsPsbltyYn",
+          "target": "partial_delivery_allowed",
+          "transform": "boolean"
+        },
+        {
+          "source": "drpmSbpySeCd",
+          "target": "payment_method",
+          "transform": "code",
+          "codes": {
+            "직130001": "직불",
+            "직130002": "대지급"
+          }
+        },
+        {
+          "source": "dmstUntyGrpNm",
+          "target": "demand_agency",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtGtnrt",
+          "target": "guarantee_rate",
+          "transform": "decimal"
+        },
+        {
+          "source": "ctrtGrnteAmt",
+          "target": "guarantee_amount",
+          "transform": "decimal"
+        },
+        {
+          "source": "ctwtSbmsnMthdCd",
+          "target": "guarantee_method",
+          "transform": "code"
+        },
+        {
+          "source": "advcPinfrmYn",
+          "target": "advance_notice",
+          "transform": "boolean"
+        },
+        {
+          "source": "advcPinfrmPsbltyRat",
+          "target": "advance_notice_rate",
+          "transform": "decimal"
+        },
+        {
+          "source": "fctrRspbNbyr",
+          "target": "warranty_years",
+          "transform": "integer"
+        },
+        {
+          "source": "fctrRspbMtnb",
+          "target": "warranty_months",
+          "transform": "integer"
+        },
+        {
+          "source": "bidPbancNo",
+          "target": "ref_notice_base",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtDvofNm",
+          "target": "contract_officer",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtSlcfNm",
+          "target": "finance_officer",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtDpdrNm",
+          "target": "expenditure_officer",
+          "transform": "text"
+        },
+        {
+          "source": "ctrtPicNm",
+          "target": "staff",
+          "transform": "text"
+        }
+      ],
+      "tables": [
+        {
+          "source": "mf_wfm_container_grdCtrtLis",
+          "target": "contract_item",
+          "keys": [
+            "ctrtNo",
+            "ctrtChgOrd",
+            "ctrtItemSqno"
+          ],
+          "fields": [
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemIdnfNo",
+              "target": "item_id_number",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtItemNm",
+              "target": "item_name",
+              "transform": "text"
+            },
+            {
+              "source": "itemSpecVal",
+              "target": "specification",
+              "transform": "text"
+            },
+            {
+              "source": "spplRgnNm",
+              "target": "region",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtUntVal",
+              "target": "unit",
+              "transform": "text"
+            },
+            {
+              "source": "devyCndtCd",
+              "target": "delivery_terms",
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도"
+              }
+            },
+            {
+              "source": "ctrtQty",
+              "target": "quantity",
+              "transform": "integer"
+            },
+            {
+              "source": "ctrtUprc",
+              "target": "unit_price",
+              "transform": "decimal"
+            },
+            {
+              "source": "ctrtAmt",
+              "target": "amount",
+              "transform": "decimal"
+            },
+            {
+              "source": "dmstUntyGrpNm",
+              "target": "demand_agency",
+              "transform": "text"
+            },
+            {
+              "source": "dlvgdsTermYmd",
+              "target": "delivery_due",
+              "transform": "date"
+            },
+            {
+              "source": "ctrtDmndRcptNo",
+              "target": "ref_request_base",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtDmndRcptOrd",
+              "target": "ref_request_seq",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtItemSqno",
+              "target": "source_item",
+              "transform": "text"
+            }
+          ],
+          "required": true
+        },
+        {
+          "source": "mf_wfm_container_grdCrntEtpsLst",
           "target": "erp_partner",
           "keys": [
             "ctentUntyGrpNo"

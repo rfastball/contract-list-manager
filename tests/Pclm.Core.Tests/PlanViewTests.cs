@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
 using Pclm.Core.Storage;
@@ -301,13 +301,13 @@ public class PlanViewTests : IDisposable
             .Select(row => row.ToDictionary(c => c.Key, c => c.Value?.ToString() ?? ""))];
     }
 
-    private void Link(string contractBase) => new Linker(_database).Confirm(
+    private void Link(string contractBase) => ReferenceFixture.Contract(_database,
         new EntityRef("contract", contractBase, "00"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
-    private void LinkRequest() => new RequestLinker(_database).Confirm(
+    private void LinkRequest() => ReferenceFixture.Request(_database,
         new EntityRef("request", "MPKPLA26910286", "000"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
     private static RequestRecord Request(string seq, string @base = "MPKPLA26910286") => new()
     {

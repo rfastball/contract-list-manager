@@ -100,7 +100,7 @@ public sealed class Merger
     // 수집 영수증의 datasetId·충돌 토큰은 원래 DB에서만 유효하다.
     // 취합본은 새 datasetId를 가지며 남의 영수증으로 저장 성공을 응답하지 않는다.
     // 파일 이름표(pclm_file)는 취합본이 스스로 짓는다 — 역할도 신원도 제출본의 것이 아니다.
-    public static IReadOnlyList<string> Untouched => ["app_setting", "notice_group", "pclm_file", "erp_capture", "erp_mapping"];
+    public static IReadOnlyList<string> Untouched => ["app_setting", "notice_group", "project_link", "request_link", "request_item_link", "pclm_file", "erp_capture", "erp_mapping"];
 
     /// <param name="부모">딸린 줄일 때, 따라갈 표. 부모 키는 이 표 키의 <b>앞 두 열</b>이다.</param>
     private sealed record 표(string 이름, string[] 키, string? 시각, 규칙 규칙, string 종류, string? 부모 = null);
@@ -151,13 +151,8 @@ public sealed class Merger
         new("field_override", ["entity_type", "base", "seq", "column_name"], "updated_at", 규칙.늦은쪽, "덮개"),
 
         new("user_column", ["entity_type", "field_name"], null, 규칙.정의, "사용자 열"),
-
-        new("project_link", ["contract_base"], "confirmed_at", 규칙.늦은쪽, "계약 링크"),
-        new("request_link", ["request_base"], "confirmed_at", 규칙.늦은쪽, "접수 링크"),
-        new("request_item_link", ["request_base", "request_seq", "line_no"], null, 규칙.합집합, "품목 짝"),
-
-        new("link_rejection", ["contract_base", "notice_group"], "rejected_at", 규칙.늦은쪽, "계약 물리침"),
-        new("request_link_rejection", ["request_base", "notice_group"], "rejected_at", 규칙.늦은쪽, "접수 물리침"),
+        // 맞춤 뷰도 정의라 같은 규칙이다 — 열쇠는 이름(docs/user-views.md §4).
+        new("user_view", ["name"], null, 규칙.정의, "맞춤 뷰"),
     ];
 
     /// <summary>제출본에서 읽은 줄 하나. 어느 제출본에서 왔는지를 값과 함께 든다.</summary>
@@ -272,6 +267,14 @@ public sealed class Merger
             foreach (var t in 표들) Collect(connection, t, columns[t.이름], index, pools[t.이름]);
         }
 
+        // 조용히 빈 취합본을 만들지 않는다 — 받는 사람은 그것을 취합 결과로 안다. 폴더에 백업·지난 취합본만 있으면
+        // 모두 거절되는데, 그대로 지으면 같은 날의 취합본을 빈 것으로 덮는다. 결과물에 닿기 전에 멈추고 까닭을 든다.
+        if (제출자.Count == 0)
+            throw new InvalidOperationException(거절.Count == 0
+                ? "합칠 수 있는 제출본이 없습니다 — 넣을 파일이 없습니다."
+                : $"합칠 수 있는 제출본이 없습니다 — 파일 {거절.Count}개를 모두 넣지 않았습니다: " +
+                  string.Join(", ", 거절.Select(r => $"{r.파일}({r.까닭})")));
+
         var 겹침 = new List<MergeConflict>();
         var 임자 = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
         var 실린것 = new Dictionary<string, List<후보>>(StringComparer.Ordinal);
@@ -279,8 +282,8 @@ public sealed class Merger
         foreach (var t in 표들)
             실린것[t.이름] = Resolve(t, columns[t.이름], pools[t.이름], 제출자, 임자, 겹침);
 
-        // request_link.notice_group 은 UNIQUE 다. PK 충돌과 별개로 여기서 한 번 더 고른다.
-        실린것["request_link"] = OnePerNotice(columns["request_link"], 실린것["request_link"], 제출자, 겹침);
+        // user_view.id 는 PRIMARY KEY 다. 한 사람이 이름을 바꾼 뷰가 다른 제출본에 옛 이름으로 있으면 같은 식별자가 둘이 된다.
+        실린것["user_view"] = OneIdPerView(columns["user_view"], 실린것["user_view"]);
 
         Write(database, columns, 실린것);
 
@@ -459,11 +462,11 @@ public sealed class Merger
 
         if (t.규칙 == 규칙.정의)
         {
-            var kind = Array.IndexOf(columns, "kind");
-            var options = Array.IndexOf(columns, "options");
+            // 뜻은 차례(sort_order)와 불투명한 식별자(user_view.id)를 뺀 나머지다 — 사용자 열이면 kind·options,
+            // 맞춤 뷰면 definition.
+            var meaning = Enumerable.Range(0, columns.Length).Where(i => columns[i] is not ("sort_order" or "id")).ToArray();
 
-            return [.. losers.Where(c =>
-                Text(c.값[kind]) != Text(winner.값[kind]) || Text(c.값[options]) != Text(winner.값[options]))];
+            return [.. losers.Where(c => meaning.Any(i => Text(c.값[i]) != Text(winner.값[i])))];
         }
 
         var 시각열 = t.시각 is null ? -1 : Array.IndexOf(columns, t.시각);
@@ -480,42 +483,22 @@ public sealed class Merger
     }
 
     /// <summary>
-    /// <c>request_link.notice_group</c> 은 UNIQUE 다.
-    ///
-    /// <para>두 사람이 <b>같은 공고건에 다른 접수</b>를 이어 두었으면 그대로 넣을 때 UNIQUE 위반으로
-    /// 취합이 터진다. 인수인계 직후에는 그것이 정상이라 멈출 자리가 아니다 — 늦게 이은 쪽만
-    /// 싣고 겹친 것으로 알린다. 접수:건을 1:1 로 못 박은 스키마의 뜻(ADR-021)은 그대로다.</para>
-    ///
-    /// <para><b>여기서 고르는 것과 <see cref="NoticeGroups.Rebuild"/> 가 미는 것은 다른 자리다.</b>
-    /// 이쪽은 제출본들이 <b>이미 같은 이름으로</b> 이어 둔 것을 고르고, 저쪽은 취합 뒤 건이
-    /// 합쳐지며 <b>비로소</b> 한 건이 된 둘을 민다 — 여기서 걸리지 않은 짝이 저기서 걸린다.</para>
+    /// 이름이 다른 맞춤 뷰 둘이 같은 식별자를 들고 오면(한 사람이 이름을 바꾼 뒤 다른 사람의 제출본에 옛 이름이 남은 것)
+    /// 먼저 온 제출본의 것이 식별자를 지키고 나머지는 새 식별자를 받는다 — 둘 다 싣되 PRIMARY KEY 위반으로 취합이 터지지 않게.
     /// </summary>
-    private static List<후보> OnePerNotice(
-        string[] columns, List<후보> rows, IReadOnlyList<string> 제출자, List<MergeConflict> 겹침)
+    private static List<후보> OneIdPerView(string[] columns, List<후보> rows)
     {
-        // 링크의 끝점은 건이다(스키마 V15). 옛 이름을 그대로 두면 −1 이 되어 취합이
-        // 인덱스 예외로 죽는다 — 열 이름을 문자열로 짚는 자리라 컴파일러가 잡아 주지 않는다.
-        var noticeAt = Array.IndexOf(columns, "notice_group");
+        var idAt = Array.IndexOf(columns, "id");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var kept = new List<후보>(rows.Count);
-
-        foreach (var group in rows.GroupBy(r => Text(r.값[noticeAt])).OrderBy(g => g.Key, StringComparer.Ordinal))
+        foreach (var row in rows.OrderBy(r => r.제출본))
         {
-            var winner = group
-                .OrderByDescending(c => c.시각, StringComparer.Ordinal)
-                .ThenBy(c => c.제출본)
-                .First();
-
-            kept.Add(winner);
-
-            var losers = group.Where(c => !ReferenceEquals(c, winner)).OrderBy(c => c.제출본).ToList();
-            if (losers.Count == 0) continue;
-
-            겹침.Add(new MergeConflict(
-                "공고 하나에 접수 둘", group.Key,
-                new MergeSide(제출자[winner.제출본], winner.시각),
-                [.. losers.Select(c => new MergeSide(제출자[c.제출본], c.시각))]));
+            if (seen.Add(Text(row.값[idAt]))) { kept.Add(row); continue; }
+            var values = (object?[])row.값.Clone();
+            values[idAt] = Guid.NewGuid().ToString("N");
+            seen.Add(Text(values[idAt]));
+            kept.Add(row with { 값 = values });
         }
-
         return kept;
     }
 
@@ -569,9 +552,9 @@ public sealed class Merger
         Execute(connection, "PRAGMA foreign_keys = ON;");
 
         // 취합본의 건을 정하는 <b>유일한 자리</b>다. notice_group 은 나르지 않으므로 여기까지
-        // 취합본에는 건이 하나도 없고, 계열과 링크가 아직 없는 이름을 가리키고 있다 —
+        // 취합본에는 건이 하나도 없고, 계열이 아직 없는 이름을 가리키고 있다 —
         // 참조 검사보다 앞서 지어야 그 검사를 지난다.
-        NoticeGroups.Rebuild(connection, transaction: null);
+        Pclm.Core.Erp.ExplicitLinks.Resolve(connection, tx: null);
 
         AssertForeignKeysHold(connection);
     }

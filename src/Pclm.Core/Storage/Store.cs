@@ -50,7 +50,7 @@ public sealed record DeletionPlan(
 /// <para><see cref="Schema"/> 의 <c>user_field</c> 와 <c>field_override</c> 는 자료를 들이는 길이
 /// 쓰지 않는다 — 사람이 적은 값이 다시 수집해도 지워지지 않게 하는 구조적 보장이다(ADR-007·020).</para>
 /// </summary>
-public sealed class Store(Database database)
+public sealed partial class Store(Database database)
 {
     private readonly Database _database = database;
 
@@ -220,7 +220,7 @@ public sealed class Store(Database database)
 
         // 관련공고가 바뀌면 건이 바뀐다. 공고 한 장이 이미 선 건 둘을 합칠 수 있어
         // 증분으로는 셀 수 없다 — 커밋 전에 같은 트랜잭션에서 전부 다시 짓는다.
-        NoticeGroups.Rebuild(connection, transaction);
+        Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
 
         transaction.Commit();
     }
@@ -352,6 +352,7 @@ public sealed class Store(Database database)
                     attachment.LineNo, attachment.DocumentType, attachment.FileName,
                 }, transaction);
 
+        Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
         transaction.Commit();
     }
 
@@ -446,6 +447,7 @@ public sealed class Store(Database database)
                     item.StockNumber, item.SpecNumber, item.ExpenseRequestNumber,
                 }, transaction);
 
+        Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
         transaction.Commit();
     }
 
@@ -492,6 +494,174 @@ public sealed class Store(Database database)
     }
 
     /// <summary>
+    /// 가공열을 저장한다. <b>화면을 믿지 않고 다시 검사한다</b>(§11.2): JSON 모양 → 꼴 검사 → 컴파일 →
+    /// 그 열이 붙는 모든 뷰를 한 트랜잭션에서 다시 짓고 읽어 본다(prepare + 표본 실행). 하나라도 실패하면
+    /// 되돌리고, 오류는 단계 번호를 담아 돌려준다(「3단계: …」). 저장 꼴은 v2 다 — v1 이 와도 옮겨 담는다.
+    /// </summary>
+    public void SaveComputedColumn(string entityType, string fieldName, string json, string? previousName = null)
+    {
+        var name = CleanName(fieldName);
+        var formula = ComputedColumn.ParseFor(entityType, json);
+        if (formula.Source == "sql")
+        {
+            // 읽기 권한·모양·표본은 쓰기 전에 읽기 전용 연결에서 본다. 순환은 뷰에 넣어 본 뒤에야 드러난다(아래).
+            using var reader = SqlColumn.OpenChecked(_database);
+            SqlColumn.Validate(reader, entityType, formula.Sql!, []);
+        }
+        // 꼴 검사와 컴파일. 실패는 단계 번호를 담아 던진다.
+        else _ = FlowCompiler.Expression(entityType, formula);
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        CheckFree(connection, entityType, name, previousName);
+        if (previousName is not null)
+        {
+            // 입력열을 주면 가공열로 바뀐다(§3.1) — 적힌 값은 지우지 않고 식에 가려 숨는다. 굳혀 둔 식이 있으면
+            // 그 식별자를 이어 쓴다: 소비자에 저장된 필드 연결이 끊기지 않는다.
+            var old = connection.QuerySingleOrDefault<(string Kind, string? Options)?>(
+                "SELECT kind, options FROM user_column WHERE entity_type=@entityType AND field_name=@previousName",
+                new { entityType, previousName }, transaction)
+                ?? throw new InvalidOperationException("수정할 열이 없습니다.");
+            string? id = null;
+            if (old.Options is { } stored && stored.TrimStart().StartsWith('{'))
+                try { id = ComputedColumn.Parse(stored).Id; } catch (InvalidOperationException) { }
+            formula = formula with { Id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id };
+        }
+        else formula = formula with { Id = Guid.NewGuid().ToString("N") };
+        var options = Flow.Serialize(formula);
+        if (previousName is null)
+            connection.Execute("""
+                INSERT INTO user_column(entity_type,field_name,kind,options,sort_order)
+                VALUES(@entityType,@name,'computed',@options,
+                  coalesce((SELECT max(sort_order) FROM user_column WHERE entity_type=@entityType),0)+10)
+                """, new { entityType, name, options }, transaction);
+        else
+            connection.Execute("""
+                UPDATE user_column SET field_name=@name,kind='computed',options=@options
+                WHERE entity_type=@entityType AND field_name=@previousName
+                """, new { entityType, name, options, previousName }, transaction);
+        if (previousName is not null && previousName != name)
+        {
+            var (table, _) = TableFor(entityType);
+            connection.Execute($"UPDATE {table} SET field_name = @name WHERE field_name = @previousName;", new { name, previousName }, transaction);
+            // 그 열을 읽던 맞춤 뷰 필드도 새 이름을 따라간다(docs/user-views.md §5).
+            UserViewBuilder.RenameField(connection, transaction, entityType, previousName, name);
+        }
+        try
+        {
+            // 깨진 열은 뷰를 막지 않고 빈 글로 선다 — 저장하려는 이 열이 그렇게 되면 거절한다.
+            var broken = Database.RefreshViews(connection, transaction);
+            if (broken.TryGetValue((entityType, name), out var why))
+                throw new InvalidOperationException(LocateComputedFailure(entityType, formula)
+                    ?? (why.Length == 0 ? "가공식을 계산하지 못했습니다." : why));
+            foreach (var view in ComputedViews(entityType))
+                connection.Query($"SELECT \"{name.Replace("\"", "\"\"")}\" FROM \"{view}\" LIMIT {ComputedSample};", transaction: transaction).ToList();
+        }
+        catch (SqliteException error)
+        {
+            throw new InvalidOperationException(LocateComputedFailure(entityType, formula) ?? $"가공식을 계산하지 못했습니다: {error.Message}");
+        }
+        transaction.Commit();
+    }
+
+    /// <summary>표본 실행에서 읽어 보는 줄 수.</summary>
+    private const int ComputedSample = 20;
+
+    /// <summary>가공열이 붙는 뷰 — 면 뷰와 차수 뷰, 계약이면 통합 둘까지.</summary>
+    private static IReadOnlyList<string> ComputedViews(string entityType) => entityType switch
+    {
+        "notice" => ["v_공고", "v_공고차수"],
+        "contract" => ["v_계약", "v_계약차수", "v_통합", "v_통합차수"],
+        "request" => ["v_접수"],
+        _ => throw new InvalidOperationException("가공열의 자료 종류가 올바르지 않습니다."),
+    };
+
+    /// <summary>
+    /// 실행에서 실패한 식이 몇 단계에서 깨지는지 찾는다 — 앞부분을 하나씩 늘려 지금 저장된 면 뷰의 표본 위에서
+    /// 돌려 본다. 쓰지 않는 읽기 연결이라 저장하던 트랜잭션과 섞이지 않는다.
+    /// </summary>
+    private string? LocateComputedFailure(string entityType, FlowFormula formula)
+    {
+        if (formula.Flow is null) return null;
+        using var connection = _database.OpenReadOnly();
+        for (var k = 0; k <= formula.Flow.Steps.Length; k++)
+        {
+            var part = FlowCompiler.Prefix(entityType, formula.Flow, k);
+            var probe = part.IsRelation ? $"(SELECT count(*) FROM ({part.Sql}))" : part.Sql;
+            try
+            {
+                connection.Query($"SELECT {probe} FROM \"{FaceView(entityType)}\" AS {FlowCompiler.Self} LIMIT {ComputedSample};").ToList();
+            }
+            catch (SqliteException error)
+            {
+                return new FlowIssue(k, $"계산하지 못했습니다 — {error.Message}").Describe();
+            }
+        }
+        return null;
+    }
+
+    /// <summary>표본(최신 문서 다섯)마다 이 식이 낼 값. v1·v2 아무것이나 받는다.</summary>
+    public object PreviewComputedColumn(string entityType, string json)
+    {
+        var expression = ComputedColumn.Expression(entityType, ComputedColumn.ParseFor(entityType, json));
+        var separator = entityType == "contract" ? "" : "-";
+        using var connection = _database.OpenReadOnly();
+        return connection.Query($"""
+            SELECT p.{entityType}_base AS base, p.seq AS revision,
+                   coalesce(p.title,'') AS title,
+                   coalesce((SELECT {expression} FROM "{FaceView(entityType)}" AS {FlowCompiler.Self}
+                             WHERE {FlowCompiler.Self}."{FaceKey(entityType)}" = p.{entityType}_base || '{separator}' || p.seq), '') AS value
+            FROM ({LatestColumnParents(entityType)}) p ORDER BY p.{entityType}_base
+            """).ToList();
+    }
+
+    private static string LatestColumnParents(string entityType)
+    {
+        _ = ComputedColumn.Fields(entityType); // 표 이름을 넣기 전에 종류를 검증한다.
+        return $"""
+            SELECT p.* FROM {entityType} p
+            WHERE CAST(p.seq AS INTEGER)=(SELECT max(CAST(x.seq AS INTEGER)) FROM {entityType} x WHERE x.{entityType}_base=p.{entityType}_base)
+            ORDER BY p.{entityType}_base LIMIT 5
+            """;
+    }
+
+    /// <summary>열 정의 작업공간의 실제 부모 표와 같은 차수 품목. 읽기 전용 사진 한 벌만 읽는다.</summary>
+    public object ColumnContext(string entityType)
+    {
+        var fields = ComputedColumn.Fields(entityType).Keys.ToArray();
+        var parentsSql = LatestColumnParents(entityType);
+        var view = FaceView(entityType);
+        using var connection = _database.OpenReadOnly();
+        using var transaction = connection.BeginTransaction(deferred: true);
+        var columns = ViewColumns(connection, view);
+        var separator = entityType == "contract" ? "" : "-";
+        var rows = connection.Query($"""
+            SELECT v.* FROM "{view}" v JOIN ({parentsSql}) p
+              ON v."{FaceKey(entityType)}"=p.{entityType}_base || '{separator}' || p.seq
+            ORDER BY p.{entityType}_base
+            """).ToList();
+        var parents = connection.Query<(string Base, string Revision, string Title)>($"""
+            SELECT p.{entityType}_base, p.seq, coalesce(p.title,'') FROM ({parentsSql}) p ORDER BY p.{entityType}_base
+            """);
+        var sourceSql = ComputedColumn.SourceSql(entityType, "@Base", "@Revision");
+        var fieldNames = string.Join(", ", fields.Select(f => $"\"{f}\""));
+        var sources = parents.Select(parent => new
+        {
+            @base = parent.Base, revision = parent.Revision, title = parent.Title,
+            rows = connection.Query($"SELECT {fieldNames} FROM ({sourceSql}) ORDER BY __order LIMIT 100;", new { parent.Base, parent.Revision }).ToList(),
+            totalRows = connection.ExecuteScalar<int>($"SELECT COUNT(*) FROM ({sourceSql});", new { parent.Base, parent.Revision }),
+        }).ToList();
+        return new { columns, rows, fields, sources, available = Available(connection, entityType) };
+    }
+
+    private static void RefuseComputedWrite(SqliteConnection connection, string entityType, string fieldName)
+    {
+        if (connection.ExecuteScalar<long>(
+            "SELECT count(*) FROM user_column WHERE entity_type=@entityType AND field_name=@fieldName AND kind='computed'",
+            new { entityType, fieldName }) > 0)
+            throw new InvalidOperationException("가공열의 값은 직접 고칠 수 없습니다. 열 관리에서 가공식을 수정하세요.");
+    }
+
+    /// <summary>
     /// 열 하나를 고친다. 이름을 바꾸면 <b>적어 둔 값도 함께 옮긴다</b> —
     /// 값은 열 이름으로 매달려 있어서, 정의만 고치면 적어 둔 것이 통째로 미아가 된다.
     /// </summary>
@@ -505,16 +675,22 @@ public sealed class Store(Database database)
         using (var connection = _database.Open())
         {
             CheckExists(connection, entityType, fieldName);
+            RefuseComputedWrite(connection, entityType, fieldName);
             CheckFree(connection, entityType, name, allow: fieldName);
 
             using var transaction = connection.BeginTransaction();
 
+            // 굳혀 둔 식(값으로 굳히기가 비활성으로 남긴 가공식)은 고르기가 후보로 덮기 전까지 남긴다 — 다시 켤 수 있게.
+            var kept = connection.QuerySingleOrDefault<string>(
+                "SELECT options FROM user_column WHERE entity_type = @entityType AND field_name = @fieldName",
+                new { entityType, fieldName }, transaction);
             connection.Execute(
                 """
                 UPDATE user_column SET field_name = @name, kind = @kind, options = @options
                 WHERE entity_type = @entityType AND field_name = @fieldName;
                 """,
-                new { entityType, fieldName, name, kind, options = Pack(kind, choices) },
+                new { entityType, fieldName, name, kind,
+                      options = Pack(kind, choices) ?? (kind != "choice" && kept?.TrimStart().StartsWith('{') == true ? kept : null) },
                 transaction);
 
             if (name != fieldName)
@@ -523,6 +699,9 @@ public sealed class Store(Database database)
                 connection.Execute(
                     $"UPDATE {table} SET field_name = @name WHERE field_name = @fieldName;",
                     new { name, fieldName }, transaction);
+
+                // 그 열을 읽던 맞춤 뷰 필드도 새 이름을 따라간다(docs/user-views.md §5).
+                UserViewBuilder.RenameField(connection, transaction, entityType, fieldName, name);
             }
 
             transaction.Commit();
@@ -544,12 +723,14 @@ public sealed class Store(Database database)
         {
             CheckExists(connection, entityType, fieldName);
 
+            using var transaction = connection.BeginTransaction();
+
             connection.Execute(
                 "DELETE FROM user_column WHERE entity_type = @entityType AND field_name = @fieldName;",
-                new { entityType, fieldName });
+                new { entityType, fieldName }, transaction);
+            Database.RefreshViews(connection, transaction);
+            transaction.Commit();
         }
-
-        _database.RefreshViews();
     }
 
     /// <summary>
@@ -662,7 +843,7 @@ public sealed class Store(Database database)
             "SELECT field_name FROM user_column WHERE entity_type = @entityType;",
             new { entityType }).ToList();
 
-        if (name != allow && mine.Contains(name))
+        if (!string.Equals(name, allow, StringComparison.OrdinalIgnoreCase) && mine.Contains(name, StringComparer.OrdinalIgnoreCase))
             throw new InvalidOperationException($"이미 있는 열입니다: {name}");
 
         // 사람이 채우는 열을 뺀 나머지가 파서·조인이 내는 이름이다.
@@ -687,7 +868,7 @@ public sealed class Store(Database database)
         var taken = views
             .SelectMany(v => ViewColumns(connection, v))
             .Except(mine)
-            .ToHashSet(StringComparer.Ordinal);
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         if (taken.Contains(name))
             throw new InvalidOperationException($"표가 이미 쓰는 이름입니다: {name}");
@@ -718,9 +899,15 @@ public sealed class Store(Database database)
     /// </summary>
     public void SetUserField(EntityRef entity, string fieldName, string? value)
     {
+        using var connection = _database.Open();
+        SetUserField(connection, entity, fieldName, value);
+    }
+
+    private static void SetUserField(SqliteConnection connection, EntityRef entity, string fieldName, string? value)
+    {
         var (table, baseColumn) = TableFor(entity.EntityType);
 
-        using var connection = _database.Open();
+        RefuseComputedWrite(connection, entity.EntityType, fieldName);
 
         if (string.IsNullOrEmpty(value))
         {
@@ -756,10 +943,14 @@ public sealed class Store(Database database)
     /// </summary>
     public void SetOverride(EntityRef entity, string columnName, string value)
     {
-        CheckCorrectable(entity, columnName);
-        var original = FaceValue(entity, columnName);
-
         using var connection = _database.Open();
+        SetOverride(connection, entity, columnName, value);
+    }
+
+    private static void SetOverride(SqliteConnection connection, EntityRef entity, string columnName, string value, string? originalValue = null)
+    {
+        CheckCorrectable(connection, entity, columnName);
+        var original = originalValue ?? FaceValue(connection, entity, columnName);
 
         connection.Execute(
             """
@@ -779,9 +970,13 @@ public sealed class Store(Database database)
     /// <summary>덮개를 걷는다. 뷰는 다시 파서가 읽은 값을 낸다.</summary>
     public void ClearOverride(EntityRef entity, string columnName)
     {
-        CheckCorrectable(entity, columnName);
-
         using var connection = _database.Open();
+        ClearOverride(connection, entity, columnName);
+    }
+
+    private static void ClearOverride(SqliteConnection connection, EntityRef entity, string columnName)
+    {
+        CheckCorrectable(connection, entity, columnName);
 
         connection.Execute(
             """
@@ -822,10 +1017,16 @@ public sealed class Store(Database database)
     /// </summary>
     public void CheckCorrectable(EntityRef entity, string columnName)
     {
+        using var connection = _database.Open();
+        CheckCorrectable(connection, entity, columnName);
+    }
+
+    private static void CheckCorrectable(SqliteConnection connection, EntityRef entity, string columnName)
+    {
         if (Views.KeyColumns.Contains(columnName))
             throw new InvalidOperationException($"레코드를 가리키는 열이라 고칠 수 없습니다: {columnName}");
 
-        using var connection = _database.Open();
+        RefuseComputedWrite(connection, entity.EntityType, columnName);
 
         if (connection.ExecuteScalar<long>(
                 """
@@ -846,10 +1047,15 @@ public sealed class Store(Database database)
     public string FaceValue(EntityRef entity, string columnName)
     {
         using var connection = _database.OpenReadOnly();
+        return FaceValue(connection, entity, columnName);
+    }
+
+    private static string FaceValue(SqliteConnection connection, EntityRef entity, string columnName)
+    {
         using var command = connection.CreateCommand();
 
         command.CommandText =
-            $"SELECT \"{columnName}\" FROM \"{FaceView(entity.EntityType)}\" " +
+            $"SELECT \"{columnName.Replace("\"", "\"\"")}\" FROM \"{FaceView(entity.EntityType)}\" " +
             $"WHERE \"{FaceKey(entity.EntityType)}\" = $key;";
         command.Parameters.AddWithValue("$key", entity.Display);
 
@@ -880,9 +1086,13 @@ public sealed class Store(Database database)
     /// </summary>
     public DeletionPlan PlanDeletion(EntityRef entity, bool wholeSeries)
     {
-        var (head, baseColumn, _, userFields, children) = Shape(entity.EntityType);
-
         using var connection = _database.Open();
+        return PlanDeletion(connection, entity, wholeSeries);
+    }
+
+    private static DeletionPlan PlanDeletion(SqliteConnection connection, EntityRef entity, bool wholeSeries)
+    {
+        var (head, baseColumn, _, userFields, children) = Shape(entity.EntityType);
 
         var revisions = connection.Query<string>(
             $"SELECT seq FROM {head} WHERE {baseColumn} = @Base ORDER BY CAST(seq AS INTEGER);",
@@ -970,13 +1180,18 @@ public sealed class Store(Database database)
     /// </summary>
     public void Delete(EntityRef entity, bool wholeSeries)
     {
-        var plan = PlanDeletion(entity, wholeSeries);
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        Delete(connection, transaction, entity, wholeSeries);
+        transaction.Commit();
+    }
+
+    private static void Delete(SqliteConnection connection, SqliteTransaction transaction, EntityRef entity, bool wholeSeries, bool rebuild = true)
+    {
+        var plan = PlanDeletion(connection, entity, wholeSeries);
         var (head, baseColumn, series, _, _) = Shape(entity.EntityType);
 
         var scope = wholeSeries ? "" : " AND seq = @Seq";
-
-        using var connection = _database.Open();
-        using var transaction = connection.BeginTransaction();
 
         connection.Execute(
             $"""
@@ -1005,9 +1220,7 @@ public sealed class Store(Database database)
 
         // 공고가 걷히면 건이 갈리거나 통째로 사라진다. 링크는 건에 매달려 있어 계열을 지운
         // 것만으로는 따라가지 않으므로, 걷어낼 것은 여기서 걷는다 — 캐스케이드에 기대지 않는다.
-        NoticeGroups.Rebuild(connection, transaction);
-
-        transaction.Commit();
+        if (rebuild) Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
     }
 
     /// <summary>종류마다 다른 표 이름을 한 자리에 모은다. 흩어 두면 한 군데만 어긋난다.</summary>
@@ -1049,6 +1262,11 @@ public sealed class Store(Database database)
     public EntityRef? Resolve(string key)
     {
         using var connection = _database.Open();
+        return Resolve(connection, key);
+    }
+
+    private static EntityRef? Resolve(SqliteConnection connection, string key)
+    {
 
         if (ValueParser.ContractNumber(key) is { } contract
             && connection.ExecuteScalar<long>(

@@ -23,3 +23,7 @@ src/Pclm.App/wwwroot/
 
 # 이 기계의 Claude Code 로컬 권한 — 사람마다 다르고 절대경로가 박힌다
 .claude/settings.local.json
+
+# Impeccable 이 점검·결정 때 남기는 임시물 — 화면 캡처와 결정 페이지 상태. 판마다 공개 저장소로 나가는 트리에 싣지 않는다.
+.impeccable/review/
+.impeccable/questions/

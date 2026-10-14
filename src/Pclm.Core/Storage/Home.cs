@@ -66,9 +66,8 @@ public abstract record HomeState
     /// <summary>
     /// 작업자료를 열었다. 판올림까지 마친 쓰기 손잡이다.
     /// </summary>
-    /// <param name="NoticeGroupText">판올림이 건을 다시 지으며 밀어낸 것을 사람에게 알릴 글. 없으면 <c>null</c>.</param>
     /// <param name="Notes">오는 길에 있었던 일(옛 자료 옮겨 오기·백업). 화면이 열기 전에 알린다.</param>
-    public sealed record Ready(Database Database, string? NoticeGroupText, IReadOnlyList<string> Notes) : HomeState;
+    public sealed record Ready(Database Database, IReadOnlyList<string> Notes) : HomeState;
 
     /// <summary>열지 않았다. <b>아무 파일도 만들지 않았다.</b> 사람이 시작 화면에서 고른다.</summary>
     public sealed record Problem(ProblemKind Kind, string? Path, string Message) : HomeState;
@@ -304,7 +303,7 @@ public sealed partial class Home
         // 빈 자료가 서는 두 길 중 하나다(다른 하나는 시작 화면의 「새로 만들기」). ADR-031.
         var created = PclmFile.Create(DefaultWorkfile, PclmRole.Work);
         WriteConfig(created.Path, DatasetIdOf(created.Path));
-        return new HomeState.Ready(created, null, notes);
+        return new HomeState.Ready(created, notes);
     }
 
     /// <summary>옛 자료가 있을 수 있는 자리. 먼저 오는 것이 이긴다.</summary>
@@ -379,7 +378,7 @@ public sealed partial class Home
             notes.Add($"판을 올리기 전에 백업을 떴습니다(v{info.Version} → v{Schema.Version}).\n{Backup(full, info.Version)}");
 
         var database = PclmFile.OpenWork(full);
-        var change = database.Migrate();
+        database.Migrate();
         var datasetId = DatasetIdOf(full);
 
         // 쪽지의 신원과 다르면 그 자리에 다른 작업자료가 놓인 것이다. 쪽지를 파일의 것으로 고친다 —
@@ -387,7 +386,7 @@ public sealed partial class Home
         if (configDatasetId != datasetId || !SamePath(ReadConfig().Config?.Workfile, full))
             WriteConfig(full, datasetId);
 
-        return new HomeState.Ready(database, NoticeGroupText.Render(change), notes);
+        return new HomeState.Ready(database, notes);
     }
 
     /// <summary>

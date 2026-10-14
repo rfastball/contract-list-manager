@@ -1,0 +1,49 @@
+.grid-wrap { background: var(--a-card); }
+.grid-toolbar { gap: var(--sp-8); flex-wrap: wrap; border-bottom: 1px solid var(--a-border); }
+.grid-selection { display: flex; flex-wrap: wrap; gap: var(--sp-8); align-items: center; min-height: 3rem; padding: var(--sp-4) var(--sp-12); border-bottom: 1px solid var(--a-border); background: var(--n-header-bg); }
+.grid-selection strong { font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
+.grid-bulk { display: flex; flex-wrap: wrap; gap: var(--sp-8); align-items: end; padding: var(--sp-12); border-bottom: 1px solid var(--a-border); }
+.grid-bulk label { display: grid; gap: var(--sp-4); }
+.grid-bulk .hint { flex-basis: 100%; }
+.grid-message { margin: 0; padding: var(--sp-8) var(--sp-12); color: var(--a-danger); }
+/* 알림 — 오류(role=alert)와 갈라 차분하게. 잠시 뒤 걷힌다. */
+.grid-message.grid-notice { color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.grid-export { position: relative; }
+.grid-export summary { cursor: pointer; list-style-position: inside; }
+.grid-export-options { position: absolute; right: 0; top: 100%; z-index: 6; display: grid; gap: var(--sp-4); width: min(22rem, 75vw); padding: var(--sp-8); border: 1px solid var(--a-border); border-radius: var(--rad-control); background: var(--a-card); }
+.grid-export-options button { text-align: left; }
+.grid-heading, .grid-heading-edit { border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+.grid-heading-edit { margin-left: var(--sp-8); vertical-align: middle; }
+.grid-heading-edit svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+.grid-heading:focus-visible, .grid-heading-edit:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 3px; }
+/* 가공열 — 머리글 앞의 = 와, 칸을 고치려 할 때의 안내(열 관리 §6.5). */
+.grid-formula-mark { margin-right: var(--sp-4); font-family: var(--font-code); font-weight: 700; color: var(--a-primary); }
+.grid-formula-note { position: absolute; top: calc(100% + var(--sp-4)); left: 0; z-index: 5; width: max-content; max-width: min(28rem, 80vw); padding: var(--sp-12);
+  white-space: normal; text-align: left; background: var(--a-card); color: var(--a-ink); border: 1px solid var(--n-border-strong); border-radius: var(--rad-surface); box-shadow: 0 6px 16px var(--a-shadow); }
+.grid-formula-note p { margin: 0 0 var(--sp-8); font-size: var(--fs-body); }
+.grid-formula-note code { display: block; margin-bottom: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--rad-control); background: var(--n-surface-alt); font-family: var(--font-code); font-size: var(--fs-caption); overflow-wrap: anywhere; }
+.grid-formula-actions { display: flex; gap: var(--sp-8); justify-content: flex-end; }
+table.grid .row-check { position: sticky; left: 0; min-width: 2.75rem; width: 2.75rem; text-align: center; padding: 0; background: var(--a-card); z-index: 3; }
+table.grid .row-check input { width: 1rem; height: 1rem; margin: .65rem; cursor: pointer; accent-color: var(--a-primary); }
+table.grid .row-key, table.grid thead th:nth-child(2) { position: sticky; left: 2.75rem; z-index: 2; background: var(--a-card); }
+table.grid thead .row-check, table.grid thead th:nth-child(2) { z-index: 4; background: var(--n-header-bg); }
+table.grid .range-selected, table.grid .row-selected td { background: var(--a-sel); }
+table.grid tr:hover .range-selected, table.grid .row-selected:hover td { background: var(--a-sel); }
+.grid-board .cell { user-select: none; }
+.grid-board:focus-within td.cur { outline-color: var(--a-primary); }
+.batch-review { width: min(58rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; }
+.batch-preview { overflow: auto; min-height: 0; margin: var(--sp-12) 0; }
+.batch-preview table { border-collapse: collapse; width: 100%; }
+.batch-preview th, .batch-preview td { padding: var(--sp-8); border-bottom: 1px solid var(--a-border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.batch-preview th { position: sticky; top: 0; background: var(--n-header-bg); }
+.batch-review [role="alert"] { color: var(--a-danger); }
+.batch-review .row.end { flex-shrink: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 760px) {
+  .grid-toolbar .grid-find { flex-basis: 100%; min-width: 0; }
+  .grid-selection { gap: var(--sp-4); }
+  .grid-selection .action, .grid-bulk .action { min-height: 2.75rem; }
+  .grid-bulk label { flex: 1 1 12rem; min-width: 0; }
+  .grid-bulk .text { width: 100%; }
+  .batch-review { width: calc(100vw - 1rem); padding: var(--sp-12); }
+}

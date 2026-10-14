@@ -15,6 +15,7 @@ export function useFindShortcut(box: RefObject<HTMLInputElement | null>) {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "f" || e.altKey || !(e.ctrlKey || e.metaKey)) return;
       if (document.querySelector('[role="dialog"]') !== null) return;
+      if (!box.current || box.current.closest("[hidden], [inert]")) return;
 
       e.preventDefault();
       box.current?.focus();

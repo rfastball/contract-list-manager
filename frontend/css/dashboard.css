@@ -1,0 +1,79 @@
+/* DB 브리핑: 집계, 단계 분포, 같은 조건을 적용한 자료 목록. */
+.dashboard-brief { flex: 1; min-height: 0; overflow: auto; background: var(--a-card); scrollbar-width: thin; scrollbar-color: var(--n-border-strong) var(--a-card); }
+.db-scope, .db-distribution, .db-results { padding: var(--sp-8) var(--sp-16); }
+.db-scope, .db-distribution { border-bottom: 1px solid var(--a-border); }
+.db-scope-heading, .db-section-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8) var(--sp-16); }
+.db-scope-heading > strong, .db-section-heading h2 { margin: 0; font-size: var(--fs-body); font-weight: 650; letter-spacing: -.02em; }
+.db-scope-heading > span, .db-section-heading > span { color: var(--n-ink-soft); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; }
+.db-scope-heading .action { margin-left: auto; }
+.db-facts { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-4) var(--sp-16); color: var(--n-ink-soft); font-size: var(--fs-dense); }
+.db-facts b { margin-left: var(--sp-6); color: var(--a-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.db-facts small { margin-left: var(--sp-8); font-size: var(--fs-caption); }
+.db-count-note { margin-top: var(--sp-8); font-size: var(--fs-caption); color: var(--n-ink-soft); }
+.db-count-note summary { cursor: pointer; width: fit-content; }
+.db-count-note p { margin: var(--sp-8) 0 0; max-width: 75ch; }
+.db-stage-bar { display: flex; gap: 2px; height: .625rem; margin: var(--sp-6) 0; background: var(--n-track); overflow: hidden; border-radius: var(--rad-control); }
+.db-stage-bar > span { flex-basis: 0; min-width: 2px; background: var(--stage-tone); }
+.db-stage-requestOnly, .db-stage-awaitingContract { --stage-tone: var(--n-ink-soft); }
+.db-stage-open { --stage-tone: var(--a-primary); }
+.db-stage-contracted { --stage-tone: var(--a-ok); }
+.db-stage-null { --stage-tone: var(--n-ink-soft); }
+.db-stage-filters { display: flex; align-items: stretch; flex-wrap: wrap; gap: var(--sp-4); }
+.db-stage-filter { display: flex; align-items: center; gap: var(--sp-10); border: 1px solid transparent; border-radius: var(--rad-control); padding: var(--sp-6) var(--sp-10); appearance: none; background: transparent; color: var(--stage-tone, var(--a-ink)); font: inherit; font-size: var(--fs-dense); cursor: pointer; }
+.db-stage-filter:not(:first-child)::before { content: ''; width: .5rem; height: .5rem; border-radius: 50%; background: var(--stage-tone); flex: none; }
+.db-stage-filter b { font-variant-numeric: tabular-nums; font-weight: 650; }
+.db-stage-filter:hover { background: var(--n-hover); }
+.db-stage-filter[aria-pressed="true"] { border-color: currentColor; font-weight: 650; }
+.db-stage-reason { margin: var(--sp-8) 0 0; color: var(--n-ink-soft); font-size: var(--fs-caption); max-width: 90ch; }
+.db-find { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12); margin: var(--sp-8) 0; }
+.db-find .grid-find { width: min(28rem, 100%); flex: 1 1 16rem; }
+.db-issues-filter, .db-sort { display: inline-flex; align-items: center; gap: var(--sp-6); color: var(--n-ink-soft); font-size: var(--fs-dense); }
+.db-issues-filter { cursor: pointer; }
+.db-issues-filter b { font-variant-numeric: tabular-nums; }
+.db-sort .text { min-width: 0; width: auto; }
+.db-table-scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n-border-strong) var(--a-card); }
+.db-table { width: 100%; min-width: 58rem; border-collapse: collapse; font-size: var(--fs-dense); }
+.db-table th { text-align: left; background: var(--n-header-bg); color: var(--n-header-ink); font-size: var(--fs-caption); font-weight: 600; padding: var(--sp-8) var(--sp-10); border-block: 1px solid var(--n-border-strong); }
+.db-table td { vertical-align: top; padding: var(--sp-10); border-bottom: 1px solid var(--a-border); }
+.db-table > tbody > tr:hover > td { background: var(--n-hover); }
+.db-stage-label { display: inline-block; white-space: nowrap; color: var(--stage-tone); font-size: var(--fs-caption); font-weight: 650; }
+.db-title { width: 28%; min-width: 14rem; }
+.db-title strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.db-title small { display: block; color: var(--n-ink-soft); margin-top: var(--sp-2); }
+.db-row-issue { display: inline-block; margin-top: var(--sp-4); color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.db-document-links { min-width: 13rem; }
+.db-document-links .quiet-link { display: block; font-size: var(--fs-caption); padding-block: var(--sp-2); text-align: left; }
+.db-date, .db-money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-money { text-align: right; }
+.db-detail-toggle { white-space: nowrap; padding-top: 0 !important; font-size: var(--fs-caption) !important; }
+.db-detail > td { padding: 0 var(--sp-10) var(--sp-12); background: var(--n-surface-alt); }
+.db-detail > td > div { padding: var(--sp-16); max-width: 75rem; }
+.db-detail h3 { margin: 0 0 var(--sp-6); font-size: var(--fs-body); font-weight: 650; }
+.db-detail p { margin: 0; max-width: 75ch; }
+.db-issues { margin: var(--sp-8) 0; padding-left: var(--sp-24); color: var(--n-ink-soft); }
+.db-pagination { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-12); margin-top: var(--sp-12); font-variant-numeric: tabular-nums; }
+.dashboard-brief :is(button, input, select, summary):focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .db-scope, .db-distribution, .db-results { padding-inline: var(--sp-12); }
+  .db-scope-heading .action { margin-left: 0; }
+  .db-facts { gap: var(--sp-6) var(--sp-16); }
+  .db-facts small { display: block; margin-left: 0; }
+  .db-stage-filter { padding-inline: var(--sp-8); }
+  .db-find .grid-find { flex-basis: 100%; }
+}
+
+.db-mode { display: flex; gap: var(--sp-6); padding: var(--sp-6) var(--sp-16); border-bottom: 1px solid var(--a-border); }
+.db-delivery-filters { margin-top: var(--sp-6); }
+.db-delivery-filters .db-stage-filter::before { display: none; }
+.db-order-note { color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.db-range { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-8); font-size: var(--fs-dense); }
+.db-range label { display: inline-flex; align-items: center; gap: var(--sp-6); }
+.db-range .text { width: auto; }
+.db-delivery-table { min-width: 52rem; margin-top: var(--sp-8); }
+.db-deliveries .db-row-issue { display: block; }
+.db-due-overdue { color: var(--a-danger); font-weight: 650; }
+.db-due-soon { color: var(--a-warn); font-weight: 650; }
+.db-item-table { width: 100%; margin-top: var(--sp-12); border-collapse: collapse; }
+.db-item-table small { display: block; color: var(--n-ink-soft); font-weight: 400; }
+
+.db-due-source { display: block; color: var(--n-ink-soft); font-size: var(--fs-caption); font-weight: 400; }

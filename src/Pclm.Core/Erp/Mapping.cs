@@ -42,9 +42,25 @@ public static class Mapping
     {
         var value = JsonSerializer.Deserialize<MappingSet>(json, Json)
             ?? throw new InvalidOperationException("매핑이 비어 있습니다.");
-        value = WithScreens(value);
+        value = WithScreens(WithNewProfiles(value));
         Validate(value);
         return value;
+    }
+    /// <summary>
+    /// 기본 매핑에 프로필이 더해지기 전에 저장한 매핑(작업자료의 <c>erp_mapping</c>)에 빠진 프로필을 기본의 것 그대로 채운다 —
+    /// 채우지 않으면 프로필 수가 기본과 달라 <see cref="Validate"/> 가 거절하고, 활성 매핑을 읽는 수집이 통째로 멈춘다.
+    /// 자리는 기본 매핑의 순서를 따른다. 그 밖의 것(모르는 id·남는 프로필·바뀐 고유키)은 손대지 않는다 — 거절은 그대로다.
+    /// </summary>
+    private static MappingSet WithNewProfiles(MappingSet set)
+    {
+        if (set.Profiles is null) return set;
+        var defaults = Defaults().Profiles;
+        var ids = set.Profiles.Where(p => p is not null).Select(p => p.Id).ToHashSet();
+        if (defaults.All(d => ids.Contains(d.Id))) return set;
+        var profiles = set.Profiles.ToList();
+        for (var i = 0; i < defaults.Length; i++)
+            if (!ids.Contains(defaults[i].Id)) profiles.Insert(Math.Min(i, profiles.Count), defaults[i]);
+        return set with { Profiles = profiles.ToArray() };
     }
     /// <summary>
     /// 화면을 적기 전에 저장한 매핑(<c>screen</c> 이 없다)에 기본 매핑의 화면을 프로필 id 로 채운다. 고유키는 채우지 않는다 —
@@ -125,6 +141,8 @@ public static class Mapping
         {
             if (value.ValueKind == JsonValueKind.Array && part == "0")
             {
+                // 빈 표는 그 값이 없는 문서다(수의시담의 기초금액처럼) — 걷지 않은 값으로 둔다. 막는 것은 분류가 여럿일 때뿐이다.
+                if (value.GetArrayLength() == 0) return null;
                 if (value.GetArrayLength() != 1) throw new InvalidOperationException("문서 전체 금액은 단일 분류 표에서만 가져올 수 있습니다.");
                 value = value[0];
             }
@@ -187,17 +205,18 @@ public static class Mapping
         var point = input.GetProperty("pointInfo");
         var identity = p.IdentitySource == "pointInfo" ? point : Table(input, p.IdentitySource).FirstOrDefault();
         var b = Text(At(identity, p.BaseField)); var s = Text(At(identity, p.SeqField));
+        // 본번호의 머리는 R(실제) 또는 T(시험용 번호)다.
         if (p.BaseField == p.SeqField)
         {
-            var match = Regex.Match(b ?? "", @"\A(R\d{2}[A-Z]{2}\d{8})\s*-\s*(\d{2,3})\z");
+            var match = Regex.Match(b ?? "", @"\A([RT]\d{2}[A-Z]{2}\d{8})\s*-\s*(\d{2,3})\z");
             if (!match.Success) throw new InvalidOperationException("본번호·차수 형식을 확인하세요.");
             b = match.Groups[1].Value; s = match.Groups[2].Value;
         }
         if (string.IsNullOrEmpty(b) || !Regex.IsMatch(b, @"\A[A-Za-z0-9]+\z") ||
             string.IsNullOrEmpty(s) || !Regex.IsMatch(s, @"\A\d{1,3}\z"))
             throw new InvalidOperationException("문서 식별자와 차수가 필요합니다. 선행 0을 유지하세요.");
-        if (p.EntityType == "notice" && (!Regex.IsMatch(b, @"\AR\d{2}BK\d{8}\z") || s.Length != 3) ||
-            p.EntityType == "contract" && (!Regex.IsMatch(b, @"\AR\d{2}TA\d{8}\z") || s.Length != 2))
+        if (p.EntityType == "notice" && (!Regex.IsMatch(b, @"\A[RT]\d{2}BK\d{8}\z") || s.Length != 3) ||
+            p.EntityType == "contract" && (!Regex.IsMatch(b, @"\A[RT]\d{2}TA\d{8}\z") || s.Length != 2))
             throw new InvalidOperationException("공고·계약 식별자 형식이 다릅니다.");
         // 문서를 가르는 것은 번호·차수뿐이다. 제목·표가 없으면 그 값을 수집하지 않은 것으로 두고 기존 값을 건드리지 않는다.
         var rows = new List<MappedRow> { new(p.EntityType, "", Fields(point, p.Fields, input)) };

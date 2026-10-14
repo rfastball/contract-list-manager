@@ -23,7 +23,7 @@ internal sealed class TrayIcon : IDisposable
     /// <param name="text">마우스를 갖다 대면 보일 글. 알림 영역은 63자에서 자른다.</param>
     public TrayIcon(string text, Action open, Action exit)
     {
-        // exe 에 따로 박은 그림이 없어 탐색기가 보이는 그 그림을 그대로 쓴다.
+        // 실행 파일에 포함된 앱 아이콘을 탐색기·창·알림 영역에서 함께 쓴다.
         try { _owned = Environment.ProcessPath is { } exe ? Drawing.Icon.ExtractAssociatedIcon(exe) : null; }
         catch (Exception e) when (e is ArgumentException or System.IO.IOException) { _owned = null; }
 

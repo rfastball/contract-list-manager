@@ -1,4 +1,4 @@
-/* 확장 패키지의 독립 표면. 앱의 tokens.css 색상과 의미를 따른다. */
+/* 확장 패키지의 독립 표면(툴바 팝업과 설정 창). 앱의 tokens.css 색상과 의미를 따른다. */
 #collector {
   --a-primary: #2f5fbf; --a-primary-h: #274fa0; --a-ink: #1c2126; --a-muted: #5c626b;
   --a-card: #fff; --a-window: #f6f7f9; --a-border: #e2e4e8; --a-control: #767b83;
@@ -9,84 +9,59 @@
   width: 100%; box-sizing: border-box;
 }
 /* 툴바 팝업은 내용에 맞춰 크기를 잰다. 잴 때의 뷰포트는 아직 작아 100vw 같은 상한을 두면 그만큼 눌린다. */
-body { margin: 0; width: 360px; }
-:host { all: initial; }
-:host([hidden]) { display: none !important; }
+body { margin: 0; width: 340px; background: #fff; }
 #collector * { box-sizing: border-box; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--a-border); }
-h1 { font-size: 16px; margin: 0; font-weight: 600; }
-.badge { color: var(--a-warn); font-size: 12px; margin-left: 6px; }
-.compact { font-size: 12px; color: var(--a-muted); }
-.tools { display: flex; gap: 4px; margin-left: auto; }
-#content { padding: 14px 18px 16px; }
-.export { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--a-border); }
-.export button { width: 100%; }
-.export .note { margin-top: 8px; overflow-wrap: anywhere; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--a-border); }
+h1 { font-size: 14px; margin: 0; font-weight: 600; }
+.badge { color: var(--a-warn); font-size: 12px; font-weight: 500; margin-left: 6px; }
+.badge:empty { display: none; }
+#content { padding: 14px 16px 16px; }
 p { margin: 0; }
-.destination, .note { color: var(--a-muted); font-size: 12px; }
-.destination { margin-bottom: 16px; }
-.number { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--a-muted); }
-h2 { margin: 5px 0 12px; font-size: 17px; line-height: 1.5; font-weight: 600; }
-.scope { margin-bottom: 12px; font-size: 12px; color: var(--a-muted); }
-.scope strong { color: var(--a-ink); }
-details { font-size: 12px; }
-summary { cursor: pointer; padding: 6px 0; text-underline-offset: 3px; }
-summary:hover { color: var(--a-primary); }
-dl { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px 12px; margin: 8px 0 16px; }
-dt { color: var(--a-muted); } dd { margin: 0; font-variant-numeric: tabular-nums; }
-.feedback { border-top: 1px solid var(--a-border); margin-top: 12px; padding: 14px 0; }
-#status { font-size: 13px; }
-[data-state="stored"] #status { color: var(--a-ok); }
-[data-state="pending"] #status, [data-state="retry"] #status { color: var(--a-warn); }
-#help, #error { margin-top: 8px; color: var(--a-muted); }
-footer { display: flex; gap: 8px; align-items: center; position: sticky; bottom: 0; padding: 8px 0; background: var(--a-card); }
-button { font: inherit; border: 1px solid var(--a-control); border-radius: 6px; padding: 9px 12px; min-height: 40px; cursor: pointer; color: var(--a-ink); background: var(--a-card); }
+.soft { color: var(--a-muted); font-size: 12px; }
+
+/* 연결 — 한 줄의 상태와 그 아래 조용한 설명. 연결돼 있으면 점이 초록, 아니면 회색이다(색만으로 말하지 않고 글이 함께 말한다). */
+.state { display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
+.state::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--a-control); transform: translateY(-1px); }
+.state[data-connected="true"]::before { background: var(--a-ok); }
+.state + .soft { margin-top: 2px; padding-left: 16px; }
+.tab { margin-top: 12px; }
+.tab[data-state="error"] { color: var(--a-warn); }
+.tab[data-state="elsewhere"], .tab[data-state="reading"] { color: var(--a-muted); }
+
+.export { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--a-border); }
+.export button { width: 100%; }
+#export-status { margin-top: 8px; }
+#export-status:empty { display: none; }
+
+button { font: inherit; border: 1px solid var(--a-control); border-radius: 6px; padding: 8px 12px; min-height: 36px; cursor: pointer; color: var(--a-ink); background: var(--a-card); }
 button:hover:not(:disabled) { background: var(--a-window); }
 button:active:not(:disabled) { filter: brightness(.95); }
 button:disabled { cursor: default; opacity: .6; }
-.primary { flex: 1; background: var(--a-primary); border-color: var(--a-primary); color: var(--a-on-accent); font-weight: 600; }
-.primary:hover:not(:disabled) { background: var(--a-primary-h); }
-.quiet { border-color: transparent; padding: 6px 8px; font-size: 12px; }
-button:focus-visible, summary:focus-visible { outline: 3px solid var(--a-primary); outline-offset: 2px; }
-.note { margin-top: 14px; }
-.note.shortcut { margin-top: 4px; }
+.quiet { border-color: transparent; padding: 4px 8px; min-height: 32px; font-size: 12px; color: var(--a-muted); }
+.quiet:hover:not(:disabled) { color: var(--a-ink); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--a-primary); outline-offset: 2px; }
 ::selection { background: var(--a-sel); color: var(--a-ink); }
 [hidden] { display: none !important; }
 @media (prefers-color-scheme: dark) {
   #collector { --a-primary: #6f97e8; --a-primary-h: #8badf0; --a-ink: #e7eaee; --a-muted: #aab1bb;
     --a-card: #1c2127; --a-window: #131619; --a-border: #333a44; --a-control: #6b7280;
     --a-ok: #43b877; --a-warn: #e0a850; --a-on-accent: #0f1418; --a-sel: #1e2846; color-scheme: dark; }
+  body { background: #1c2127; }
 }
-@media (forced-colors: active) { button { border: 1px solid ButtonText; } }
-
-/* 툴바 팝업은 간결하게 — 대상·고를 것·상태·저장만. 내보내기는 아래의 조용한 단추로, 긴 안내와 저장 위치는 뺀다
-   (저장 위치와 단축키는 설정 창에 있다). 페이지 수집기는 그대로 다 보인다. */
-[data-surface="popup"] #content { display: flex; flex-direction: column; padding: 12px 16px 12px; }
-[data-surface="popup"] header { padding: 10px 16px; }
-[data-surface="popup"] .destination,
-[data-surface="popup"] #content > .note { display: none; }
-[data-surface="popup"] h2 { font-size: 15px; margin: 2px 0 8px; }
-[data-surface="popup"] .feedback { margin-top: 4px; padding: 10px 0 4px; }
-[data-surface="popup"] footer { padding: 4px 0 0; }
-[data-surface="popup"] .export { order: 1; margin: 8px 0 0; padding: 8px 0 0; border-bottom: 0; border-top: 1px solid var(--a-border); }
-[data-surface="popup"] .export button { width: auto; min-height: 32px; padding: 6px 8px; border-color: transparent; font-size: 12px; color: var(--a-muted); }
-[data-surface="popup"] .export button:hover:not(:disabled) { color: var(--a-ink); }
-[data-surface="popup"] #export-status:empty { display: none; }
-[data-surface="popup"] .export .note { margin-top: 4px; }
-
-#changes label { display: block; margin-block: 12px; overflow-wrap: anywhere; }
-#changes select { display: block; width: 100%; margin-top: 4px; }
+@media (forced-colors: active) {
+  button { border: 1px solid ButtonText; }
+  .state::before { forced-color-adjust: none; background: CanvasText; }
+  .state[data-connected="true"]::before { background: Highlight; }
+}
 
 /* 설정 창. 같은 토큰을 쓰되 팝업 폭에 묶이지 않는다. */
 body.options { width: auto; max-width: 640px; margin: 0 auto; padding: 32px 16px; background: #f6f7f9; }
 .options#collector { border: 1px solid var(--a-border); border-radius: 9px; }
+.options header { padding: 14px 18px; }
 @media (prefers-color-scheme: dark) { body.options { background: #131619; color-scheme: dark; } }
-.options #content { display: grid; gap: 20px; }
+.options #content { display: grid; gap: 20px; padding: 14px 18px 16px; }
+.options .note { color: var(--a-muted); font-size: 12px; }
 fieldset { margin: 0; padding: 0; border: 0; }
-legend { padding: 0; margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+legend { padding: 0; margin-bottom: 8px; font-size: 14px; font-weight: 600; }
 fieldset label { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; }
 fieldset .note { margin-top: 6px; }
-fieldset button { margin-top: 8px; }
-fieldset input[type="text"] { font: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--a-control); border-radius: 6px; color: var(--a-ink); background: var(--a-card); }
-fieldset input[readonly] { background: var(--a-window); }
-input:focus-visible { outline: 3px solid var(--a-primary); outline-offset: 2px; }

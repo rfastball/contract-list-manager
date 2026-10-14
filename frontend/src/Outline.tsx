@@ -11,8 +11,18 @@ type Props = {
   /** 자료가 하나도 없을 때 가는 자리 — 자료가 들어오는 나라장터 화면이다. */
   onSetup?: () => void;
   onOpen?: (kind: "접수" | "공고" | "계약", number: string, revisions: boolean) => void;
-  onLink?: (kind: "접수" | "계약", key: string) => void;
+  /**
+   * 처음 설 때의 검색어·펼침·커서. 문서에 들어갔다 돌아오면 이 보기는 새로 서므로, 바깥(App)이 쥐고 있다가 건넨다 —
+   * 브리핑의 <code>dashboardState</code> 와 같은 자리다. 펼침은 이름으로 들어 사라진 것은 그냥 지나가고, 커서는 남은
+   * 사슬 안으로 당겨진다.
+   */
+  state?: OutlineState;
+  onStateChange?: (state: OutlineState) => void;
 };
+
+/** 구조 보기에서 사람이 맞춰 둔 것. */
+export type OutlineState = { query: string; open: Record<string, boolean>; cursor: { row: number; col: number } };
+export const initialOutlineState: OutlineState = { query: "", open: {}, cursor: { row: 0, col: 0 } };
 
 /** 한 번에 펴 두는 조달요구번호. 여덟 개가 다 서면 접수 칸이 다른 두 칸을 밀어낸다. */
 const 요구번호보임 = 3;
@@ -99,10 +109,13 @@ function 초점칸들(chain: OutlineChain): 초점칸[] {
  *
  * <p>Enter는 선택한 자료의 기존 표를 열고 번호로 좁혀 준다.</p>
  */
-export function Outline({ tree, onSetup, onOpen, onLink }: Props) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [cursor, setCursor] = useState({ row: 0, col: 0 });
+export function Outline({ tree, onSetup, onOpen, state = initialOutlineState, onStateChange }: Props) {
+  const [query, setQuery] = useState(state.query);
+  const [open, setOpen] = useState<Record<string, boolean>>(state.open);
+  const [cursor, setCursor] = useState(state.cursor);
+  const report = useRef(onStateChange);
+  report.current = onStateChange;
+  useEffect(() => { report.current?.({ query, open, cursor }); }, [query, open, cursor]);
 
   const board = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -207,7 +220,6 @@ export function Outline({ tree, onSetup, onOpen, onLink }: Props) {
         {selected && <span className="number">선택: {selected.number}</span>}
         {onOpen && <button className="chip" disabled={!selected} onClick={() => selected && onOpen(kind, selected.number, false)}>표에서 보기</button>}
         {onOpen && <button className="chip" disabled={!selected || kind === "접수"} onClick={() => selected && onOpen(kind, selected.key, true)}>전체 차수 보기</button>}
-        {onLink && <button className="chip" disabled={!selected || kind === "공고"} onClick={() => selected && kind !== "공고" && onLink(kind, selected.key)}>선택 건 연결 검토</button>}
       </div>
 
       {/* aria-colcount·aria-colindex 는 일부러 붙이지 않는다. 계약이 둘인 사슬은 칸이 셋이

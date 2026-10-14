@@ -1,27 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { call, isHosted } from "./bridge";
+import { call, isHosted, onNotice } from "./bridge";
 import { ConfirmDelete } from "./ConfirmDelete";
+import { ColumnManager } from "./ColumnManager";
 import { Grid } from "./Grid";
-import { LinkPanel } from "./LinkPanel";
+import { Dashboard, initialDashboardState, type DashboardState } from "./Dashboard";
+import { PLANNING_ENABLED, USER_VIEWS_ENABLED } from "./features";
 import { Dock } from "./Mirror";
-import { KINDS, NaraPanel, SourceTree, use들어옴, 원천상태, 브라우저이름, type Kind } from "./Nara";
-import { Outline } from "./Outline";
-import { SettingsPanel } from "./SettingsPanel";
+import { KINDS, NaraPanel, SourceChain, use들어옴, 원천상태, 브라우저이름, type Kind } from "./Nara";
+import { Outline, initialOutlineState, type OutlineState } from "./Outline";
+import { SettingsPanel, useDisplayPreferences } from "./SettingsPanel";
 import { Status } from "./Status";
+import { UserViews } from "./views/UserViews";
 import type {
-  CaptureDay, Candidate, DataLocation, ExtensionStatus, DeletionPlan, DeletionScope, EntityType,
-  LinkFacet, LinkWork, MergeResult, MirrorState, Outline as Tree, PlanImportResult, PlanPick, RelinkResult,
-  RequestLinkFacet, RequestLinkWork, Session, Settings, Sheet, StatusReport, SubmitResult, WindowPrefs,
-  Summary, SwitchResult, UserColumn, WorkfileKind, WorkfilePlan,
+  BatchChange, BatchDeletionPlan, CaptureDay, DashboardReport, DataLocation, ExtensionStatus, DeletionScope, EntityType, Row, SheetExport,
+  MergeResult, MirrorState, Outline as Tree, PlanImportResult, PlanPick,
+  Session, Settings, Sheet, StatusReport, SubmitResult, WindowPrefs,
+  Summary, SwitchResult, UserColumn, UserView, WorkfileKind, WorkfilePlan,
 } from "./types";
 
 /**
- * 통합이 맨 앞이다 — 접수·공고·계약을 한 줄에 모아 낸 것이라서다. 그다음은 <b>나라장터</b> 한 원천에서 갈라지는
- * 세 갈래(접수 → 공고 → 계약)이고, 계획은 그 앞칸이 아니라 <b>분모</b>라 갈래 뒤에 선다.
- *
- * <p>현황은 맨 뒤다. 아직 지표가 가상이라 <b>앱의 얼굴로 세우지 않는다</b> — 기본 탭은
- * 통합 그대로다.</p>
+ * 기본 화면은 대시보드다. 기존 통합 탭 계약을 유지하며 자료 개요와 통합 탐색을 함께 제공한다.
+ * 그다음은 수집의 나라장터, 자료의 접수·공고·계약이다. 계획·현황은 기능 스위치로 입구를 숨긴다.
  */
 type Tab = "통합" | "나라장터" | "계획" | "접수" | "공고" | "계약" | "현황";
 
@@ -39,16 +39,7 @@ const isKind = (t: Tab): t is Kind => (KINDS as string[]).includes(t);
  * <p><code>구조</code> 는 통합에만 있다. 공고·계약 탭에서는 <code>표</code> 가 곧 「최신」이라,
  * 그 둘은 <b>최신 | 차수</b> 두 알약으로 그린다.</p>
  */
-type Shape = "구조" | "표" | "차수";
-
-/**
- * 잇기 화면의 갈래. 얼개가 같아 화면은 하나를 쓰고, 다리와 낱말만 갈린다.
- *
- * <p>둘 다 오른쪽이 공고다 — 접수도 계약도 공고 하나에 매달린다.</p>
- */
-type Side = "계약" | "접수";
-
-const SIDES: Side[] = ["계약", "접수"];
+type Shape = "브리핑" | "구조" | "표" | "차수";
 
 /**
  * 시트 하나의 얼개.
@@ -126,12 +117,12 @@ const SHEETS: Record<SheetTab, SheetSpec> = {
 
 /**
  * 차례를 여기 못 박는다 — 현황·나라장터는 시트가 없어 SHEETS 의 키에서 나오지 않는다. 방향키도 이 차례를 따른다:
- * 사이드바에 보이는 차례(통합 · 나라장터 · 접수 · 공고 · 계약 · 계획 · 현황)와 같아야 한다.
+ * 사이드바에 보이는 차례(대시보드 · 나라장터 · 접수 · 공고 · 계약 · 계획 · 현황)와 같아야 한다.
  */
-const TABS: Tab[] = ["통합", "나라장터", "접수", "공고", "계약", "계획", "현황"];
+const TABS: Tab[] = ["통합", "나라장터", "접수", "공고", "계약", ...(PLANNING_ENABLED ? ["계획", "현황"] as Tab[] : [])];
 
 const PAGE: Record<Tab, { title: string; description: string }> = {
-  통합: { title: "조달 흐름", description: "조달 건마다 접수부터 계약까지 이어서 봅니다." },
+  통합: { title: "대시보드", description: "DB 전체의 조달 현황을 읽고 단계별 자료를 찾아봅니다." },
   나라장터: { title: "나라장터", description: "브라우저 확장이 나라장터의 접수·공고·계약 화면을 이 작업자료로 가져옵니다." },
   계획: { title: "조달 계획", description: "계획 엑셀을 기준으로 조달요구별 진행 단계를 확인합니다." },
   접수: { title: "접수 목록", description: "접수된 조달요구와 품목, 예산을 확인하고 정리합니다." },
@@ -151,52 +142,67 @@ const 거르개풀기 = (packed: string) => {
   return at < 0 ? null : { 열: packed.slice(0, at), 값: packed.slice(at + 1) };
 };
 
-/**
- * 접수 쪽 응답을 잇기 화면이 아는 꼴로 옮겨 담는다.
- *
- * <p>둘은 같은 일이라 화면을 둘로 늘리지 않는다. 다리가 내는 이름만 다르므로
- * (<code>requests</code>·<code>requestKey</code>·<code>facets[].request</code>)
- * <b>여기 한 자리에서</b> 갈아 끼우고, 잇기 화면은 갈래를 알지 못한 채 그대로 산다.</p>
- */
-const 계약꼴로 = (w: RequestLinkWork): LinkWork => ({
-  contracts: w.requests,
-  candidates: w.candidates.map((c) => ({
-    contractKey: c.requestKey,
-    contractTitle: c.requestTitle,
-    noticeKey: c.noticeKey,
-    noticeTitle: c.noticeTitle,
-    confidence: c.confidence,
-    reason: c.reason,
-    noticeContractCount: c.noticeLinkedCount,
-    titleMatched: c.titleMatched,
-    blocker: c.blocker,
-    facets: c.facets.map(견줌꼴로),
-  })),
-  notices: w.notices,
-});
-
-const 견줌꼴로 = (f: RequestLinkFacet): LinkFacet =>
-  ({ name: f.name, contract: f.request, notice: f.notice, agrees: f.agrees });
-
 export function App() {
+  const [display, setDisplay] = useDisplayPreferences();
   const [tab, setTab] = useState<Tab>("통합");
-  const [shape, setShape] = useState<Shape>("구조");
+  const [dashboardShape, setDashboardShape] = useState<Shape>("브리핑");
+  const [listShape, setListShape] = useState<Exclude<Shape, "브리핑">>("구조");
+  const shape = tab === "통합" ? dashboardShape : listShape;
+  const setShape = (next: Shape) => {
+    if (next !== shape) setGridSeed({ query: liveQuery.current.key === bodyKey ? liveQuery.current.query : "", focus: false });
+    if (tab === "통합") setDashboardShape(next);
+    else if (next !== "브리핑") setListShape(next);
+  };
+  const [dashboardState, setDashboardState] = useState<DashboardState>(initialDashboardState);
+  const [outlineState, setOutlineState] = useState<OutlineState>(initialOutlineState);
   const bodyKey = `${tab}:${shape}`;
   const activeBody = useRef({ tab, shape, key: bodyKey });
   activeBody.current = { tab, shape, key: bodyKey };
   const bodyRequest = useRef(0);
   const [loadedBody, setLoadedBody] = useState("");
+  /**
+   * 지금 떠 있는 본문의 key. 다시 읽기가 실패해도 이미 떠 있는 본문은 갈아엎지 않는다 — 편집 중 글자·선택·검색·정렬이
+   * 그 본문에 매달려 있다. 오류 화면은 아직 아무것도 뜨지 않은 처음 읽기에만 선다.
+   */
+  const shownBody = useRef("");
   const [bodyError, setBodyError] = useState<{ key: string; message: string } | null>(null);
-  const [gridQuery, setGridQuery] = useState("");
-  const [linkTarget, setLinkTarget] = useState<string | null>(null);
-  const [side, setSide] = useState<Side>("계약");
-  const activeSide = useRef(side);
-  activeSide.current = side;
-  const [linkError, setLinkError] = useState<string | null>(null);
-
-  /** 공고 연결은 다른 탭과 성격이 다르다 — 쌓인 것을 보는 자리가 아니라 사람이 판정하는 자리다. */
-  const [linking, setLinking] = useState(false);
+  /**
+   * 표가 새로 설 때의 검색어. 대시보드·구조·수집 기록에서 번호를 들고 오면 그 번호로 서고 검색 칸에 초점을 준다.
+   * 「최신」↔「전체 차수」 전환은 그때 표에 있던 검색어를 이어받는다 — 사람이 지운 대시보드발 검색어를 되살리지 않고,
+   * 사람이 친 검색어를 버리지 않는다.
+   */
+  const [gridSeed, setGridSeed] = useState({ query: "", focus: true });
+  const gridQuery = gridSeed.query;
+  const setGridQuery = (query: string) => setGridSeed({ query, focus: true });
+  /** 떠 있는 표의 지금 검색어와 그 표의 본문 key. */
+  const liveQuery = useRef({ key: "", query: "" });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [columnEntry, setColumnEntry] = useState<{ entityType: EntityType; field?: string; integrated: boolean } | null>(null);
+  const [columnNavigation, setColumnNavigation] = useState<{ id: number; proceed: () => void }>();
+  const columnReturnFocus = useRef<HTMLElement | null>(null);
+  /** 맞춤 뷰(docs/user-views.md §7) — 열 관리처럼 작업 영역을 대신한다. 떠날 때 저장하지 않은 변경을 묻는 것도 같다. */
+  const [viewsOpen, setViewsOpen] = useState(false);
+  const [viewsNavigation, setViewsNavigation] = useState<{ id: number; proceed: () => void }>();
+  /** 열 관리·내 보기가 쥔 「저장하지 않은 편집」. 창을 닫을 때 앱이 물을지 여기서 정한다. */
+  const [columnDirty, setColumnDirty] = useState(false);
+  const [viewsDirty, setViewsDirty] = useState(false);
+  const [userViews, setUserViews] = useState<UserView[]>([]);
+  /** 내 보기를 열 때 고를 보기. null 이면 새 보기 만들기, undefined 면 첫 보기(보기가 없으면 새 보기). */
+  const [viewEntry, setViewEntry] = useState({ id: null as string | null | undefined, sequence: 0 });
+  const [activeView, setActiveView] = useState<string | null>(null);
+  const [viewsError, setViewsError] = useState(false);
+  const updateUserViews = useCallback((list: UserView[]) => {
+    setUserViews(list); setViewsError(false);
+  }, []);
+
+  useEffect(() => {
+    if (!USER_VIEWS_ENABLED || !isHosted) return;
+    let active = true;
+    void call<UserView[]>("userViews").then(list => {
+      if (active) updateUserViews(list);
+    }).catch(() => { if (active) setViewsError(true); });
+    return () => { active = false; };
+  }, [updateUserViews]);
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -207,11 +213,12 @@ export function App() {
   const [columns, setColumns] = useState<UserColumn[]>([]);
   /** 접수·공고·계약 것을 모두. 열 고치는 자리가 셋 다 쓴다. */
   const [allColumns, setAllColumns] = useState<UserColumn[]>([]);
+  const [viewRefreshVersion, setViewRefreshVersion] = useState(0);
   const [tree, setTree] = useState<Tree | null>(null);
-  const [work, setWork] = useState<LinkWork | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardReport | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   /** 지우려고 세어 둔 것. 계열 전체와 차수 하나를 함께 받아 사람이 고르게 한다. */
-  const [doomed, setDoomed] = useState<{ plan: DeletionPlan; one: DeletionPlan | null } | null>(null);
+  const [doomed, setDoomed] = useState<{ rows: Row[]; entityType: EntityType; integrated: boolean } | null>(null);
   const [location, setLocation] = useState<DataLocation | null>(null);
   /** 창의 몸가짐. 열람 창은 다리가 거절하므로 null 로 남고, 설정에 그 절이 서지 않는다. */
   const [windowPrefs, setWindowPrefs] = useState<WindowPrefs | null>(null);
@@ -223,8 +230,6 @@ export function App() {
    */
   const [session, setSession] = useState<Session | null>(null);
   const readOnly = session?.readOnly === true;
-  /** 잇기 목록을 읽은 차례. 갈래를 바꿀 때 늦게 닿는 옛 답을 가려낸다. */
-  const 잇기차례 = useRef(0);
   const [saving, setSaving] = useState(false);
   /** 오늘 들어온 수집. 사이드바의 +N 과 나라장터 화면이 함께 쓴다. */
   const [captures, setCaptures] = useState<CaptureDay | null>(null);
@@ -238,13 +243,16 @@ export function App() {
   const [dockWide, setDockWide] = useState(false);
   const [toastHost, setToastHost] = useState<Element | null>(null);
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
+  /** 떠 있는 알림을 걷을 타이머. 새 알림이 서면 앞 것을 걷는다 — 앞 알림의 타이머가 뒤 알림을 일찍 지우지 않게. */
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => { setToastHost(document.querySelector("dialog[open]")); }, [settingsOpen, doomed]);
 
   /** 경로처럼 읽어야 하는 알림은 오래 세운다 — 2.5초에 지나가면 어디에 떨어졌는지 못 본다. */
   const say = useCallback((text: string, bad?: boolean, ms?: number) => {
     setToast({ text, bad });
-    setTimeout(() => setToast(null), ms ?? (bad ? 6000 : 2500));
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), ms ?? (bad ? 6000 : 2500));
   }, []);
 
   const loadSummary = useCallback(async () => {
@@ -286,6 +294,12 @@ export function App() {
         return;
       }
 
+      if (which === "통합" && how === "브리핑") {
+        const next = await call<DashboardReport>("dashboard");
+        if (current()) { setDashboard(next); setLoadedBody(key); }
+        return;
+      }
+
       if (which === "통합" && how === "구조") {
         const next = await call<Tree>("outline");
         if (current()) { setTree(next); setLoadedBody(key); }
@@ -311,32 +325,11 @@ export function App() {
         setLoadedBody(key);
       }
     } catch (error) {
-      if (current()) setBodyError({ key, message: (error as Error).message });
+      if (current() && shownBody.current !== key) setBodyError({ key, message: (error as Error).message });
       throw error;
     }
   }, []);
-
-  /**
-   * 잇기 목록을 읽는다.
-   *
-   * <p><b>늦게 닿은 옛 답을 버린다.</b> 갈래를 바꾸는 사이에 앞 갈래의 답이 돌아오면, 낱말은
-   * 접수인데 목록은 계약인 화면이 선다 — 그 자리에서 「연결」을 누르면 사람은 접수를 이었다고
-   * 믿고 기계는 계약을 잇는다. 차례를 세어 마지막 것만 화면에 올린다.</p>
-   */
-  const loadLink = useCallback(async () => {
-    const 내차례 = ++잇기차례.current;
-    const requestedSide = activeSide.current;
-    setLinkError(null);
-    try {
-      const next = requestedSide === "접수"
-        ? 계약꼴로(await call<RequestLinkWork>("requestLinkCandidates"))
-        : await call<LinkWork>("linkCandidates");
-      if (내차례 === 잇기차례.current && requestedSide === activeSide.current) setWork(next);
-    } catch (error) {
-      if (내차례 === 잇기차례.current && requestedSide === activeSide.current) setLinkError((error as Error).message);
-      throw error;
-    }
-  }, []);
+  shownBody.current = loadedBody;
 
   useEffect(() => {
     if (!isHosted) return;
@@ -366,28 +359,32 @@ export function App() {
     return () => { bodyRequest.current++; };
   }, [tab, shape, loadBody, say]);
 
-  useEffect(() => {
-    if (!isHosted || !linking) return;
-    setWork(null);
-    void loadLink().catch((e: Error) => say(e.message, true));
-    return () => { 잇기차례.current++; };
-  }, [side, linking, loadLink, say]);
-
-  /** 자료가 바뀐 뒤 화면 전체를 다시 읽는다 — 요약도 본문도 연결 큐도 함께 움직인다. */
+  /** 자료가 바뀐 뒤 화면 전체를 다시 읽는다 — 요약과 본문을 함께 갱신한다. */
   const refresh = useCallback(async () => {
     await loadSummary();
     await loadBody();
-    if (linking) await loadLink();
+    setViewRefreshVersion(n => n + 1);
     // 수집 기록과 확장 상태는 곁의 정보라 실패해도 던지지 않는다 — 본문 갱신의 성패를 가르지 않는다.
     await loadCaptures();
     await loadExtension();
-  }, [loadSummary, loadBody, loadLink, loadCaptures, loadExtension, tab, shape, linking]);
+  }, [loadSummary, loadBody, loadCaptures, loadExtension, tab, shape]);
+
+  const reloadViewConfiguration = async () => {
+    try {
+      const [views, cols] = await Promise.all([call<UserView[]>("userViews"), call<UserColumn[]>("userColumns")]);
+      updateUserViews(views); setAllColumns(cols); await refresh();
+    } catch (error) {
+      setViewsError(true); say(`보기 구성은 가져왔습니다. 화면을 다시 읽어 주세요. ${(error as Error).message}`, true);
+    }
+  };
 
   const dataVersion = useRef<number | null>(null);
   useEffect(() => {
     if (!isHosted) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
+    // 실패가 이어지는 동안 알림은 한 번만 — 1초마다 다시 세우면 다른 알림을 덮고 화면을 가린다. 다시 성공하면 다음 실패를 또 알린다.
+    let failing = false;
     const poll = async () => {
       try {
         const version = await call<number>("dataVersion");
@@ -396,8 +393,9 @@ export function App() {
           await refresh();
           if (!stopped) dataVersion.current = version;
         }
+        failing = false;
       } catch (e) {
-        if (!stopped) say((e as Error).message, true);
+        if (!stopped && !failing) { failing = true; say((e as Error).message, true); }
       } finally {
         // 느린 조회를 겹쳐 실행하지 않고, 실패한 갱신은 다음 확인에서 다시 시도한다.
         if (!stopped) timer = setTimeout(() => void poll(), 1000);
@@ -499,124 +497,34 @@ export function App() {
   const correct = async (rowKey: string, field: string, value: string) => {
     try {
       await call("setOverride", rowKey, field, value);
-      await loadBody();
     } catch (e) {
       say((e as Error).message, true);
       throw e; // 표가 제 값을 그대로 두게
     }
-  };
-
-  const revert = async (rowKey: string, field: string) => {
-    try {
-      await call("clearOverride", rowKey, field);
-      await loadBody();
-      say("원래 값으로 되돌렸습니다.");
-    } catch (e) {
-      say((e as Error).message, true);
-      throw e;
-    }
+    // 저장은 끝났다 — 다시 읽기의 실패를 저장 실패로 알리거나 던지지 않는다(일괄 편집과 같다).
+    await loadBody().catch((e: Error) => say(`저장은 완료했습니다. 화면을 다시 읽어 주세요. ${e.message}`, true));
   };
 
   /** 세어 보이기부터. 되돌릴 수 없는 일이라 사람이 숫자를 보고 눌러야 한다. */
-  const askDelete = async (rowKey: string) => {
-    try {
-      const plan = await call<DeletionPlan>("deletionPlan", rowKey, "series");
-
-      setDoomed({
-        plan,
-        // 차수가 하나뿐이면 고를 것이 없다 — 그것을 지우는 것이 곧 계열을 지우는 것이다.
-        one: plan.revisions.length > 1
-          ? await call<DeletionPlan>("deletionPlan", rowKey, "seq")
-          : null,
-      });
-    } catch (e) {
-      say((e as Error).message, true);
-    }
+  const remove = async (keys: string[], scope: DeletionScope, fingerprint: string) => {
+    const result = await call<BatchDeletionPlan>("batchDelete", JSON.stringify(keys), scope, fingerprint);
+    say(`자료 ${result.documentCount}건을 삭제했습니다.`);
+    // 창은 다시 읽은 뒤에 닫는다 — 지운 줄과 함께 「선택 자료 삭제…」 가 걷힌 뒤라야 초점이 표로 돌아간다.
+    // 먼저 닫으면 아직 서 있는 그 단추로 돌아갔다가 단추가 사라지며 body 로 떨어진다.
+    await refresh().catch((e: Error) => say(`삭제는 완료했습니다. 화면을 다시 읽어 주세요. ${e.message}`, true));
+    setDoomed(null);
   };
-
-  const remove = async (rowKey: string, scope: DeletionScope) => {
-    try {
-      await call("deleteEntity", rowKey, scope);
-      setDoomed(null);
-      say(`삭제했습니다  ${rowKey}`);
-      // 줄이 통째로 사라지고 요약과 연결 큐도 함께 움직인다.
-      await refresh();
-    } catch (e) {
-      say((e as Error).message, true);
-    }
+  const batchEdit = async (changes: BatchChange[]) => {
+    if (!sheet || readOnly) throw new Error("편집할 수 없는 자료입니다.");
+    await call("batchEdit", sheet.name, JSON.stringify(changes));
+    await loadBody().catch((e: Error) => say(`저장은 완료했습니다. 화면을 다시 읽어 주세요. ${e.message}`, true));
   };
-
-  const confirmLink = async (c: Candidate) => {
-    try {
-      await call(side === "접수" ? "confirmRequestLink" : "confirmLink", c.contractKey, c.noticeKey);
-      say(`연결했습니다  ${c.contractKey} ← ${c.noticeKey}`);
-      await Promise.all([loadSummary(), loadLink(), loadBody()]);
-    } catch (e) {
-      say((e as Error).message, true);
-    }
+  const exportGrid = async (data: SheetExport) => {
+    // 통합은 쪽 제목이 「대시보드」 라 보는 표의 이름으로 낸다 — 전체 자료 내보내기의 시트 이름과 같은 규칙(뷰 이름에서 v_ 를 뗀다).
+    const title = tab === "통합" && sheet ? sheet.name.replace(/^v_/, "") : PAGE[tab].title;
+    const path = await call<string | null>("exportSheet", title, JSON.stringify(data));
+    if (path) say(`내보냈습니다  ${path}`, false, 8000);
   };
-
-  // 물리친 짝은 기록으로 남아 다시 후보에 오르지 않는다. 그래야 목록이 실제로 줄어든다.
-  const rejectLink = async (c: Candidate) => {
-    try {
-      await call(side === "접수" ? "rejectRequestLink" : "rejectLink", c.contractKey, c.noticeKey);
-      say(`연결 후보에서 제외했습니다  ${c.contractKey} ↮ ${c.noticeKey}`);
-      await Promise.all([loadSummary(), loadLink()]);
-    } catch (e) {
-      say((e as Error).message, true);
-    }
-  };
-
-  /**
-   * 링크를 푼다. 물리치기와 달리 **"아니다" 라는 판정은 남기지 않는다** — 다시 가져올 때
-   * 기계가 같은 짝을 다시 이을 수 있다. 통합 뷰의 공고 열이 비므로 몸통도 함께 다시 읽는다.
-   */
-  const unlink = async (contractKey: string) => {
-    try {
-      await call(side === "접수" ? "unlinkRequest" : "unlink", contractKey);
-      say(`연결을 해제했습니다  ${contractKey}`);
-      await Promise.all([loadSummary(), loadLink(), loadBody()]);
-    } catch (e) {
-      say((e as Error).message, true);
-    }
-  };
-
-  /**
-   * ERP 명시 참조로 다시 잇는다. 있던 연결은 풀지도 바꾸지도 않는다 — 기계가 추천만으로
-   * 잇는 길은 없다(ADR-029).
-   */
-  const relink = async () => {
-    try {
-      const { linked } = await call<RelinkResult>("relinkExplicit");
-      say(`명시 참조 연결 ${linked}건 · 기존 연결 유지`);
-      await refresh();
-    } catch (e) {
-      say((e as Error).message, true);
-    }
-  };
-
-  /**
-   * 추천에 없는 짝을 나란히 견준다. 실패를 삼키면 화면이 빈 표를 그대로 세운다.
-   *
-   * <p><b>참조가 흔들리면 안 된다.</b> 잇기 화면이 이것을 효과의 의존성으로 물고 있어,
-   * 그릴 때마다 새 함수가 되면 토스트가 뜨고 지는 것만으로도 다리를 헛되이 다시 부른다.</p>
-   */
-  const compareLink = useCallback(
-    async (contractKey: string, noticeKey: string) => {
-      try {
-        if (side === "접수") {
-          const facets = await call<RequestLinkFacet[]>("compareRequestLink", contractKey, noticeKey);
-          return facets.map(견줌꼴로);
-        }
-
-        return await call<LinkFacet[]>("compareLink", contractKey, noticeKey);
-      } catch (e) {
-        say((e as Error).message, true);
-        throw e;
-      }
-    },
-    [say, side],
-  );
 
   /** 계획 엑셀을 고른다. 고른 자리는 다리가 설정에 적어 두고, 여기엔 이름과 경로가 온다. */
   const pickPlanExcel = async () => {
@@ -651,12 +559,8 @@ export function App() {
    * 화면이 옛 열을 붙들고 있어, 방금 세운 열이 설정 창에만 있고 표에는 없는 것처럼 보인다.
    */
   const columnAction = async (work: () => Promise<UserColumn[]>) => {
-    try {
-      setAllColumns(await work());
-      await loadBody();
-    } catch (e) {
-      say((e as Error).message, true);
-    }
+    setAllColumns(await work());
+    await loadBody().catch((e: Error) => say(`열 정의는 저장했습니다. 화면을 다시 읽어 주세요. ${e.message}`, true));
   };
 
   /** 화면은 쉼표로 받고 다리는 세로줄로 받는다 — 저장 형식이 세로줄이라 그쪽에 맞춘다. */
@@ -739,13 +643,17 @@ export function App() {
     }
   };
 
+  /**
+   * 설정 창은 닫지 않는다 — 이름을 저장한 사람은 대개 곧이어 그 아래의 「제출본 만들기」 를 누른다. 실패하면 알리고
+   * 던진다: 제출본 만들기가 저장에 실패한 이름으로 파일을 뜨지 않게.
+   */
   const saveSettings = async (submitterName: string) => {
     try {
       setSettings(await call<Settings>("saveSettings", submitterName));
       say("설정을 저장했습니다.");
-      setSettingsOpen(false);
     } catch (e) {
       say((e as Error).message, true);
+      throw e;
     }
   };
 
@@ -760,7 +668,6 @@ export function App() {
     if (!parsed) return;
 
     setFilter(parsed);
-    setLinking(false);
     setTab("계획");
   };
 
@@ -782,7 +689,7 @@ export function App() {
     : 거른시트;
 
   /** 지금 보고 있는 갈래. 그 갈래로 들어온 것은 이미 본 것이라 +N 에 세지 않는다. */
-  const arrivals = use들어옴(captures, !linking && isKind(tab) ? tab : null);
+  const arrivals = use들어옴(captures, isKind(tab) ? tab : null);
   const source = 원천상태(extension, readOnly);
 
   /**
@@ -808,8 +715,67 @@ export function App() {
     return () => { stopped = true; clearTimeout(timer); };
   }, [mirrorOn]);
 
-  /** 탭을 고른다. 검색과 공고 연결은 탭을 따라오지 않는다. 펼친 지금 보는 화면은 좁아진다. */
-  const pick = (t: Tab) => { setGridQuery(""); setLinking(false); setTab(t); setDockWide(false); };
+  /** 탭을 고른다. 검색은 탭을 따라오지 않는다. 펼친 지금 보는 화면은 좁아진다. */
+  const navigate = (work: () => void) => {
+    if (columnEntry) setColumnNavigation(n => ({ id: (n?.id ?? 0) + 1, proceed: () => { setColumnEntry(null); work(); } }));
+    else if (viewsOpen) setViewsNavigation(n => ({ id: (n?.id ?? 0) + 1, proceed: () => { setViewsOpen(false); work(); } }));
+    else work();
+  };
+  const openViews = (id: string | null) => {
+    if (viewsOpen && id !== null && id === activeView) return;
+    navigate(() => {
+      setDockWide(false); setViewsNavigation(undefined);
+      setViewEntry(entry => ({ id, sequence: entry.sequence + 1 }));
+      setActiveView(id); setViewsOpen(true);
+    });
+  };
+  /** 「내 보기 다시 불러오기」 — 보던 보기(없으면 첫 보기)를 다시 연다. 빈 「보기 만들기」 로 들어가지 않는다. */
+  const reloadViews = () => navigate(() => {
+    setDockWide(false); setViewsNavigation(undefined);
+    setViewEntry(entry => ({ id: activeView ?? undefined, sequence: entry.sequence + 1 }));
+    setViewsOpen(true);
+  });
+  /**
+   * 설정을 연다. 시작 때 설정을 읽지 못했으면 지금 다시 읽고, 또 못 읽으면 그 까닭을 알린다 — 읽은 것 없이 창을 세울 수
+   * 없는데 아무 말 없이 지나가면 「설정」 단추가 죽은 것처럼 보인다.
+   */
+  const openSettings = () => {
+    if (settings) { setSettingsOpen(true); return; }
+    void call<Settings>("settings").then(
+      (read) => { setSettings(read); setSettingsOpen(true); },
+      (e: Error) => say(`설정을 읽지 못했습니다. ${e.message}`, true));
+  };
+  const pick = (t: Tab, then?: () => void) => navigate(() => { setGridQuery(""); setTab(t); setDockWide(false); then?.(); });
+  /** 나라장터 화면이 「확장 상태」 를 보고 있어도 「들어온 자료」 로 돌려세우는 요청. */
+  const [arrivalsRequest, setArrivalsRequest] = useState(0);
+
+  /**
+   * 창 닫기도 탭을 옮기는 것과 같은 확인을 거친다. 저장하지 않은 편집이 있는 동안만 앱에 알려 두면, 앱은 닫기·끝내기를
+   * 멈추고 「닫기 요청」 을 보낸다 — 화면이 같은 확인을 띄우고, 버려도 되면 그때 정말 닫는다.
+   */
+  const unsaved = (!!columnEntry && columnDirty) || (viewsOpen && viewsDirty);
+  const unsavedSent = useRef(false);
+  useEffect(() => {
+    if (!isHosted || unsaved === unsavedSent.current) return;
+    unsavedSent.current = unsaved;
+    void call("setUnsaved", String(unsaved)).catch(() => {});
+  }, [unsaved]);
+  const navigateNow = useRef(navigate);
+  navigateNow.current = navigate;
+  useEffect(() => onNotice("closeRequested", () => navigateNow.current(
+    () => void call("closeWindow").catch((e: Error) => say(e.message, true)))), [say]);
+  const manageColumns = (field?: string) => {
+    columnReturnFocus.current = document.activeElement as HTMLElement | null;
+    setColumnNavigation(undefined); setSettingsOpen(false); setDockWide(false);
+    setColumnEntry({ entityType: tab === "접수" ? "request" : tab === "공고" ? "notice" : "contract", field, integrated: tab === "통합" });
+  };
+  const closeColumns = () => {
+    setColumnEntry(null);
+    requestAnimationFrame(() => {
+      if (columnReturnFocus.current?.isConnected && !columnReturnFocus.current.closest("[hidden]")) columnReturnFocus.current.focus();
+      else document.querySelector<HTMLElement>(".grid-board")?.focus();
+    });
+  };
 
   /** 펼침은 붙어 있을 때만 — 비출 것이 없으면 작업 영역을 돌려준다. */
   const wideOn = dockWide && mirrorOn;
@@ -826,24 +792,21 @@ export function App() {
   const see = () => { if (frontTab) setDockRequest((r) => ({ id: frontTab.id, n: (r?.n ?? 0) + 1, follow: true })); };
 
   /** 들어온 수집의 「보기」 — 그 종류 탭으로 옮겨 표 검색을 그 번호로 건다. */
-  const openCapture = (kind: Kind, number: string) => { setGridQuery(number); setLinking(false); setTab(kind); };
+  const openCapture = (kind: Kind, number: string) => { setGridQuery(number); setListShape("표"); setTab(kind); };
 
+  /** 대시보드와 기능 스위치가 켜진 계획·현황의 독립 탐색 행. */
   const plainTab = (t: Tab) => (
-    <button key={t} id={`tab-${t}`} role="tab" className="tab"
-      aria-selected={!linking && tab === t} aria-controls="workspace"
+    <button id={`tab-${t}`} role="tab" className="tab plain-tab" key={t}
+      aria-selected={!columnEntry && !viewsOpen && tab === t} aria-controls="workspace"
       tabIndex={tab === t ? 0 : -1}
       onClick={() => pick(t)}>
-      {t}
+      {t === "통합" ? "대시보드" : t}
     </button>
   );
 
   if (!isHosted) return <div className="empty-state">이 화면은 앱 안에서 씁니다.</div>;
 
-  // 배지는 둘의 합이다. 갈래마다 따로 세우면 접수 큐가 갈래를 열어 보기 전에는 안 보인다.
-  const unlinked = (summary?.unlinkedContracts ?? 0) + (summary?.unlinkedRequests ?? 0);
-  const page = linking
-    ? { title: "공고 연결", description: "접수·계약과 공고를 비교하고, 같은 조달 건인지 확인해 연결합니다." }
-    : PAGE[tab];
+  const page = PAGE[tab];
 
   return (
     <div className={`app${wideOn ? " dock-wide" : ""}`}>
@@ -860,10 +823,10 @@ export function App() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h5" /></svg>
           <strong>계약 목록</strong>
         </div>
-        <p className="nav-label">자료 탐색</p>
-        {/* 나라장터 한 원천에서 접수·공고·계약 세 갈래로. 방향키는 보이는 차례(TABS)를 그대로 따른다. */}
+        {/* 수집 상태와 자료 탐색을 분리한다. 방향키는 보이는 메뉴만 따른다. */}
         <nav className="tabs" role="tablist" aria-label="자료 종류" aria-orientation="vertical"
           onKeyDown={(e) => {
+            if (!(e.target as HTMLElement).closest('[role="tab"]')) return;
             const index = TABS.indexOf(tab);
             const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? (index + 1) % TABS.length
               : e.key === "ArrowUp" || e.key === "ArrowLeft" ? (index + TABS.length - 1) % TABS.length
@@ -874,8 +837,8 @@ export function App() {
             document.getElementById(`tab-${TABS[next]}`)?.focus();
           }}>
           {plainTab("통합")}
-          <SourceTree
-            selected={linking ? null : tab}
+          <SourceChain
+            selected={columnEntry || viewsOpen ? null : tab}
             focusable={tab}
             onSelect={pick}
             source={source}
@@ -884,19 +847,33 @@ export function App() {
             seeing={seeing}
             onSee={see}
           />
-          {plainTab("계획")}
-          {plainTab("현황")}
+          {PLANNING_ENABLED && <div className="off-chain">
+            {plainTab("계획")}
+            {plainTab("현황")}
+          </div>}
         </nav>
-        <p className="nav-label">자료 검토</p>
-        <button className="nav-link" aria-pressed={linking} onClick={() => { setLinkTarget(null); setLinking((v) => !v); setDockWide(false); }}>
-          공고 연결
-          {unlinked > 0 && <span className="badge" aria-label={`연결되지 않은 계약·접수 ${unlinked}건`}>{unlinked}</span>}
-        </button>
+        {USER_VIEWS_ENABLED && <nav className="sidebar-lists" aria-label="내 보기">
+          <h2>내 보기</h2>
+          {userViews.map(view => <button key={view.id} className="nav-link" title={view.name}
+            aria-pressed={viewsOpen && activeView === view.id} onClick={() => openViews(view.id)}>
+            <span>{view.name}</span>
+          </button>)}
+          {!readOnly && <button className="nav-link sidebar-list-new" onClick={() => openViews(null)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>보기 만들기
+          </button>}
+          {readOnly && !userViews.length && <p>저장한 보기가 없습니다.</p>}
+          {viewsError && !userViews.length && <button className="nav-link" onClick={reloadViews}>내 보기 다시 불러오기</button>}
+        </nav>}
         <div className="sidebar-bottom">
-          <button className="action quiet" onClick={() => { setDockWide(false); setSettingsOpen(true); }}>설정</button>
+          <button className="nav-link" onClick={() => navigate(() => { setDockWide(false); openSettings(); })}>
+            <span className="nav-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2.2" /><circle cx="9" cy="17" r="2.2" /></svg>
+            </span>
+            설정
+          </button>
         </div>
       </aside>
-      <main className="workspace" id="workspace" aria-label={page.title} hidden={wideOn}>
+      <main className="workspace" id="workspace" aria-label={page.title} hidden={wideOn || !!columnEntry || viewsOpen}>
       {/* 열람 창은 그것을 내내 말한다. 창 제목만으로는 어느 창이 내 작업자료인지 헷갈린다. */}
       {readOnly && session && (
         <div className="readonly-banner" role="status">
@@ -904,7 +881,7 @@ export function App() {
           <span> — 읽기 전용이라 이 창에서는 고칠 수 없습니다.</span>
         </div>
       )}
-      {tab === "나라장터" && !linking ? (
+      {tab === "나라장터" ? (
         <NaraPanel
           readOnly={readOnly}
           status={extension}
@@ -919,38 +896,14 @@ export function App() {
           onError={(message) => say(message, true)}
           mirror={mirror}
           onShowTab={(id) => setDockRequest((r) => ({ id, n: (r?.n ?? 0) + 1 }))}
+          arrivalsRequest={arrivalsRequest}
         />
       ) : <>
-      <header className="top">
-        <div className="page-heading"><h1>{page.title}</h1><p>{page.description}</p></div>
-        {/* 자료는 확장·ERP JSON 으로 들어온다(ADR-028). 여기는 내보내는 자리뿐이다. */}
-        <div className="top-group">
-          <button className="action" onClick={() => void exportExcel()} disabled={saving}>
-            {saving ? "내보내는 중…" : "엑셀로 내보내기"}
-          </button>
-        </div>
-
-      </header>
-      <div className="view-bar">
-        {summary && (
-          <div className="stat" aria-label="전체 자료 수">
-            <span>접수 <b>{summary.requestBases}</b></span>
-            <span>공고 <b>{summary.noticeBases}</b></span>
-            <span>계약 <b>{summary.contractBases}</b></span>
-          </div>
-        )}
-
-        {/* 무엇으로 걸렸는지 보이고, 걷는 길이 그 옆에 있다. */}
-        {tab === "계획" && filter && !linking && (
-          <div className="shape" role="group" aria-label="필터">
-            <span className="filter-tag">{filter.열} = {filter.값}</span>
-            <button className="chip" onClick={() => setFilter(null)}>필터 해제</button>
-          </div>
-        )}
-
-        {tab === "통합" && !linking && (
+      <header className={`top${tab === "통합" ? " dashboard-top" : ""}`}>
+        <div className="page-heading"><h1>{page.title}</h1>{tab !== "통합" && <p>{page.description}</p>}</div>
+        {tab === "통합" && (
           <div className="shape" role="group" aria-label="통합 보기 방식">
-            {(["구조", "표", "차수"] as Shape[]).map((s) => (
+            {(["브리핑", "구조", "표", "차수"] as Shape[]).map((s) => (
               <button
                 key={s}
                 className="chip"
@@ -962,15 +915,27 @@ export function App() {
             ))}
           </div>
         )}
+      </header>
+      <div className="view-bar" hidden={tab === "통합" && shape === "브리핑"}>
+        {(tab === "통합" && shape === "구조" || !보이는시트?.rows.length) && tab !== "현황" && !(tab === "통합" && shape === "브리핑") && <button className="action quiet" onClick={() => manageColumns()}>열 관리</button>}
+        {summary && tab !== "통합" && (
+          <div className="stat" aria-label="전체 자료 수">
+            <span>접수 <b>{summary.requestBases}</b></span>
+            <span>공고 <b>{summary.noticeBases}</b></span>
+            <span>계약 <b>{summary.contractBases}</b></span>
+          </div>
+        )}
 
-        {/*
-          공고·계약에는 「구조」가 없어 표가 곧 최신이다. 그래서 알약은 둘이지만 고르는 것은
-          통합과 <b>같은 눈</b>이라, 한쪽에서 펴 두면 탭을 옮겨도 펴진 채로 따라온다.
+        {/* 무엇으로 걸렸는지 보이고, 걷는 길이 그 옆에 있다. */}
+        {tab === "계획" && filter && (
+          <div className="shape" role="group" aria-label="필터">
+            <span className="filter-tag">{filter.열} = {filter.값}</span>
+            <button className="chip" onClick={() => setFilter(null)}>필터 해제</button>
+          </div>
+        )}
 
-          「최신」을 눌러도 펴져 있지 않았으면 아무것도 바꾸지 않는다 — 「표」로 고쳐 버리면
-          통합으로 돌아갔을 때 보고 있던 「구조」가 눌러 본 적 없이 사라진다.
-        */}
-        {(tab === "공고" || tab === "계약") && !linking && (
+        {/* 자료 목록의 최신·전체 차수 선택은 대시보드 보기 방식과 별도로 유지한다. */}
+        {(tab === "공고" || tab === "계약") && (
           <div className="shape" role="group" aria-label={`${tab} 보기 방식`}>
             <button
               className="chip"
@@ -989,45 +954,10 @@ export function App() {
           </div>
         )}
 
-        {/* 잇기의 두 갈래. 같은 눈으로 다른 짝을 보는 자리라 탭이 아니라 낮은 위계의 알약이다. */}
-        {linking && (
-          <>
-            <div className="shape" role="group" aria-label="연결 갈래">
-              {SIDES.map((s) => (
-                <button
-                  key={s}
-                  className="chip"
-                  aria-pressed={side === s}
-                  onClick={() => { if (side !== s) { setLinkTarget(null); setWork(null); setSide(s); } }}
-                >
-                  {s} ↔ 공고
-                </button>
-              ))}
-            </div>
-
-            {/* 갈래를 고르는 것이 아니라 한 번 돌리는 일이라 그 묶음 밖에 선다. 잇는 일이라 열람 중에는 없다. */}
-            {!readOnly && <button className="chip" onClick={() => void relink()}>명시 참조로 다시 잇기</button>}
-          </>
-        )}
-        {tab === "계획" && !linking && <button className="action quiet plan-setup" onClick={() => setSettingsOpen(true)}>계획 엑셀 가져오기 설정</button>}
+        {tab === "계획" && <button className="action quiet plan-setup" onClick={openSettings}>계획 엑셀 가져오기 설정</button>}
       </div>
 
-      {linking ? (
-        linkError ? <div className="empty-state" role="alert"><h2>연결 자료를 읽지 못했습니다</h2><p>{linkError}</p>
-          <button className="action" onClick={() => void loadLink().catch(() => {})}>다시 읽기</button></div> : work ? (
-          <LinkPanel
-            key={`${side}:${linkTarget ?? ""}`}
-            initialKey={linkTarget}
-            work={work}
-            leftLabel={side}
-            readOnly={readOnly}
-            onConfirm={confirmLink}
-            onReject={rejectLink}
-            onUnlink={unlink}
-            onCompare={compareLink}
-          />
-        ) : <div className="empty-state">읽는 중…</div>
-      ) : bodyError?.key === bodyKey ? (
+      {bodyError?.key === bodyKey ? (
         <div className="empty-state" role="alert"><h2>자료를 읽지 못했습니다</h2><p>{bodyError.message}</p>
           <button className="action" onClick={() => void loadBody().catch(() => {})}>다시 읽기</button>
         </div>
@@ -1035,10 +965,12 @@ export function App() {
         statusReport
           ? <Status report={statusReport} onFilter={걸기} />
           : <div className="empty-state">읽는 중…</div>
+      ) : tab === "통합" && shape === "브리핑" ? (
+        dashboard ? <Dashboard report={dashboard} state={dashboardState} onStateChange={setDashboardState} onOpen={openCapture} onRefresh={refresh}
+          onSetup={() => pick("나라장터")} onError={message => say(message, true)} /> : <div className="empty-state">읽는 중…</div>
       ) : tab === "통합" && shape === "구조" ? (
-        tree ? <Outline tree={tree} onSetup={() => pick("나라장터")}
-          onOpen={(kind, number, revisions) => { setGridQuery(number); setTab(kind); setShape(revisions ? "차수" : "표"); }}
-          onLink={(kind, key) => { setLinkTarget(key); setWork(null); setSide(kind); setLinking(true); }} /> : <div className="empty-state">읽는 중…</div>
+        tree ? <Outline tree={tree} state={outlineState} onStateChange={setOutlineState} onSetup={() => pick("나라장터")}
+          onOpen={(kind, number, revisions) => { setGridQuery(number); setTab(kind); setListShape(revisions ? "차수" : "표"); }} /> : <div className="empty-state">읽는 중…</div>
       ) : 보이는시트?.rows.length === 0 ? (
         <div className="empty-state">
           <h2>{tab === "계획" && filter ? "이 조건에 맞는 계획이 없습니다" : `아직 ${tab} 자료가 없습니다`}</h2>
@@ -1048,22 +980,26 @@ export function App() {
           {tab === "계획" && filter
             ? <button className="action" onClick={() => setFilter(null)}>조건 지우기</button>
             : tab === "계획"
-              ? <button className="action primary" onClick={() => setSettingsOpen(true)}>계획 엑셀 설정</button>
+              ? <button className="action primary" onClick={openSettings}>계획 엑셀 설정</button>
               : <button className="action primary" onClick={() => pick("나라장터")}>나라장터 열기</button>}
         </div>
-      ) : 보이는시트 && tab !== "나라장터" ? (
+      ) : 보이는시트 ? (
         <Grid
           key={`${bodyKey}:${gridQuery}`}
           initialQuery={gridQuery}
+          focusQuery={gridSeed.focus}
+          onQueryChange={(query) => { liveQuery.current = { key: bodyKey, query }; }}
           sheet={보이는시트}
           columns={columns}
           keyColumn={SHEETS[tab].keyColumn}
           identityColumns={SHEETS[tab].identity}
           onEdit={edit}
           onCorrect={correct}
-          onRevert={revert}
           // 계획 행은 지우는 개체가 아니다 — 손잡이를 넘기지 않으면 단추가 서지 않는다. 열람 중에도 그렇다.
-          onDelete={tab === "계획" || readOnly ? undefined : askDelete}
+          onDeleteRows={tab === "계획" || readOnly ? undefined : rows => setDoomed({ rows, entityType: SHEETS[tab].entityType!, integrated: tab === "통합" })}
+          onBatchEdit={readOnly || !(보이는시트.editable.length + 보이는시트.correctable.length) ? undefined : batchEdit}
+          onManageColumns={tab === "계획" ? undefined : manageColumns}
+          onExport={exportGrid}
         />
       ) : (
         <div className="empty-state">읽는 중…</div>
@@ -1075,20 +1011,32 @@ export function App() {
       </footer>
       </main>
 
-      <Dock source={source} readOnly={readOnly} mirror={mirror} request={dockRequest} wide={wideOn} onWide={setDockWide}
-        onShowList={() => pick("나라장터")}
+      {viewsOpen && <main className="workspace column-workspace" aria-label="내 보기">
+        <UserViews key={viewEntry.sequence} readOnly={readOnly} showList={false} initialViewId={viewEntry.id}
+          onViewsChange={updateUserViews} onActiveChange={setActiveView} navigationRequest={viewsNavigation} onDirtyChange={setViewsDirty} refreshVersion={viewRefreshVersion} />
+      </main>}
+
+      {columnEntry && <main className="workspace column-workspace" aria-label="열 관리">
+        <ColumnManager columns={allColumns} initialEntity={columnEntry.entityType} initialField={columnEntry.field}
+          fromIntegrated={columnEntry.integrated} readOnly={readOnly} onClose={closeColumns} navigationRequest={columnNavigation} onDirtyChange={setColumnDirty}
+          onAddColumn={addColumn} onUpdateColumn={updateColumn} onRemoveColumn={removeColumn} onMoveColumn={moveColumn}
+          onSaveComputed={(entity, name, formula, previousName) => columnAction(() => call<UserColumn[]>("saveComputedColumn", entity, name, JSON.stringify(formula), previousName ?? null))}
+          onFreezeColumn={(entity, name, expected) => columnAction(() => call<UserColumn[]>("freezeColumn", entity, name, String(expected)))} />
+      </main>}
+
+      <Dock source={source} readOnly={readOnly} mirror={mirror} request={dockRequest} wide={wideOn} onWide={value => navigate(() => setDockWide(value))}
+        onShowList={() => pick("나라장터", () => setArrivalsRequest((n) => n + 1))}
         onImported={() => void refresh().catch(() => {})}
         onError={(message) => say(message, true)} />
 
       {settingsOpen && settings && (
         <SettingsPanel
           settings={settings}
-          columns={allColumns}
-          onAddColumn={addColumn}
-          onUpdateColumn={updateColumn}
-          onRemoveColumn={removeColumn}
-          onMoveColumn={moveColumn}
-          onOpenNara={() => { setSettingsOpen(false); pick("나라장터"); }}
+          display={display}
+          onDisplayChange={setDisplay}
+          onExportExcel={exportExcel}
+          exportBusy={saving}
+          onViewsImported={() => void reloadViewConfiguration()}
           onPickPlanExcel={pickPlanExcel}
           onImportPlan={importPlan}
           onSave={saveSettings}
@@ -1109,10 +1057,12 @@ export function App() {
 
       {doomed && (
         <ConfirmDelete
-          plan={doomed.plan}
-          one={doomed.one}
-          onDelete={(scope) => remove(doomed.plan.display, scope)}
+          rows={doomed.rows}
+          entityType={doomed.entityType}
+          integrated={doomed.integrated}
+          onDelete={remove}
           onClose={() => setDoomed(null)}
+          fallbackFocus={() => document.querySelector<HTMLElement>(".grid-board")}
         />
       )}
 

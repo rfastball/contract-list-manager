@@ -1,12 +1,14 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Grid } from "./Grid";
-import type { Sheet, UserColumn } from "./types";
+import { Grid, parseClipboard } from "./Grid";
+import type { BatchChange, Row, Sheet, SheetExport, UserColumn } from "./types";
 
 // jsdom 에는 없다. 커서를 따라 굴리는 코드가 여기서 걸려 넘어지지 않게 둔다.
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; };
 });
 
 // globals 를 켜지 않아 자동 정리가 걸리지 않는다. 안 치우면 렌더가 쌓여 요소가 겹쳐 잡힌다.
@@ -37,8 +39,10 @@ function sheet(): Sheet {
 type Hands = {
   onEdit?: (key: string, field: string, value: string) => Promise<void>;
   onCorrect?: (key: string, field: string, value: string) => Promise<void>;
-  onRevert?: (key: string, field: string) => Promise<void>;
   onDelete?: (key: string) => void;
+  onDeleteRows?: (rows: Row[]) => void;
+  onBatchEdit?: (changes: BatchChange[]) => Promise<void>;
+  onExport?: (data?: SheetExport) => Promise<void>;
 };
 
 /** 표를 그리고, 바깥이 하듯 성공한 편집만 sheet 에 되먹인다. */
@@ -51,8 +55,10 @@ function draw(hands: Hands = {}) {
     identityColumns: ["계약번호"],
     onEdit: hands.onEdit ?? vi.fn().mockResolvedValue(undefined),
     onCorrect: hands.onCorrect ?? vi.fn().mockResolvedValue(undefined),
-    onRevert: hands.onRevert ?? vi.fn().mockResolvedValue(undefined),
     onDelete: hands.onDelete ?? vi.fn(),
+    onDeleteRows: hands.onDeleteRows,
+    onBatchEdit: hands.onBatchEdit,
+    onExport: hands.onExport,
   };
 
   const view = render(<Grid sheet={data} {...props} />);
@@ -67,6 +73,170 @@ function cell(rowIndex: number, text: string) {
 }
 
 describe("Grid", () => {
+  it("행 범위 선택은 정렬 후 자료를 유지하고 입력·필터와 섞이지 않는다", async () => {
+    const user = userEvent.setup();
+    const onDeleteRows = vi.fn(), onEdit = vi.fn(), onExport = vi.fn().mockResolvedValue(undefined);
+    draw({ onDeleteRows, onEdit, onExport });
+    await user.click(cell(0, "김담당"));
+    await user.click(screen.getByLabelText("R26TA0100 행 선택"));
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getByLabelText("R26TA0200 행 선택"));
+    await user.keyboard("{/Shift}");
+    expect(screen.getByText("2행 선택")).toBeTruthy();
+    (document.querySelector(".grid-board") as HTMLElement).focus();
+    await user.keyboard("잘못입력{Delete}");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(onEdit).not.toHaveBeenCalled();
+    await user.click(screen.getByText("계약금액"));
+    await user.click(screen.getByText("선택 자료 삭제…"));
+    expect(onDeleteRows.mock.calls[0][0].map((r: Row) => r.계약번호)).toEqual(["R26TA0100", "R26TA0200"]);
+    await user.click(screen.getByText("엑셀 내보내기"));
+    await user.click(screen.getByText("선택한 2행 내보내기"));
+    expect(onExport.mock.calls[0][0].rows.map((r: string[]) => r[0])).toEqual(["R26TA0100", "R26TA0200"]);
+    await user.type(screen.getByRole("searchbox"), "수질");
+    expect(screen.queryByText("2행 선택")).toBeNull();
+    expect(screen.queryByText("선택 자료 삭제…")).toBeNull();
+  });
+
+  it("엑셀 붙여넣기는 범위·잠금 검토 후 한번에 저장하고 실패한 초안을 유지한다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockRejectedValueOnce(new Error("자료가 변경되었습니다"))
+      .mockResolvedValue(undefined);
+    draw({ onBatchEdit });
+    expect(parseClipboard('"여러\n줄"\t"따옴표""값"\r\n')).toEqual([["여러\n줄", '따옴표"값']]);
+    await user.click(cell(0, "김담당"));
+    const board = document.querySelector(".grid-board")!;
+    fireEvent.paste(board, { clipboardData: { getData: () => "이담당\r\n박담당" } });
+    const dialog = await screen.findByRole("dialog", { name: "일괄 변경 검토" });
+    expect(onBatchEdit).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "2셀 변경 적용" }));
+    expect(await within(dialog).findByRole("alert")).toHaveProperty("textContent", "자료가 변경되었습니다");
+    expect(onBatchEdit.mock.calls[0][0]).toEqual([
+      { rowKey: "R26TA0100", field: "담당", value: "이담당", original: "김담당", operation: "set" },
+      { rowKey: "R26TA0200", field: "담당", value: "박담당", original: "", operation: "set" },
+    ]);
+    await user.click(within(dialog).getByRole("button", { name: "2셀 변경 적용" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(cell(0, "R26TA0100"));
+    fireEvent.paste(board, { clipboardData: { getData: () => "다른번호" } });
+    expect(screen.getByRole("alert").textContent).toContain("수정할 수 없는 칸");
+    expect(onBatchEdit).toHaveBeenCalledTimes(2);
+  });
+
+  it("Shift 셀 범위 복사와 행 선택 일괄 입력은 서로 다른 범위로 적용된다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onBatchEdit });
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
+    expect(screen.getByText("2셀 선택")).toBeTruthy();
+    const setData = vi.fn();
+    fireEvent.copy(document.querySelector(".grid-board")!, { clipboardData: { setData } });
+    expect(setData).toHaveBeenCalledWith("text/plain", "김담당\r\n");
+    await user.click(screen.getByLabelText("검색 결과 3행 전체 선택"));
+    expect(screen.queryByText("2셀 선택")).toBeNull();
+    await user.click(screen.getByText("같은 값 입력…"));
+    await user.type(screen.getByLabelText("같은 값"), "공동담당");
+    await user.click(screen.getByText("변경 검토"));
+    await user.click(screen.getByRole("button", { name: "3셀 변경 적용" }));
+    expect(onBatchEdit.mock.calls[0][0]).toHaveLength(3);
+  });
+
+  it("행 선택 일괄 입력을 적용하면 연 단추가 걷혀도 초점이 표로 돌아온다 — body 로 떨어지지 않는다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onBatchEdit });
+    await user.click(screen.getByLabelText("검색 결과 3행 전체 선택"));
+    await user.click(screen.getByText("같은 값 입력…"));
+    await user.type(screen.getByLabelText("같은 값"), "공동담당");
+    await user.click(screen.getByText("변경 검토"));
+    await user.click(screen.getByRole("button", { name: "3셀 변경 적용" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "일괄 변경 검토" })).toBeNull());
+    expect(screen.queryByText("변경 검토")).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector(".grid-board"));
+  });
+
+  it("범위의 「원래 값 복원…」 이 바꿀 것이 없거나 「복사」 가 성공하면 띠에 보이는 글로 알리고 잠시 뒤 걷는다 — 오류와 가른다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onBatchEdit });
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
+    await user.click(screen.getByRole("button", { name: "원래 값 복원…" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onBatchEdit).not.toHaveBeenCalled();
+    const seen = () => document.querySelector(".grid-notice");
+    expect(seen()!.textContent).toBe("변경할 값이 없습니다.");
+    expect(seen()!.getAttribute("role")).toBeNull();
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "변경할 값이 없습니다.")).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    // 몇 초 뒤 보이는 글은 걷히고, 읽어 주던 알림은 남는다.
+    await waitFor(() => expect(seen()).toBeNull(), { timeout: 5000 });
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "변경할 값이 없습니다.")).toBe(true);
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    await user.click(screen.getByRole("button", { name: "복사" }));
+    expect(writeText).toHaveBeenCalledWith("김담당\r\n");
+    await waitFor(() => expect(seen()?.textContent).toBe("복사했습니다."));
+  }, 10000);
+
+  /** 통합 표에는 계약이 아직 없는 줄이 정상으로 섞인다 — 그 줄 하나 때문에 행 선택 일괄 입력 전체가 막히면 안 된다. */
+  it("행 선택 일괄 입력은 계약 없는 줄을 건너뛰고 몇 줄인지 보이며, 범위 선택은 그대로 엄격하다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    const data = sheet();
+    data.columns = ["계약번호", "입찰공고번호", ...data.columns.slice(1)];
+    data.rows = [
+      { ...data.rows[0], 입찰공고번호: "" },
+      { 계약번호: "", 입찰공고번호: "R26BK01-000", 계약건명: "", 계약금액: "", 담당: "", 진행상태: "" },
+      { ...data.rows[2], 입찰공고번호: "" },
+    ];
+    const view = render(<Grid sheet={data} columns={columns} keyColumn="계약번호" identityColumns={["계약번호", "입찰공고번호"]}
+      onEdit={vi.fn()} onCorrect={vi.fn()} onBatchEdit={onBatchEdit} />);
+
+    await user.click(screen.getByLabelText("검색 결과 3행 전체 선택"));
+    await user.click(screen.getByText("같은 값 입력…"));
+    await user.type(screen.getByLabelText("같은 값"), "공동담당");
+    await user.click(screen.getByText("변경 검토"));
+    const dialog = await screen.findByRole("dialog", { name: "일괄 변경 검토" });
+    expect(within(dialog).getByText("계약이 없는 1행은 건너뜁니다.")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "2셀 변경 적용" }));
+    expect(onBatchEdit.mock.calls[0][0].map((c: BatchChange) => c.rowKey)).toEqual(["R26TA0100", "R26TA0300"]);
+
+    // 셀 범위는 지금처럼 계약 없는 줄이 섞이면 아무것도 올리지 않는다.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "선택 해제" }));
+    await user.click(cell(0, "R26TA0100").closest("tr")!.querySelectorAll("td")[5]);
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}{Delete}");
+    expect(screen.getByRole("alert").textContent).toContain("수정할 수 없는 칸");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.unmount();
+
+    // 모두 건너뛰게 되면 지금처럼 거절한다.
+    render(<Grid sheet={{ ...data, rows: [data.rows[1]] }} columns={columns} keyColumn="계약번호" identityColumns={["계약번호", "입찰공고번호"]}
+      onEdit={vi.fn()} onCorrect={vi.fn()} onBatchEdit={onBatchEdit} />);
+    await user.click(screen.getByLabelText("검색 결과 1행 전체 선택"));
+    await user.click(screen.getByText("같은 값 입력…"));
+    await user.type(screen.getByLabelText("같은 값"), "공동담당");
+    await user.click(screen.getByText("변경 검토"));
+    expect(screen.getByRole("alert").textContent).toContain("수정할 수 없는 칸");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onBatchEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("편집 중 다른 셀을 누르면 기존 입력을 저장하고 새 셀로 이동한다", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onEdit });
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{F2}");
+    await user.clear(screen.getByRole("textbox"));
+    await user.type(screen.getByRole("textbox"), "다른담당");
+    await user.click(cell(2, "박담당"));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledWith("R26TA0100", "담당", "다른담당");
+  });
   /**
    * 이 표가 지켜야 할 첫째 약속.
    *
@@ -117,6 +287,41 @@ describe("Grid", () => {
 
     expect(onEdit).not.toHaveBeenCalled();
     expect(cell(0, "김담당")).toBeTruthy();
+  });
+
+  it("저장하는 동안 친 글자는 버리지 않고, 끝나면 지금 칸의 편집으로 이어 받는다", async () => {
+    const user = userEvent.setup();
+    let 끝 = () => {};
+    const onEdit = vi.fn(() => new Promise<void>(resolve => { 끝 = resolve; }));
+    draw({ onEdit });
+
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{F2}");
+    await user.clear(screen.getByRole("textbox"));
+    await user.keyboard("이담당{Enter}");
+    // 아래 줄(담당이 빈 칸)로 내려와 저장이 끝나기 전에 친다.
+    await user.keyboard("정담");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    끝();
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveProperty("value", "정담"));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("「엑셀 내보내기」 펼침은 바깥을 누르거나 Esc 로 접힌다", async () => {
+    const user = userEvent.setup();
+    draw({ onExport: vi.fn().mockResolvedValue(undefined) });
+    const summary = screen.getByLabelText("엑셀 내보내기");
+    const menu = summary.closest("details") as HTMLDetailsElement;
+    await user.click(summary);
+    expect(menu.open).toBe(true);
+    await user.click(cell(0, "김담당"));
+    expect(menu.open).toBe(false);
+    await user.click(summary);
+    expect(menu.open).toBe(true);
+    screen.getByRole("button", { name: /^검색 결과 3행 내보내기$/ }).focus();
+    await user.keyboard("{Escape}");
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
   });
 
   /** Enter 로 넣으면 초점이 표로 돌아가며 blur 가 뒤따른다. 막지 않으면 두 번 저장된다. */
@@ -185,32 +390,61 @@ describe("Grid", () => {
    * 잘못 읽힌 칸을 <b>비우는 것</b>과 파서 값으로 <b>돌아가는 것</b>은 다른 일이다.
    * 한 키에 둘을 얹으면 앞의 것을 할 수 없다.
    */
-  it("Delete 는 빈 값을 넣고 Ctrl+Delete 는 되돌린다", async () => {
+  it("Delete 는 빈 값을 넣고 Ctrl+Delete 는 검토 창을 거쳐 되돌린다", async () => {
     const user = userEvent.setup();
     const onCorrect = vi.fn().mockResolvedValue(undefined);
-    const onRevert = vi.fn().mockResolvedValue(undefined);
-    draw({ onCorrect, onRevert });
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onCorrect, onBatchEdit });
 
     await user.click(cell(1, "1,000"));
     await user.keyboard("{Delete}");
 
     expect(onCorrect).toHaveBeenCalledWith("R26TA0200", "계약금액", "");
-    expect(onRevert).not.toHaveBeenCalled();
+    expect(onBatchEdit).not.toHaveBeenCalled();
 
+    // 사람이 고친 값을 지우는 일이라 칸 하나여도 범위와 같은 검토 창을 거친다 — 확인 전에는 아무것도 지우지 않는다.
     await user.keyboard("{Control>}{Delete}{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "일괄 변경 검토" });
+    expect(within(dialog).getByText("수집 원래 값")).toBeTruthy();
+    expect(onBatchEdit).not.toHaveBeenCalled();
 
-    expect(onRevert).toHaveBeenCalledWith("R26TA0200", "계약금액");
+    await user.click(within(dialog).getByRole("button", { name: "1셀 변경 적용" }));
+    expect(onBatchEdit).toHaveBeenCalledWith([
+      { rowKey: "R26TA0200", field: "계약금액", value: "", original: "1,000", operation: "revert" },
+    ]);
   });
 
-  it("고치지 않은 칸에서는 되돌릴 것이 없다", async () => {
+  it("Ctrl+Backspace 검토 창을 취소하면 아무것도 지우지 않는다", async () => {
     const user = userEvent.setup();
-    const onRevert = vi.fn().mockResolvedValue(undefined);
-    draw({ onRevert });
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onBatchEdit });
+
+    await user.click(cell(1, "1,000"));
+    await user.keyboard("{Control>}{Backspace}{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "일괄 변경 검토" });
+    await user.click(within(dialog).getByRole("button", { name: "취소" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onBatchEdit).not.toHaveBeenCalled();
+  });
+
+  it("고치지 않은 칸이나 고칠 수 없는 표에서는 되돌릴 것이 없다", async () => {
+    const user = userEvent.setup();
+    const onBatchEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onBatchEdit });
 
     await user.click(cell(0, "900"));
     await user.keyboard("{Control>}{Delete}{/Control}");
 
-    expect(onRevert).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onBatchEdit).not.toHaveBeenCalled();
+    cleanup();
+
+    // 일괄 편집 손잡이가 없는 표(열람·차수)에서는 고친 칸이어도 그대로다.
+    draw();
+    await user.click(cell(1, "1,000"));
+    await user.keyboard("{Control>}{Delete}{/Control}");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   /** 무엇이 문서에서 읽은 값이고 무엇이 사람이 적은 것인지 보이지 않으면 안전하지 않다. */
@@ -218,7 +452,7 @@ describe("Grid", () => {
     draw();
 
     const row = screen.getAllByRole("row")[2];
-    const 금액 = within(row).getAllByRole("cell")[2];
+    const 금액 = within(row).getAllByRole("cell")[3];
 
     expect(금액.getAttribute("title")).toContain("1,000원");
     expect(금액.className).toContain("overridden");
@@ -228,15 +462,17 @@ describe("Grid", () => {
     draw();
 
     const row = screen.getAllByRole("row")[1];
-    expect(within(row).getAllByRole("cell")[2].className).not.toContain("overridden");
+    expect(within(row).getAllByRole("cell")[3].className).not.toContain("overridden");
   });
 
-  it("지우기는 커서가 선 줄의 키로 묻는다", async () => {
+  it("지우기는 커서가 아닌 체크한 줄의 키로 묻는다", async () => {
     const user = userEvent.setup();
     const onDelete = vi.fn();
     draw({ onDelete });
 
     await user.click(cell(1, "공압식승강판"));
+    expect(screen.queryByText("선택 자료 삭제…")).toBeNull();
+    await user.click(screen.getByLabelText("R26TA0200 행 선택"));
     await user.click(screen.getByText("선택 자료 삭제…"));
 
     expect(onDelete).toHaveBeenCalledWith("R26TA0200");
@@ -271,7 +507,7 @@ describe("Grid", () => {
     await user.click(screen.getByText("계약금액"));
 
     const shown = screen.getAllByRole("row").slice(1)
-      .map((r) => within(r).getAllByRole("cell")[2].textContent);
+      .map((r) => within(r).getAllByRole("cell")[3].textContent);
 
     expect(shown).toEqual(["80", "900", "1,000"]);
   });
@@ -351,9 +587,11 @@ describe("Grid", () => {
 
     expect(screen.getByText("2 / 3")).toBeTruthy();
 
+    (document.querySelector(".grid-board") as HTMLElement).focus();
     await user.keyboard("{Delete}");
     expect(onCorrect).toHaveBeenCalledWith("R26TA0100", "계약건명", "");
 
+    await user.click(screen.getByLabelText("R26TA0100 행 선택"));
     await user.click(screen.getByText("선택 자료 삭제…"));
     expect(onDelete).toHaveBeenCalledWith("R26TA0100");
   });
@@ -391,12 +629,11 @@ describe("Grid", () => {
         identityColumns={["계약번호", "입찰공고번호"]}
         onEdit={vi.fn()}
         onCorrect={onCorrect}
-        onRevert={vi.fn()}
         onDelete={vi.fn()}
       />,
     );
 
-    await user.click(screen.getAllByRole("row")[1].querySelectorAll("td")[2]);
+    await user.click(screen.getAllByRole("row")[1].querySelectorAll("td")[3]);
     await user.keyboard("{F2}고친값{Enter}");
 
     expect(onCorrect).not.toHaveBeenCalled();
@@ -422,13 +659,12 @@ describe("Grid", () => {
         identityColumns={["계약번호", "입찰공고번호"]}
         onEdit={vi.fn()}
         onCorrect={vi.fn()}
-        onRevert={vi.fn()}
         onDelete={onDelete}
       />,
     );
 
+    await user.click(screen.getByLabelText("R26BK01-000 행 선택"));
     await user.click(screen.getByText("선택 자료 삭제…"));
-
     expect(onDelete).toHaveBeenCalledWith("R26BK01-000");
   });
 
@@ -460,5 +696,43 @@ describe("Grid", () => {
       scroll.mockRestore();
       client.mockRestore();
     }
+  });
+});
+
+/**
+ * 가공열(열 관리 §6.5). 머리글 앞에 = 가 서고, 칸을 고치려 하면 편집 상자 대신 식 첫 줄과
+ * 「식 고치기」 가 뜬다 — 값은 식이 채우므로 칸을 고치는 길은 없다.
+ */
+describe("Grid · 가공열", () => {
+  const computed: UserColumn = {
+    entityType: "contract", fieldName: "품명과 번호", kind: "computed", choices: [],
+    formula: { version: 2, id: "f1", source: "flow", flow: { from: { kind: "items" }, steps: [{ op: "get", field: "품명" }, { op: "join", text: ", " }] } },
+  };
+  const data = (): Sheet => ({ ...sheet(), columns: [...sheet().columns, "품명과 번호"],
+    rows: sheet().rows.map(r => ({ ...r, "품명과 번호": "책상, 의자" })) });
+
+  it("머리글에 = 를 두고, F2·두 번 누르기는 안내를 띄워 식 고치기로 보낸다", async () => {
+    const user = userEvent.setup();
+    const onManageColumns = vi.fn(), onEdit = vi.fn(), onCorrect = vi.fn();
+    render(<Grid sheet={data()} columns={[...columns, computed]} keyColumn="계약번호" identityColumns={["계약번호"]}
+      onEdit={onEdit} onCorrect={onCorrect} onManageColumns={onManageColumns} />);
+
+    const head = screen.getByRole("columnheader", { name: /품명과 번호/ });
+    expect(head.textContent?.startsWith("=")).toBe(true);
+    expect(screen.getByRole("columnheader", { name: /^담당/ }).textContent?.startsWith("=")).toBe(false);
+
+    await user.dblClick(cell(0, "책상, 의자"));
+    const note = await screen.findByRole("dialog", { name: "가공열 안내" });
+    expect(note.textContent).toContain("= 품목 |> 꺼내기 품명 |> 잇기 \", \"");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "가공열 안내" })).toBeNull();
+
+    await user.click(cell(1, "책상, 의자"));
+    await user.keyboard("{F2}");
+    await user.click(within(await screen.findByRole("dialog", { name: "가공열 안내" })).getByRole("button", { name: "식 고치기" }));
+    expect(onManageColumns).toHaveBeenCalledWith("품명과 번호");
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onCorrect).not.toHaveBeenCalled();
   });
 });

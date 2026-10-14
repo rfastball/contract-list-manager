@@ -169,16 +169,6 @@ CREATE TABLE "field_override" (
     PRIMARY KEY (entity_type, base, seq, column_name)
 )
 
-table link_rejection
-CREATE TABLE "link_rejection" (
-    contract_base TEXT NOT NULL,
-    notice_group  TEXT NOT NULL,
-    rejected_at   TEXT NOT NULL,
-    PRIMARY KEY (contract_base, notice_group),
-    FOREIGN KEY (contract_base) REFERENCES contract_series(contract_base) ON DELETE CASCADE,
-    FOREIGN KEY (notice_group)  REFERENCES notice_group(group_base)       ON DELETE CASCADE
-)
-
 table notice
 CREATE TABLE notice (
     notice_base              TEXT NOT NULL,
@@ -324,11 +314,6 @@ table project_link
 CREATE TABLE "project_link" (
     contract_base TEXT PRIMARY KEY,
     notice_group  TEXT NOT NULL,
-    confidence    REAL,
-    confirmed_at  TEXT,
-    decided_by    TEXT NOT NULL DEFAULT 'human',
-    evidence      TEXT,
-    rule_version  INTEGER,
     FOREIGN KEY (contract_base) REFERENCES contract_series(contract_base) ON DELETE CASCADE,
     FOREIGN KEY (notice_group)  REFERENCES notice_group(group_base)       ON DELETE CASCADE
 )
@@ -416,21 +401,6 @@ table request_link
 CREATE TABLE "request_link" (
     request_base TEXT PRIMARY KEY,
     notice_group TEXT NOT NULL UNIQUE,
-    confidence   REAL,
-    confirmed_at TEXT,
-    decided_by   TEXT NOT NULL DEFAULT 'human',
-    evidence     TEXT,
-    rule_version INTEGER,
-    FOREIGN KEY (request_base) REFERENCES request_series(request_base) ON DELETE CASCADE,
-    FOREIGN KEY (notice_group) REFERENCES notice_group(group_base)     ON DELETE CASCADE
-)
-
-table request_link_rejection
-CREATE TABLE "request_link_rejection" (
-    request_base TEXT NOT NULL,
-    notice_group TEXT NOT NULL,
-    rejected_at  TEXT NOT NULL,
-    PRIMARY KEY (request_base, notice_group),
     FOREIGN KEY (request_base) REFERENCES request_series(request_base) ON DELETE CASCADE,
     FOREIGN KEY (notice_group) REFERENCES notice_group(group_base)     ON DELETE CASCADE
 )
@@ -451,11 +421,19 @@ CREATE TABLE request_user_field (
 table user_column
 CREATE TABLE "user_column" (
     entity_type TEXT NOT NULL CHECK (entity_type IN ('contract', 'notice', 'request')),
-    field_name  TEXT NOT NULL,
-    kind        TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'choice', 'date', 'number')),
-    options     TEXT,
-    sort_order  INTEGER NOT NULL DEFAULT 0,
+    field_name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'choice', 'date', 'number', 'computed')),
+    options TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (entity_type, field_name)
+)
+
+table user_view
+CREATE TABLE "user_view" (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    definition TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
 )
 
 trigger erp_contract_deleted
@@ -486,3 +464,6 @@ user_column
   entity_type='contract' | field_name='진행상태' | kind='text' | options=NULL | sort_order=20
   entity_type='notice' | field_name='검토여부' | kind='text' | options=NULL | sort_order=10
   entity_type='notice' | field_name='메모' | kind='text' | options=NULL | sort_order=20
+
+user_view
+  id=<무작위> | name='서식용 예시' | definition='{"version":2,"contracts":"split","columns":[{"id":"c31","name":"건명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"공고명","link":"notice"},"steps":[{"op":"ifEmpty","field":"접수.요청명"},{"op":"ifEmpty","field":"계약.계약건명"}]}}},{"id":"c32","name":"단계","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약번호","link":"contract"},"steps":[{"op":"cases","otherwise":"접수","branches":[{"cond":[{"field":"","cmp":"안비어있음"}],"then":"계약"},{"cond":[{"field":"공고.입찰공고번호","cmp":"안비어있음"}],"then":"공고"}]}]}}},{"id":"c05","name":"수요기관","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"수요기관","link":"contract"},"steps":[{"op":"ifEmpty","field":"공고.수요기관"}]}}},{"id":"c28","name":"대표계약업체","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약상대자","link":"contract"},"steps":[]}}},{"id":"c01","name":"조달요구번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"조달요구번호","link":"request"},"steps":[]}}},{"id":"c02","name":"입찰공고번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"입찰공고번호","link":"notice"},"steps":[]}}},{"id":"c33","name":"계약번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약번호","link":"contract"},"steps":[]}}},{"id":"c03","name":"게시일","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"게시일시","link":"notice"},"steps":[{"op":"before","text":" "}]}}},{"id":"c04","name":"공고명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"공고명","link":"notice"},"steps":[]}}},{"id":"c06","name":"세부품명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"품명","link":"contract"},"steps":[{"op":"ifEmpty","field":"공고.세부품명"}]}}},{"id":"c07","name":"세부품명번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"세부품명번호","link":"notice"},"steps":[]}}},{"id":"c08","name":"수량","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"수량","link":"contract"},"steps":[{"op":"ifEmpty","field":"공고.수량"}]}}},{"id":"c09","name":"단위","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"단위","link":"contract"},"steps":[{"op":"ifEmpty","field":"공고.단위"}]}}},{"id":"c10","name":"계약방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약방법","link":"notice"},"steps":[]}}},{"id":"c11","name":"입찰방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"입찰방식","link":"notice"},"steps":[]}}},{"id":"c12","name":"낙찰자결정방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"낙찰방법","link":"notice"},"steps":[]}}},{"id":"c13","name":"사업예산","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"사업예산","link":"notice"},"steps":[]}}},{"id":"c14","name":"추정가격","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"추정가격","link":"notice"},"steps":[]}}},{"id":"c15","name":"분할납품","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"분할납품","link":"notice"},"steps":[]}}},{"id":"c16","name":"납품기한","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"납품기한","link":"contract"},"steps":[{"op":"ifEmpty","field":"공고.납품기한"}]}}},{"id":"c17","name":"인도조건","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"인도조건","link":"notice"},"steps":[]}}},{"id":"c18","name":"하자담보기간","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"하자담보기간","link":"notice"},"steps":[]}}},{"id":"c19","name":"입찰개시일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"입찰개시일시","link":"notice"},"steps":[]}}},{"id":"c20","name":"입찰마감일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"입찰마감일시","link":"notice"},"steps":[]}}},{"id":"c21","name":"개찰일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"개찰일시","link":"notice"},"steps":[]}}},{"id":"c22","name":"등록마감일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"등록마감일시","link":"notice"},"steps":[]}}},{"id":"c23","name":"계약담당자","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"공고담당자","link":"notice"},"steps":[{"op":"before","text":"("},{"op":"trim"}]}}},{"id":"c24","name":"계약담당 전화번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"공고담당자","link":"notice"},"steps":[{"op":"after","text":"☎"},{"op":"before","text":")"},{"op":"trim"}]}}},{"id":"c25","name":"담당부서","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"담당부서","link":"notice"},"steps":[]}}},{"id":"c26","name":"담당자","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"담당자","link":"notice"},"steps":[]}}},{"id":"c27","name":"담당자 전화번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"담당자전화","link":"notice"},"steps":[]}}},{"id":"c29","name":"계약금액","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약금액","link":"contract"},"steps":[]}}},{"id":"c30","name":"계약보증금","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","field":"계약보증금(원)","link":"contract"},"steps":[]}}}]}' | sort_order=10

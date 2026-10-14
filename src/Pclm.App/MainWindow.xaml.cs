@@ -98,6 +98,7 @@ public partial class MainWindow : Window
         View.AllowExternalDrop = false;
 
         core.WebMessageReceived += async (_, e) => await _bridge.HandleAsync(core, e.WebMessageAsJson);
+        _bridge.Attach(core);
 
         View.Source = _uiOrigin is null
             ? new Uri($"https://{VirtualHost}/index.html")

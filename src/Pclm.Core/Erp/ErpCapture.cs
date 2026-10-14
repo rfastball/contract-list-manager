@@ -27,9 +27,9 @@ public sealed record CapturePreview(string DatasetId, string Entity, string Enti
 /// <param name="environment">이 호스트가 어느 쪽인가 — 개발 호스트면 <c>development</c>, 아니면 <c>production</c>.
 /// 파일에 적던 것을 v20 에서 걷었다: 개발용인지는 자료가 아니라 <b>그 자료를 연 호스트</b>의 사정이라
 /// <c>App/Program.cs</c> 가 넘긴다. 확장이 hello 의 이 값으로 팝업에 「개발용」 을 띄운다.</param>
-/// <param name="home">이 파일을 가리켜야 하는 쪽지의 홈. 확장 호스트만 넘긴다 — 있으면 저장할 때 쓰기 잠금
-/// 안에서 쪽지가 아직 이 파일을 가리키는지 다시 본다(<see cref="Save"/>). 창 안의 고급 도구는 창이 연 그 파일에
-/// 쓰는 것이라 넘기지 않는다.</param>
+/// <param name="home">이 파일을 가리켜야 하는 쪽지의 홈. 확장 호스트와 창의 저장(「지금 보는 화면」 의 가져오기·고급 도구의
+/// 「검토한 자료 저장」)이 넘긴다 — 있으면 저장할 때 쓰기 잠금 안에서 쪽지가 아직 이 파일을 가리키는지 다시
+/// 본다(<see cref="Save"/>).</param>
 public sealed class ErpCapture(string databasePath, string? extensionDirectory = null, string environment = "production", Home? home = null)
 {
     public ErpCapture(Database database, string? extensionDirectory = null, string environment = "production", Home? home = null)
@@ -174,7 +174,7 @@ public sealed class ErpCapture(string databasePath, string? extensionDirectory =
         if (overrides.Count > 0)
         {
             // 덮개마다 묻던 것을, 이번 수집이 덮개 아래 값을 바꿀 때만 묻는다 — 바뀐 것이 없는데 다시
-            // 수집할 때마다 고르게 하면 단축키 저장도 영영 막힌다. 같은 트랜잭션 안에서 평범한 변경을
+            // 수집할 때마다 고르게 하면 같은 화면을 가져올 때마다 고를 것이 남는다. 같은 트랜잭션 안에서 평범한 변경을
             // 모두 적용하고 줄은 지우지 않은 모습을 써 보고, 덮개를 하나씩 걷어 표시 값을 읽은 뒤 되돌린다.
             // 걸린 채로 두는 덮개는 목록에 싣지 않는다: 확장은 충돌만 받고, 싣지 않은 것은 저장 때
             // 건드리지 않는다. 복원하고 싶으면 앱의 칸 편집에서 걷는다(Store.ClearOverride).
@@ -267,14 +267,8 @@ public sealed class ErpCapture(string databasePath, string? extensionDirectory =
                 throw new InvalidOperationException("변경값과 사용자 정정값을 모두 검토하세요.");
         var now = DateTime.UtcNow.ToString("O");
         Write(c, tx, input, doc, preview.Changes, ch => choices.GetValueOrDefault(ch.Id), now);
-        if (doc.EntityType == "contract")
-        {
-            var total = c.Query<string>("SELECT amount FROM contract_item WHERE contract_base=@Base AND seq=@Seq", doc, tx)
-                .Sum(a => decimal.Parse(a ?? "0", System.Globalization.CultureInfo.InvariantCulture));
-            var header = c.ExecuteScalar<string>("SELECT amount FROM contract WHERE contract_base=@Base AND seq=@Seq", doc, tx);
-            if (decimal.Parse(header ?? "0", System.Globalization.CultureInfo.InvariantCulture) != decimal.Truncate(total / 10) * 10)
-                throw new InvalidOperationException("선택한 품목 금액과 계약 총액이 다릅니다. 품목 유지·삭제와 총액 선택을 함께 확인하세요.");
-        }
+        if (!TotalsMatch(c, tx, doc))
+            throw new InvalidOperationException("선택한 품목 금액과 계약 총액이 다릅니다. 품목 유지·삭제와 총액 선택을 함께 확인하세요.");
         foreach (var o in preview.Changes.Where(ch => ch.Field == "__override" && choices.GetValueOrDefault(ch.Id) == "apply"))
             c.Execute("DELETE FROM field_override WHERE entity_type=@EntityType AND base=@Base AND seq=@Seq AND column_name=@column", new { doc.EntityType, doc.Base, doc.Seq, column = o.Override }, tx);
         var changed = preview.Changes.Any(ch => choices.GetValueOrDefault(ch.Id) != "keep");
@@ -339,9 +333,26 @@ public sealed class ErpCapture(string databasePath, string? extensionDirectory =
             }
         }
         foreach (var removed in changes.Where(ch => ch.Field == "__row" && choice(ch) == "apply"))
-        {
-            c.Execute($"DELETE FROM {removed.Table} WHERE {doc.EntityType}_base=@Base AND seq=@Seq AND line_no=@Line", new { doc.Base, doc.Seq, removed.Line }, tx);
-            c.Execute("DELETE FROM erp_row WHERE entity_type=@EntityType AND entity_base=@Base AND entity_seq=@Seq AND table_name=@Table AND line_no=@Line", new { doc.EntityType, doc.Base, doc.Seq, removed.Table, removed.Line }, tx);
-        }
+            RemoveRow(c, tx, doc, removed);
+    }
+
+    /// <summary>화면에 없는 행(<c>__row</c>)을 지운다 — 업무 표의 줄과 그 추적을 함께.</summary>
+    internal static void RemoveRow(SqliteConnection c, SqliteTransaction tx, MappedDocument doc, CaptureChange removed)
+    {
+        c.Execute($"DELETE FROM {removed.Table} WHERE {doc.EntityType}_base=@Base AND seq=@Seq AND line_no=@Line", new { doc.Base, doc.Seq, removed.Line }, tx);
+        c.Execute("DELETE FROM erp_row WHERE entity_type=@EntityType AND entity_base=@Base AND entity_seq=@Seq AND table_name=@Table AND line_no=@Line", new { doc.EntityType, doc.Base, doc.Seq, removed.Table, removed.Line }, tx);
+    }
+
+    /// <summary>
+    /// 계약의 머리 총액이 품목 금액의 합(10원 미만 버림)과 같은가. 계약이 아니면 늘 같다. 저장이 이것으로 막고, 창의 투영이
+    /// 같은 셈으로 미리 알린다(<see cref="Mirror"/>) — 두 벌이면 미리 본 것과 저장이 갈린다.
+    /// </summary>
+    internal static bool TotalsMatch(SqliteConnection c, SqliteTransaction tx, MappedDocument doc)
+    {
+        if (doc.EntityType != "contract") return true;
+        var total = c.Query<string>("SELECT amount FROM contract_item WHERE contract_base=@Base AND seq=@Seq", doc, tx)
+            .Sum(a => decimal.Parse(a ?? "0", System.Globalization.CultureInfo.InvariantCulture));
+        var header = c.ExecuteScalar<string>("SELECT amount FROM contract WHERE contract_base=@Base AND seq=@Seq", doc, tx);
+        return decimal.Parse(header ?? "0", System.Globalization.CultureInfo.InvariantCulture) == decimal.Truncate(total / 10) * 10;
     }
 }

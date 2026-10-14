@@ -30,18 +30,12 @@ public static class ExtensionRelay
     {
         // 그 탭에 닿는 것 — 탭 번호가 있어야 한다.
         "focusTab", "read", "export",
-        // 확장의 설정(「Chrome 확장 상태」 의 설정). 수집기를 띄우는 방식은 옵션 창과 같은 저장 자리에 쓰고, 단축키는
-        // 브라우저의 확장 단축키 화면에서만 바뀌므로 그 화면을 연다.
-        "setPanelMode", "openShortcuts",
         // 확장 관리 화면. 브라우저는 명령줄로 받은 chrome://·edge:// 주소를 막고 새 탭만 열어, 붙어 있는 확장이 연다.
         "openExtensions",
     };
 
     /// <summary>탭 번호가 있어야 하는 명령.</summary>
     private static bool ForTab(string command) => command is "focusTab" or "read" or "export";
-
-    /// <summary>수집기를 띄우는 방식 — 확장의 옵션 창과 같은 낱말.</summary>
-    public static readonly IReadOnlySet<string> PanelModes = new HashSet<string>(StringComparer.Ordinal) { "always", "button" };
 
     /// <summary>탭 하나의 화면 줄 수 상한. 확장은 지원 안 되는 화면에서 40줄까지만 싣는다.</summary>
     public const int MaxScreenRows = 400;
@@ -107,21 +101,16 @@ public static class ExtensionRelay
             new[] { "group", "label", "text", "source" }.All(name => row.TryGetProperty(name, out var v) &&
                 v.ValueKind == JsonValueKind.String && v.GetString()!.Length <= MaxScreenText));
 
-    private static readonly System.Text.RegularExpressions.Regex Shortcut = new(@"\A[A-Za-z0-9+ .,\-]{0,40}\z");
-
     /// <summary>
-    /// 확장 설정 — 수집기 띄우는 방식 · 현재 화면 바로 저장의 단축키 · 나라장터 사이트 접근. 아는 모양만 받는다(확장이
-    /// 홈에 임의 글을 쓰지 못하게). 틀리면 null.
+    /// 확장 설정 — 나라장터 사이트 접근 하나다(ADR-042). 옛 확장(0.9 까지)이 함께 싣던 수집기 띄우는 방식·단축키는 받되
+    /// 적지 않는다 — 창이 보일 자리가 없고, 거절하면 그 판의 탭 보고가 통째로 빠져 지금 보는 화면이 조용히 빈다.
+    /// 틀리면 null.
     /// </summary>
-    private static JsonObject? Settings(JsonElement value)
-    {
-        if (value.ValueKind != JsonValueKind.Object ||
-            !value.TryGetProperty("panelMode", out var mode) || mode.ValueKind != JsonValueKind.String || !PanelModes.Contains(mode.GetString()!) ||
-            !value.TryGetProperty("shortcut", out var key) || key.ValueKind != JsonValueKind.String || !Shortcut.IsMatch(key.GetString()!) ||
-            !value.TryGetProperty("siteAccess", out var access) || access.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            return null;
-        return new JsonObject { ["panelMode"] = mode.GetString(), ["shortcut"] = key.GetString(), ["siteAccess"] = access.GetBoolean() };
-    }
+    private static JsonObject? Settings(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty("siteAccess", out var access) &&
+        access.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? new JsonObject { ["siteAccess"] = access.GetBoolean() }
+            : null;
 
     /// <summary>한 호스트가 낸 마지막 탭 보고.</summary>
     /// <param name="Report">확장이 보낸 것에 <c>pid</c>·<c>receivedAt</c> 을 얹은 것.</param>
@@ -153,18 +142,15 @@ public static class ExtensionRelay
     /// 않는 파일이 쌓인다.
     /// </summary>
     /// <returns>놓았는가.</returns>
-    public static bool Send(string directory, int pid, string command, int tabId) => Send(directory, pid, command, tabId, null);
+    public static bool Send(string directory, int pid, string command, int tabId) => Send(directory, pid, command, (int?)tabId);
 
-    /// <summary>탭에 닿지 않는 명령(<c>setPanelMode</c>·<c>openShortcuts</c>·<c>openExtensions</c>).</summary>
-    /// <param name="mode"><c>setPanelMode</c> 의 <c>always</c>·<c>button</c>.</param>
-    public static bool SendSetting(string directory, int pid, string command, string? mode = null) => Send(directory, pid, command, null, mode);
+    /// <summary>탭에 닿지 않는 명령(<c>openExtensions</c>).</summary>
+    public static bool SendSetting(string directory, int pid, string command) => Send(directory, pid, command, null);
 
-    private static bool Send(string directory, int pid, string command, int? tabId, string? mode)
+    private static bool Send(string directory, int pid, string command, int? tabId)
     {
         if (!Commands.Contains(command)) throw new InvalidOperationException($"모르는 명령입니다: {command}");
         if (ForTab(command) != tabId.HasValue) throw new InvalidOperationException($"명령의 모양이 다릅니다: {command}");
-        if (command == "setPanelMode" && (mode is null || !PanelModes.Contains(mode)))
-            throw new InvalidOperationException("수집기를 띄우는 방식은 항상 띄우기·툴바 버튼으로만 중 하나입니다.");
         if (!ExtensionPresence.LiveProcesses(directory).Any(p => p.Pid == pid)) return false;
         var folder = CommandDirectory(directory, pid);
         Directory.CreateDirectory(folder);
@@ -172,7 +158,6 @@ public static class ExtensionRelay
         var name = DateTime.UtcNow.Ticks.ToString("D19", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8] + ".json";
         var body = new JsonObject { ["command"] = command };
         if (tabId is { } tab) body["tabId"] = tab;
-        if (command == "setPanelMode") body["mode"] = mode;
         Replace(Path.Combine(folder, name), body.ToJsonString());
         return true;
     }
@@ -248,10 +233,7 @@ public static class ExtensionRelay
                             var name = parsed["command"]!.GetValue<string>();
                             if (ForTab(name) && parsed["tabId"]?.GetValueKind() == JsonValueKind.Number)
                                 command = new JsonObject { ["protocolVersion"] = 2, ["command"] = name, ["tabId"] = parsed["tabId"]!.GetValue<int>() };
-                            else if (name == "setPanelMode" && parsed["mode"]?.GetValueKind() == JsonValueKind.String &&
-                                PanelModes.Contains(parsed["mode"]!.GetValue<string>()))
-                                command = new JsonObject { ["protocolVersion"] = 2, ["command"] = name, ["mode"] = parsed["mode"]!.GetValue<string>() };
-                            else if (name is "openShortcuts" or "openExtensions")
+                            else if (name == "openExtensions")
                                 command = new JsonObject { ["protocolVersion"] = 2, ["command"] = name };
                         }
                     }

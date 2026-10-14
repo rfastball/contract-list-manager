@@ -3,6 +3,8 @@ using Microsoft.Data.Sqlite;
 
 namespace Pclm.Core.Storage;
 
+public sealed record SheetSnapshot(string[] Columns, string[][] Rows);
+
 /// <summary>
 /// 계약면 뷰를 엑셀 한 권으로 내보낸다.
 ///
@@ -37,6 +39,44 @@ public sealed class Exporter(Database database)
 
         workbook.SaveAs(path);
         return Path.GetFullPath(path);
+    }
+
+    /// <summary>화면에서 확정한 열/행 순서 그대로 한 장을 낸다. 전체 자료 내보내기와 별개의 사진이다.</summary>
+    public static string ExportSheet(string path, string title, SheetSnapshot snapshot)
+    {
+        ValidateSnapshot(title, snapshot);
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add(title);
+        for (var c = 0; c < snapshot.Columns.Length; c++)
+        {
+            sheet.Cell(1, c + 1).SetValue(snapshot.Columns[c]);
+            sheet.Cell(1, c + 1).Style.Font.Bold = true;
+            sheet.Cell(1, c + 1).Style.Fill.BackgroundColor = XLColor.FromArgb(0xEE, 0xF1, 0xF4);
+        }
+        for (var r = 0; r < snapshot.Rows.Length; r++)
+            for (var c = 0; c < snapshot.Columns.Length; c++)
+            {
+                sheet.Cell(r + 2, c + 1).SetValue(snapshot.Rows[r][c]);
+                sheet.Cell(r + 2, c + 1).Style.NumberFormat.Format = "@";
+            }
+        sheet.SheetView.FreezeRows(1);
+        sheet.RangeUsed()?.SetAutoFilter();
+        sheet.Columns().AdjustToContents(1, 40d, 60d);
+        workbook.SaveAs(path);
+        return Path.GetFullPath(path);
+    }
+
+    public static void ValidateSnapshot(string title, SheetSnapshot snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Length > 31 || title.IndexOfAny(['[', ']', ':', '*', '?', '/', '\\']) >= 0
+            || title.StartsWith('\'') || title.EndsWith('\'') || title.Any(char.IsControl))
+            throw new InvalidOperationException("엑셀 시트 이름이 올바르지 않습니다.");
+        if (snapshot?.Columns is null || snapshot.Rows is null || snapshot.Columns.Length is < 1 or > 16384
+            || snapshot.Rows.Length > 1048575 || (long)snapshot.Columns.Length * snapshot.Rows.Length > 2_000_000
+            || snapshot.Columns.Any(c => string.IsNullOrEmpty(c) || c.Length > 32767)
+            || snapshot.Columns.Distinct().Count() != snapshot.Columns.Length
+            || snapshot.Rows.Any(r => r is null || r.Length != snapshot.Columns.Length || r.Any(v => v is null || v.Length > 32767)))
+            throw new InvalidOperationException("내보낼 표의 크기나 셀 값이 올바르지 않습니다. 최대 2,000,000셀을 내보낼 수 있습니다.");
     }
 
     private static void WriteSheet(XLWorkbook workbook, SqliteConnection connection, string view)

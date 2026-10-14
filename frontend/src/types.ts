@@ -1,5 +1,15 @@
-﻿/** 뷰 한 줄. 값은 모두 문서에 그대로 찍힐 문자열이다(규약 3절). */
+import type { FormulaV1, FormulaV2, LinkKind, Shape } from "./flow/ast";
+import type { TraceValue } from "./flow/evaluate";
+
+/** 뷰 한 줄. 값은 모두 문서에 그대로 찍힐 문자열이다(규약 3절). */
 export type Row = Record<string, string>;
+
+export type BatchChange = { rowKey: string; field: string; value: string; original: string; operation: "set" | "revert" };
+export type SheetExport = { columns: string[]; rows: string[][] };
+export type BatchDeletionPlan = {
+  fingerprint: string; targets: DeletionPlan[]; documentCount: number; seriesCount: number;
+  childRows: number; userFields: number; overrides: number; links: number;
+};
 
 export type Sheet = {
   name: string;
@@ -24,9 +34,125 @@ export type EntityType = "contract" | "notice" | "request";
 export type UserColumn = {
   entityType: EntityType;
   fieldName: string;
-  kind: "text" | "choice" | "date" | "number";
+  kind: "text" | "choice" | "date" | "number" | "computed";
   choices: string[];
+  /** 가공열의 식. 입력열이면 값으로 굳힐 때 비활성으로 남긴 식(다시 가공열로 켜면 돌아온다). */
+  formula?: ColumnFormula | null;
+  /** 저장된 식이 깨져 뷰에서 빈 값으로 나가는 까닭. 깨지지 않았으면 비었다. */
+  broken?: string | null;
+  /** 이 열을 쓰는 맞춤 뷰 수. 지우면 그 뷰들의 필드가 깨진 식이 된다 — 지우는 확인 문구가 센다. */
+  viewReaders?: number;
 };
+
+/** 가공식. v1 은 읽을 때 v2 로 옮긴다(flow/migrate.ts). 저장은 v2 만 한다. */
+export type ColumnFormula = FormulaV1 | FormulaV2;
+
+// ── 가공열 다리 약속(docs/column-management.md §11.4) ──────────────
+// 진짜 다리(Bridge.cs → Store)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다.
+//
+//   columnContext(entity) → ColumnContext
+//     columns·rows·fields·sources 에 available 이 더해졌다 — 원천으로 쓸 수 있는 것:
+//     이 행의 기본 열(base), 이 행의 품목 필드(items), 이을 수 있는 연결 문서와 그 필드(linked, 자기 종류는 빠짐,
+//     many 면 행목록), 그리고 SQL 자동완성에 쓰는 계약면 뷰와 열(schema). view 는 이 자료 종류의 면 뷰(SQL 의 `현재`).
+//
+//   traceComputedColumn(entity, formulaJson) → ColumnTrace
+//     formulaJson 은 v1·v2 아무것이나. samples 는 표본 문서 3건(최신 문서), steps[0] 은 원천, steps[i+1] 은 단계 i.
+//     steps[k].values[s] 는 표본 s 의 그 시점 값. error 는 그 단계에 붙은 오류, blocked 는 앞 단계 오류로 흐려진 것.
+//     final 은 표본마다 열에 찍힐 글, sql 은 「SQL로 꺼내기」가 낼 SQL(오류가 있으면 빈 글).
+//
+//   compileComputedColumn(entity, formulaJson) → string        「SQL로 꺼내기」 — 계약면 뷰만 읽는 스칼라 부질의
+//   validateComputedSql(entity, sql) → SqlCheck                 authorizer·준비·표본 실행. 순환은 저장 때 잡힌다
+//
+//   saveComputedColumn(entity, name, formulaJson(v2), previousName | null) → UserColumn[]
+//     꼴 검사·SQL 검사를 통과하지 못하면 거절한다. 다른 종류의 열(입력열)을 previousName 으로 주면 가공열로 바뀐다 —
+//     입력값은 지우지 않고 숨는다.
+//
+//   planFreezeColumn(entity, name) → FreezePlan
+//   freezeColumn(entity, name, expectedCells) → UserColumn[]
+//     「값으로 굳히기」. 계열마다 최신 차수의 값을 입력값으로 쓰고 식은 비활성으로 남긴다. 센 수가 달라졌으면 쓰지 않는다.
+
+export type ColumnAvailable = {
+  view: string;
+  base: string[];
+  items: string[];
+  linked: { kind: LinkKind; fields: string[]; items: string[]; many?: boolean }[];
+  schema: Record<string, string[]>;
+};
+export type ColumnContext = {
+  columns: string[]; rows: Row[]; fields: string[];
+  sources: { base: string; revision: string; title: string; rows: Row[]; totalRows: number }[];
+  available: ColumnAvailable;
+};
+export type ColumnTraceStep = { shape: Shape | null; values: TraceValue[]; error?: string; blocked?: boolean };
+export type ColumnTrace = {
+  /** rows 는 그 표본의 품목 행 수. 없으면 화면이 columnContext 의 sources 에서 센다. */
+  samples: { base: string; revision: string; title: string; rows?: number }[];
+  steps: ColumnTraceStep[];
+  final: string[];
+  sql: string;
+  /** 표본이 돌지 못한 까닭(SQL 원천은 목업이 돌리지 않는다 등). */
+  note?: string;
+};
+/** SQL 열 검증. 거절이면 error 에 까닭, 통과면 final 에 표본마다 찍힐 값. */
+export type SqlCheck = {
+  ok: boolean; error: string | null;
+  samples: { base: string; revision: string; title: string }[];
+  final: string[];
+  note?: string;
+};
+// ── 맞춤 뷰 다리 약속(docs/user-views.md §8) ──────────────────
+// 진짜 다리(Bridge.cs → Store 의 맞춤 뷰)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다. 기준 인자는 없다 — 한 줄은 조달 건이다.
+//
+//   userViews() → UserView[]                                  목록 — 정의(contracts 포함)와 깨진 필드(필드 식별자 → 까닭)
+//   userViewContext() → UserViewContext
+//     columnContext 와 같은 꼴이되 「이 행」 이 없다 — available.linked 가 접수·공고·계약 셋(차례대로, many 없음)이고 저마다
+//     면 뷰의 열(사람 열·가공열 포함)과 품목 필드다. total 은 조달 건 수(계약마다 한 줄), manyContracts 는 계약이 여럿인 건 수.
+//   traceUserViewColumn(formulaJson, sampleKeys | null) → ColumnTrace
+//     traceComputedColumn 을 맞춤 뷰 환경으로. sampleKeys 는 보표의 표본 — 미리보기가 보는 표본이 처음(표본 A)이고 고르개 목록의
+//     다음 둘이 뒤따른다. samples[i].base 는 보이는 번호, rows 는 원천 문서의 품목 행 수, sql 은 「SQL로 꺼내기」가 낼 SQL.
+//     SQL 필드면 steps[0].error 가 거절 까닭이고 final 이 표본마다 찍힐 값이다.
+//   userViewSamples(viewJson, query | null, edge | null) → UserViewSample[]
+//     표본 고르개 — 그 뷰의 줄(거르기·모으기 뒤)에서. edge 는 "manyContracts"(계약 여럿)·"unlinked"(연결 안 된 건).
+//   previewUserView(viewJson, sampleKey) → UserViewPreview
+//     viewJson 은 {"name","definition":{…§4}}. 그 표본 한 건의 값과, 필드마다 그 뷰의 전체 건 중 빈 값 수, 뷰의 건 수.
+//   saveUserView(viewJson, previousId | null) → UserView[]     §5 의 저장. 이름이 비거나 겹치거나 깨진 식이 서면 거절한다
+//   deleteUserView(id) → UserView[]                            정의를 지운다. PlanDeletion 대상이 아니다
+
+/** 맞춤 뷰의 필드 하나 — 이름 = 흐름식(§2). formula 는 가공식 v2 그대로이고 저장 꼴에는 id 를 싣지 않는다(§4). */
+export type UserViewColumn = { id: string; name: string; formula: FormulaV2 };
+/** 계약이 여럿인 건의 처리 — 계약마다 한 줄(split)·한 줄로 모으기(fold). */
+export type UserViewContracts = "split" | "fold";
+/** user_view.definition 의 JSON(§4). 차례는 배열 차례다. */
+export type UserViewDefinition = { version: 2; contracts: UserViewContracts; columns: UserViewColumn[] };
+export type UserView = {
+  id: string;
+  /** u_ 를 뺀 이름. */
+  name: string;
+  definition: UserViewDefinition;
+  /** 깨진 필드. 필드 식별자 → 까닭. */
+  broken: Record<string, string>;
+};
+export type UserViewContext = ColumnContext & {
+  /** 조달 건 수 — 계약마다 한 줄로 센다. */
+  total: number;
+  /** 계약이 여럿인 건 수. */
+  manyContracts: number;
+};
+/** 표본 하나 = 조달 건 하나. key 는 불투명 열쇠, number 는 입찰공고번호 → 접수번호 → 계약번호 중 처음 있는 것, title 은 공고명 → 요청명 → 계약건명. */
+export type UserViewSample = { key: string; number: string; title: string };
+export type UserViewPreview = {
+  sample: UserViewSample | null;
+  /** 이 뷰의 건 수(거르기·모으기 뒤). */
+  total: number;
+  /** 정의의 필드 차례. value 는 이 표본에 찍힐 글, blank 는 그 뷰의 전체 건 중 빈 값 수, error 는 그 필드가 깨진 까닭. */
+  columns: { id: string; value: string; blank: number; error?: string }[];
+};
+
+/**
+ * 「값으로 굳히기」·「가공열로 바꾸기」가 건드릴 칸. cells 는 굳히면 쓸 칸(계열마다 최신 차수의 빈 값이 아닌 값),
+ * hidden 은 지금 그 이름으로 적힌 입력값 — 가공열이면 굳힐 때 덮이거나 지워지고, 입력열이면 가공열로 바꿀 때 숨는다.
+ */
+export type FreezePlan = { kind: string; cells: number; hidden: number; series: number };
 
 export type Summary = {
   requestRows: number;
@@ -53,10 +179,15 @@ export type WindowPrefs = {
   closeToTray: boolean;
   /** Windows 에 로그인하면 켠다. 참은 레지스트리 하나다 — 작업 관리자에서 끈 것도 꺼짐으로 온다. */
   autostart: boolean;
-  /** 자동 실행을 바꿀 수 있는 자리인가. 시험 홈(--home)·압축 파일 안에서 켠 창은 아니다. */
+  /** 자동 실행을 바꿀 수 있는 자리인가. 시험 홈(--home)에서 띄운 창은 아니다. */
   autostartAvailable: boolean;
   /** 바꿀 수 없는 까닭. 바꿀 수 있으면 null. 다리가 짓는다. */
   autostartReason: string | null;
+  /**
+   * 압축 파일 안(임시 폴더)에서 켠 창이면, 자동 실행을 켤 때 exe 를 복사해 두고 로그인할 때 켤 자리.
+   * 그 밖의 창은 null — 지금 exe 를 그대로 적는다.
+   */
+  autostartCopyTarget: string | null;
 };
 
 /**
@@ -129,14 +260,9 @@ export type ExtensionStatus = {
   live: ExtensionLive[];
   /** 오늘의 연결 기록(붙음·끊김·판 바뀜), 일어난 차례대로. 끊긴 까닭은 없다 — 앱도 호스트도 모른다. */
   log: ExtensionLogEntry[];
-  /** 오늘 확장의 수집 흐름이 알린 오류, 일어난 차례대로. 확장은 코드만 보낸다. */
-  errors: ExtensionProblem[];
-  /** 오늘 전의 마지막 오류(기록이 남는 이레 안). */
-  pastError: ExtensionProblem | null;
+  // 다리는 옛 확장(0.9 까지)이 알린 수집 오류(errors·pastError)도 싣지만 보이지 않는다 — 0.10 의 확장은 저장하지 않아
+  // 알릴 오류가 없다(ADR-042).
 };
-
-/** 오류 하나. <code>recovered</code> 는 그 뒤 같은 요청을 다시 보내 풀었는가. */
-export type ExtensionProblem = { at: string; browser: string; code: string; recovered: boolean };
 
 /** 확장이 호스트에 인사할 때 남긴 흔적. 브라우저마다 마지막 하나만 남는다. */
 export type ExtensionContact = { browser: string; version: string; at: string };
@@ -155,11 +281,14 @@ export type ExtensionLogEntry = {
 // ── 지금 보는 화면(ADR-036) ─────────────────────────────
 // 확장이 보고한 나라장터 탭과, 수집할 수 있는 탭마다 작업자료에 비춘 것(mirror). 값은 계약면에 찍힐 표기 그대로다.
 
-/** 칸 하나. <code>override</code> 는 사람이 고친 칸의 아래 값이 이번 화면으로 바뀌는 것이다. */
+/**
+ * 칸 하나. <code>override</code> 는 사람이 고친 칸의 아래 값이 이번 화면으로 바뀌는 것, <code>blank</code> 는 있던 값을 화면이
+ * 비워 보낸 것이다 — 둘 다 그대로 두는 것이 기본이고 사람이 고를 때만 걷거나 비운다.
+ */
 export type MirrorField = {
   column: string;
-  kind: "id" | "same" | "changed" | "new" | "override";
-  /** 계약면 표기. 덮개 칸이면 화면의 값(덮개 아래). */
+  kind: "id" | "same" | "changed" | "new" | "override" | "blank";
+  /** 계약면 표기. 덮개 칸이면 화면의 값(덮개 아래), <code>blank</code> 면 그대로 남는 값. */
   value: string;
   /** 견준 차수의 표기 — <code>changed</code> 에만. */
   old: string | null;
@@ -167,7 +296,7 @@ export type MirrorField = {
   raw: string | null;
   /** 사람이 고친 값 — <code>override</code> 에만. */
   human: string | null;
-  /** 가져올 때 「수집 원값으로 복원」 을 고르는 자리 — <code>override</code> 에만. */
+  /** 가져올 때 고르는 자리 — <code>override</code>(수집 원값으로 복원) · <code>blank</code>(비우기) 에만. */
   choiceId: string | null;
   /** 이 열을 채우는 화면의 자리(수집 규칙의 source 키, 표면 <code>table:대상</code>). 열 정의에서 끌어낸 것이라 없을 수 있다. */
   sources: string[];
@@ -185,13 +314,10 @@ export type ScreenRow = {
   source: string;
 };
 
-/** 확장의 설정 — 「Chrome 확장 상태」 의 설정이 보이고 바꾼다. 앞 탭의 브라우저(없으면 처음 붙은 것)의 것이다. */
+/** 확장이 알린 설정 — 나라장터 사이트 접근 하나다(ADR-042). 앞 탭의 브라우저(없으면 처음 붙은 것)의 것이다. */
 export type ExtensionSettings = {
   pid: number;
   browser: string;
-  panelMode: "always" | "button";
-  /** 현재 화면 바로 저장의 단축키. 없으면 빈 글. */
-  shortcut: string;
   siteAccess: boolean;
 };
 
@@ -245,8 +371,32 @@ export type MirrorShot = {
   place: MirrorPlace[];
   rounds: MirrorRound[];
   baseToken: string;
-  /** 창에서 가져올 수 없는 까닭. Chrome 의 수집기에서 고른다. */
-  blocked: string | null;
+  /** 작업자료에 있는데 이번 화면에 없는 행. 그대로 두는 것이 기본이고, 고르면 지운다. */
+  missing: MirrorMissing[];
+  /** 딸린 표의 줄에서 화면이 비워 보내 그대로 두는 칸 수. 고르지 않는다. */
+  keptCells: number;
+  /** 그 칸들이 선 표의 이름(「품목」, 「품목·일정」). */
+  keptIn: string;
+  /** 계약만 — 기본으로 가져오면 품목 금액의 합이 계약금액과 맞는가. 계약이 아니면 null. */
+  totalsWithDefaults: boolean | null;
+  /** 계약만 — 화면에 없는 품목 행을 모두 지우고 가져오면 맞는가. */
+  totalsWithoutMissing: boolean | null;
+};
+
+/** 작업자료에 있는데 이번 화면에 없는 행 하나. */
+export type MirrorMissing = {
+  /** 업무 표 이름(<code>contract_item</code> 따위). */
+  table: string;
+  /** 사람이 읽을 표 이름 — 품목·일정·담당자·첨부·계약상대자. */
+  tableName: string;
+  /** 그 표의 줄 번호. 품목이면 순번. */
+  line: number;
+  /** 그 줄을 알아볼 글 — 품목이면 품명. */
+  label: string;
+  /** 품목이면 금액(없으면 단가). 그 밖에는 빈 글. */
+  amount: string;
+  /** 지우기를 고르는 자리. */
+  choiceId: string;
 };
 
 /** Chrome 의 나라장터 탭 하나. <code>id</code> 는 호스트 프로세스와 탭 번호를 이은 것이다. */
@@ -271,7 +421,12 @@ export type MirrorTab = {
   error: string | null;
   /** 화면 그대로 — 이름표와 보이는 글. 옛 확장은 보내지 않아 빈 목록이다. */
   screenRows: ScreenRow[];
+  /** 앱이 부른 「현재 화면 엑셀로 내보내기」 의 마지막 결과. 아직 없거나 옛 확장이면 null. */
+  export: MirrorExport | null;
 };
+
+/** 내보내기 결과. <code>at</code> 은 확장이 결과를 낸 때(밀리초) — 요청할 때 알던 것보다 늦은 것만 그 요청의 답이다. */
+export type MirrorExport = { at: number; ok: boolean; message: string };
 
 /** 수집하는 화면 하나(ADR-037) — 매핑에서 화면을 단 프로필. <code>kind</code> 는 접수·공고·계약. */
 export type SupportedScreen = { code: string; entityType: string; kind: string; name: string };
@@ -291,10 +446,12 @@ export type MirrorState = {
 /** 창의 가져오기. 낡았으면 쓰지 않고 그 탭을 다시 읽힌다. */
 export type ImportResult =
   | { status: "stored"; entity: string; changed: boolean; at: string }
-  | { status: "stale"; message: string };
+  | { status: "stale"; message: string }
+  /** 보고에 그 탭의 화면이 없다(탭이 닫혔거나 브라우저가 끊겼다) — 다시 읽을 것이 없다. */
+  | { status: "gone"; message: string };
 
 // ── 수집 기록 ──────────────────────────────────────────
-// 성공한 저장만 남는다. 검토 중이거나 결과를 확인하지 못한 것은 브라우저에 있다.
+// 성공한 저장만 남는다. 아직 가져오지 않은 화면은 지금 보는 화면에 있다.
 
 /** 수집 한 번. 값은 화면에 그대로 찍을 문자열이다. */
 export type CaptureEntry = {
@@ -460,109 +617,30 @@ export type Outline = {
   chains: OutlineChain[];
 };
 
-// ── 공고 연결 ──────────────────────────────────────────
-
-/** 두 쪽을 나란히 놓고 견준 항목 하나. */
-export type LinkFacet = {
-  name: string;
-  contract: string;
-  notice: string;
-  /** null 이면 한쪽 값이 없어 판정할 수 없다는 뜻이다. */
-  agrees: boolean | null;
+/** DB에 저장된 문서와 조회 시점의 입찰 일정으로 분류한 조달 건. */
+export type DashboardStage = "requestOnly" | "open" | "awaitingContract" | "contracted";
+export type DashboardContract = { number: string; title: string; date: string; amount: number | null; draft: boolean; terminated: boolean };
+export type DashboardDue = { raw: string; date: string | null; daysRemaining: number | null };
+export type DashboardDelivery = {
+  number: string; title: string; contractDate: string; party: string; agency: string; terminated: boolean; draft: boolean;
+  due: DashboardDue;
+  items: { lineNo: number; name: string; specification: string; agency: string; quantity: string; unit: string; due: DashboardDue }[];
+  issues: string[];
 };
-
-export type Candidate = {
-  contractKey: string;
-  contractTitle: string;
-  noticeKey: string;
-  noticeTitle: string;
-  confidence: number;
-  reason: string;
-  noticeContractCount: number;
-  /** 건명이 정확히 일치하는가. 아니면 약한 근거로 올라온 후보다. */
-  titleMatched: boolean;
-  /** 잇기 전에 확인할 점. 없으면 판정을 통과한 유일한 후보다. */
-  blocker: string | null;
-  facets: LinkFacet[];
+export type DashboardRow = {
+  key: string; title: string; stage: DashboardStage | null;
+  requestNumber: string; noticeNumber: string; noticeNumbers: string[]; noticeKind: string;
+  requestDate: string; postedAt: string; bidStartsAt: string; bidClosesAt: string; openingAt: string;
+  agency: string; contracts: DashboardContract[];
+  contractAmount: number | null; issues: string[]; draftContracts: number; noticeCancelled: boolean; terminatedContracts: number;
 };
-
-/**
- * 잇기 화면에 세울 계약 한 줄. 후보가 없는 것도, **이미 이어진 것도** 온다 —
- * 잘못 이어진 것을 끊으려면 그 줄이 화면에 서 있어야 한다.
- */
-export type LinkContract = {
-  key: string;
-  title: string;
-  candidateCount: number;
-  /** 지금 이어져 있는 공고. null 이면 아직 이어지지 않았다. */
-  noticeKey: string | null;
-  noticeTitle: string;
-  /**
-   * 누가 이었는가 — `human` 이면 사람, `explicit` 이면 ERP 명시 참조, `auto` 는 옛 판의 기계
-   * 연결이 남은 것이다(ADR-029 뒤로 새로 생기지 않는다). 이어지지 않았으면 null.
-   */
-  decidedBy: string | null;
+export type DashboardReport = {
+  asOf: string; totalCases: number; dataCheckCount: number;
+  stages: { key: DashboardStage; label: string; count: number }[];
+  rows: DashboardRow[]; deliveries: DashboardDelivery[];
+  documents: { requests: number; notices: number; contracts: number; requestRevisions: number; noticeRevisions: number; contractRevisions: number };
+  contractAmount: number; contractsWithAmount: number;
 };
-
-/** 사람이 손수 고를 공고 하나. 추천이 찾지 못한 짝을 「직접 찾기」에서 고르는 자리에 쓴다. */
-export type NoticeChoice = {
-  key: string;
-  title: string;
-  postedAt: string;
-  /** 이 공고에 이미 붙은 계약 수. 한 공고에 계약이 여럿일 수 있어 막지는 않는다. */
-  linked: number;
-};
-
-/** 공고 연결 화면이 한 번에 받아 가는 것. */
-export type LinkWork = {
-  contracts: LinkContract[];
-  candidates: Candidate[];
-  notices: NoticeChoice[];
-};
-
-// ── 접수 ↔ 공고 잇기 ───────────────────────────────────
-// 계약 쪽과 같은 얼개인데 왼쪽에 서는 것이 접수다. 다리가 내는 이름이 달라 타입도 따로
-// 두고, 화면에 넘기기 전에 App 이 위의 꼴로 옮겨 담는다 — 잇기 화면은 하나여야 한다.
-
-/** 접수 쪽 견줌. 왼쪽 값의 이름만 다르다. */
-export type RequestLinkFacet = {
-  name: string;
-  request: string;
-  notice: string;
-  agrees: boolean | null;
-};
-
-export type RequestCandidate = {
-  requestKey: string;
-  requestTitle: string;
-  noticeKey: string;
-  noticeTitle: string;
-  confidence: number;
-  reason: string;
-  /** 이 공고에 이미 붙은 접수 수. 접수:공고 는 1:1 이라 0 이 아니면 막힌다. */
-  noticeLinkedCount: number;
-  titleMatched: boolean;
-  blocker: string | null;
-  facets: RequestLinkFacet[];
-};
-
-export type LinkRequest = {
-  key: string;
-  title: string;
-  candidateCount: number;
-  noticeKey: string | null;
-  noticeTitle: string;
-  decidedBy: string | null;
-};
-
-export type RequestLinkWork = {
-  requests: LinkRequest[];
-  candidates: RequestCandidate[];
-  notices: NoticeChoice[];
-};
-
-/** ERP 명시 참조로 새로 이은 수. 두 갈래(접수·계약)를 합친 것이다 — 있던 연결은 세지 않는다. */
-export type RelinkResult = { linked: number };
 
 // ── 계획 ───────────────────────────────────────────────
 // 접수·공고·계약과 달리 <b>엑셀에서 온다</b>. 서식은 표본에 고정되어 있어(ADR-023 개정)

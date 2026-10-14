@@ -1,4 +1,5 @@
-﻿using Microsoft.Data.Sqlite;
+using Dapper;
+using Microsoft.Data.Sqlite;
 
 namespace Pclm.Core.Storage;
 
@@ -43,7 +44,7 @@ public sealed class Database
     /// 연결. <b>없는 파일은 만들지 않고 실패한다</b>(SQLite 코드 14).
     ///
     /// <para><see cref="Access.Read"/> 면 <c>Mode=ReadOnly</c> 에 <c>query_only</c> 까지 건다 —
-    /// <c>Store</c>·<c>Linker</c>·<c>SettingsStore</c> 가 어디서 열든 SQLite 가 쓰기를 거절하므로,
+    /// <c>Store</c>·<c>SettingsStore</c> 가 어디서 열든 SQLite 가 쓰기를 거절하므로,
     /// 새 쓰기 경로를 빠뜨려도 막힌다(ADR-031). WAL 로 바꾸는 것도 파일 머리를 고치는 쓰기라 하지 않는다.</para>
     ///
     /// <para><see cref="Access.Write"/> 면 <b>옮겨진 옛 파일(<c>retired</c>)을 거절한다</b>(ADR-031). 창이 작업자료를
@@ -214,10 +215,7 @@ public sealed class Database
     /// <summary>
     /// 스키마를 현재 판까지 올리고 계약면 뷰를 새로 짓는다.
     ///
-    /// <para>올릴 것이 있었으면 <b>공고건을 다시 지은 결과</b>를 낸다. 판올림이 원공고와
-    /// 재공고를 한 건으로 만들면서 링크를 걷어내거나 접수 하나를 밀어낼 수 있는데, 둘 다
-    /// 오류를 내지 않으므로 <b>부르는 쪽이 사람에게 전할 자리를 가져야 한다</b>. 올릴 것이
-    /// 없었으면 <c>null</c> 이다 — 앱을 열 때마다 전수 재계산이 돌지 않는다.</para>
+    /// <para>판올림 뒤에는 명시 참조로 관계를 재계산한다. 현재 판에서는 관계를 다시 짓지 않는다.</para>
     ///
     /// <para>빈 파일(<c>user_version</c> 0)은 <see cref="Schema.Baseline"/> 으로 v19 를 곧장 짓고,
     /// 그 위로 <see cref="Schema.Steps"/> 를 밟는다. 기준선보다 옛 시험판(v1~v18)은 <b>건드리지 않고</b>
@@ -227,7 +225,7 @@ public sealed class Database
     /// 지금 판이면 뷰도 다시 짓지 않는다 — 뷰는 이미 파일 안에 있고, 다시 짓는 것도 쓰기다.
     /// 읽기로 연 남의 파일을 판올림하려면 사본을 떠서 그것을 올린다(취합이 하는 일).</para>
     /// </summary>
-    public NoticeGroupChange? Migrate()
+    public void Migrate()
     {
         RefusePreBaseline();
 
@@ -241,12 +239,11 @@ public sealed class Database
                 throw new InvalidOperationException(
                     $"읽기 전용으로 연 자료라 판을 올리지 않습니다(v{version} → v{Schema.Version}): {Path}");
 
-            return null;
+            return;
         }
 
         using var connection = Open();
         var current = UserVersion(connection);
-        NoticeGroupChange? change = null;
 
         if (current < Schema.Version)
         {
@@ -256,6 +253,10 @@ public sealed class Database
 
             // 외래키 검사는 트랜잭션 안에서 켜고 끌 수 없어 바깥에서 다룬다.
             Execute(connection, "PRAGMA foreign_keys = OFF;");
+
+            // 이미 있던 작업자료만 예시 보기를 받는다 — 갓 지은 파일(0 에서 온 것)은 PclmFile.Create 가 역할을 보고 심는다.
+            var seedExample = current is > 0 and < Schema.ExampleViewVersion;
+            var upgradeExample = current is > 0 and < Schema.ExampleViewUpgradeVersion;
 
             using (var transaction = connection.BeginTransaction())
             {
@@ -268,6 +269,13 @@ public sealed class Database
                 for (var v = current; v < Schema.Version; v++)
                     Execute(connection, Schema.Steps[v - Schema.BaselineVersion], transaction);
 
+                // v26 은 그 판의 예시를 심고, v27 은 손대지 않은 그것을 지금 구성으로 갈아 끼운다 — v25 에서 오면 둘 다 밟는다.
+                var work = (seedExample || upgradeExample) && PclmFile.IsWork(connection, transaction);
+                if (work && seedExample)
+                    Store.SeedExampleViews(connection, transaction, Store.ExampleViewPackageV26());
+                if (work && upgradeExample)
+                    Store.UpgradeExampleViews(connection, transaction);
+
                 // PRAGMA 는 매개변수를 받지 않아 값을 직접 넣는다. 상수라 주입 위험이 없다.
                 Execute(connection, $"PRAGMA user_version = {Schema.Version};", transaction);
                 transaction.Commit();
@@ -279,7 +287,7 @@ public sealed class Database
             // 참조 검사보다 앞서야 옮겨진 링크가 검사를 지난다.
             using (var transaction = connection.BeginTransaction())
             {
-                change = NoticeGroups.Rebuild(connection, transaction);
+                Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
                 transaction.Commit();
             }
 
@@ -288,7 +296,6 @@ public sealed class Database
         }
 
         RefreshViews(connection);
-        return change;
     }
 
     /// <summary>
@@ -305,15 +312,129 @@ public sealed class Database
     /// 뷰를 지웠다 다시 만든다. 테이블과 달리 뷰에는 데이터가 없어 언제 다시 지어도 안전하고,
     /// 정의를 고쳤을 때 곧바로 반영된다.
     /// </summary>
-    private static void RefreshViews(SqliteConnection connection)
+    internal static IReadOnlyDictionary<(string Entity, string Name), string> RefreshViews(
+        SqliteConnection connection, SqliteTransaction? transaction = null) =>
+        Refresh(connection, transaction).Columns;
+
+    /// <summary>
+    /// <see cref="RefreshViews(SqliteConnection, SqliteTransaction?)"/> 에 맞춤 뷰의 깨진 필드(뷰 식별자, 필드 식별자 → 까닭)까지.
+    ///
+    /// <para>차례(docs/user-views.md §5): 맞춤 뷰(<c>u_%</c>)를 <b>맨 먼저 모두 치우고</b> 계약면 뷰를 지은 뒤 <b>맨 끝에</b>
+    /// 맞춤 뷰를 짓는다 — 면 뷰 위층이라 남아 있으면 면 뷰를 다시 짓는 길을 막고, 지웠거나 이름을 바꾼 것이 남는다.</para>
+    /// </summary>
+    internal static (IReadOnlyDictionary<(string Entity, string Name), string> Columns,
+        IReadOnlyDictionary<(string View, string Column), string> UserViews) Refresh(
+        SqliteConnection connection, SqliteTransaction? transaction = null)
     {
         // 사람이 채우는 열은 표가 아니라 정의로 있으므로, 뷰를 지을 때마다 읽어 붙인다.
         var columns = ReadUserColumns(connection);
 
-        using var transaction = connection.BeginTransaction();
-        foreach (var definition in Views.Definitions(columns))
-            Execute(connection, definition, transaction);
-        transaction.Commit();
+        using var ownTransaction = transaction is null ? connection.BeginTransaction() : null;
+        transaction ??= ownTransaction!;
+        UserViewBuilder.DropAll(connection, transaction);
+        var broken = IsolateComputed(connection, transaction, columns);
+        var views = UserViewBuilder.Build(connection, transaction, columns);
+        ownTransaction?.Commit();
+        return (broken, views);
+    }
+
+    /// <summary>
+    /// 가공열 하나가 깨져도 뷰 전체가 서지 못하는 일이 없게 한다(column-management §11.5). 뷰는 앱이 열릴 때마다
+    /// 다시 지어지므로, 저장된 식 하나가 깨지면(뷰 이름이 바뀐 SQL 열, 손으로 고친 파일) 앱이 아예 뜨지 않는다.
+    ///
+    /// <list type="number">
+    /// <item>가공열을 모두 빈 글로 둔 뼈대를 짓는다.</item>
+    /// <item>그 위에서 열마다 따로 컴파일하고 면 뷰 위에서 돌려 본다(SQL 열은 authorizer 를 건 채 준비한다).</item>
+    /// <item>깨진 것만 빈 글로 두고 다시 짓는다. 그래도 뷰가 준비되지 않으면 SQL 열이 서로 도는 것이다(순환) —
+    ///   SQL 열을 모두 걷었다가 하나씩 되돌려, 되돌리면 깨지는 것을 깨진 것으로 둔다.</item>
+    /// </list>
+    /// 깨진 칸은 빈 글이라 소비자의 빈 값 경고가 울린다. 까닭은 뷰 정의 안에 남는다(<see cref="Views.BrokenIn"/>).
+    /// </summary>
+    private static Dictionary<(string Entity, string Name), string> IsolateComputed(
+        SqliteConnection connection, SqliteTransaction transaction, IReadOnlyList<UserColumnDefinition> columns)
+    {
+        var broken = new Dictionary<(string Entity, string Name), string>();
+        var computed = columns.Where(c => c.Kind == "computed").ToList();
+        void Build()
+        {
+            foreach (var definition in Views.Definitions(columns, broken))
+                Execute(connection, definition, transaction);
+        }
+        if (computed.Count == 0)
+        {
+            Build();
+            return broken;
+        }
+
+        // 1. 뼈대
+        foreach (var c in computed) broken[(c.EntityType, c.FieldName)] = "";
+        Build();
+        broken.Clear();
+
+        // 2. 하나씩
+        foreach (var c in computed)
+        {
+            try
+            {
+                var formula = ComputedColumn.Parse(c.Options ?? "");
+                _ = ComputedColumn.FinalShape(c.EntityType, c.Options!);
+                if (formula.Source == "sql")
+                {
+                    Execute(connection, "PRAGMA query_only = ON;", transaction);
+                    try { SqlColumn.Prepare(connection, transaction, c.EntityType, formula.Sql!); }
+                    finally { Execute(connection, "PRAGMA query_only = OFF;", transaction); }
+                }
+                var expression = ComputedColumn.Expression(c.EntityType, formula);
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = $"SELECT {expression} FROM \"{Store.FaceView(c.EntityType)}\" AS {FlowCompiler.Self} LIMIT 20;";
+                using var reader = command.ExecuteReader();
+                while (reader.Read()) { }
+            }
+            catch (Exception error) when (error is InvalidOperationException or SqliteException)
+            {
+                broken[(c.EntityType, c.FieldName)] = error.Message;
+            }
+        }
+
+        // 3. 깨진 것만 걷고 짓는다. SQL 열끼리의 순환은 준비해 봐야 드러난다.
+        Build();
+        if (PrepareViews(connection, transaction) is null) return broken;
+        var sql = computed.Where(c => !broken.ContainsKey((c.EntityType, c.FieldName))
+                                      && ComputedColumn.Parse(c.Options!).Source == "sql").ToList();
+        foreach (var c in sql) broken[(c.EntityType, c.FieldName)] = "";
+        Build();
+        if (PrepareViews(connection, transaction) is { } baseError)
+            throw new InvalidOperationException($"계약면 뷰를 짓지 못했습니다: {baseError}");
+        foreach (var c in sql)
+        {
+            broken.Remove((c.EntityType, c.FieldName));
+            Build();
+            if (PrepareViews(connection, transaction) is { } error)
+                broken[(c.EntityType, c.FieldName)] = error;
+        }
+        Build();
+        return broken;
+    }
+
+    /// <summary>모든 뷰를 준비만 해 본다. 실패하면 첫 오류 글.</summary>
+    private static string? PrepareViews(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        foreach (var view in connection.Query<string>("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name;", transaction: transaction).ToList())
+        {
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = $"SELECT * FROM \"{view.Replace("\"", "\"\"")}\" LIMIT 0;";
+                using var reader = command.ExecuteReader();
+            }
+            catch (SqliteException error)
+            {
+                return error.Message;
+            }
+        }
+        return null;
     }
 
     private static void DropViews(SqliteConnection connection)

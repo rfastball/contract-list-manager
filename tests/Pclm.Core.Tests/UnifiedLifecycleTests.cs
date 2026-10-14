@@ -198,13 +198,13 @@ public class UnifiedLifecycleTests : IDisposable
         _store.UpsertRequest(Request("000", "MBKLMH26930006"));
         _store.UpsertContract(Contract("00", "R26TA09080469"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09080469", "00"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
+            new EntityRef("notice", "R26BK09011054", "000"));
 
-        new RequestLinker(_database).Confirm(
+        ReferenceFixture.Request(_database,
             new EntityRef("request", "MBKLMH26930006", "000"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
+            new EntityRef("notice", "R26BK09011054", "000"));
     }
 
     private List<Dictionary<string, string>> Rows()
@@ -216,13 +216,13 @@ public class UnifiedLifecycleTests : IDisposable
             .Select(row => row.ToDictionary(c => c.Key, c => c.Value?.ToString() ?? ""))];
     }
 
-    private void Link(string contractBase) => new Linker(_database).Confirm(
+    private void Link(string contractBase) => ReferenceFixture.Contract(_database,
         new EntityRef("contract", contractBase, "00"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
-    private void LinkRequest() => new RequestLinker(_database).Confirm(
+    private void LinkRequest() => ReferenceFixture.Request(_database,
         new EntityRef("request", "MPKPLA26910286", "000"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
     private static RequestRecord Request(string seq, string @base = "MPKPLA26910286") => new()
     {

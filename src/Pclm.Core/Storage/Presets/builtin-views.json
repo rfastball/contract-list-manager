@@ -1,0 +1,46 @@
+{
+  "format": "pclm-view-config",
+  "version": 1,
+  "includesAllColumnsForSql": false,
+  "views": [
+    {
+      "name": "서식용 예시",
+      "definition": { "version": 2, "contracts": "split", "columns": [
+        {"id":"c31","name":"건명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"공고명"},"steps":[{"op":"ifEmpty","field":"접수.요청명"},{"op":"ifEmpty","field":"계약.계약건명"}]}}},
+        {"id":"c32","name":"단계","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"계약번호"},"steps":[{"op":"cases","branches":[{"cond":[{"field":"","cmp":"안비어있음"}],"then":"계약"},{"cond":[{"field":"공고.입찰공고번호","cmp":"안비어있음"}],"then":"공고"}],"otherwise":"접수"}]}}},
+        {"id":"c05","name":"수요기관","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"수요기관"},"steps":[{"op":"ifEmpty","field":"공고.수요기관"}]}}},
+        {"id":"c28","name":"대표계약업체","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"계약상대자"},"steps":[]}}},
+        {"id":"c01","name":"조달요구번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"request","field":"조달요구번호"},"steps":[]}}},
+        {"id":"c02","name":"입찰공고번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"입찰공고번호"},"steps":[]}}},
+        {"id":"c33","name":"계약번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"계약번호"},"steps":[]}}},
+        {"id":"c03","name":"게시일","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"게시일시"},"steps":[{"op":"before","text":" "}]}}},
+        {"id":"c04","name":"공고명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"공고명"},"steps":[]}}},
+        {"id":"c06","name":"세부품명","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"품명"},"steps":[{"op":"ifEmpty","field":"공고.세부품명"}]}}},
+        {"id":"c07","name":"세부품명번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"세부품명번호"},"steps":[]}}},
+        {"id":"c08","name":"수량","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"수량"},"steps":[{"op":"ifEmpty","field":"공고.수량"}]}}},
+        {"id":"c09","name":"단위","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"단위"},"steps":[{"op":"ifEmpty","field":"공고.단위"}]}}},
+        {"id":"c10","name":"계약방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"계약방법"},"steps":[]}}},
+        {"id":"c11","name":"입찰방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"입찰방식"},"steps":[]}}},
+        {"id":"c12","name":"낙찰자결정방법","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"낙찰방법"},"steps":[]}}},
+        {"id":"c13","name":"사업예산","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"사업예산"},"steps":[]}}},
+        {"id":"c14","name":"추정가격","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"추정가격"},"steps":[]}}},
+        {"id":"c15","name":"분할납품","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"분할납품"},"steps":[]}}},
+        {"id":"c16","name":"납품기한","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"납품기한"},"steps":[{"op":"ifEmpty","field":"공고.납품기한"}]}}},
+        {"id":"c17","name":"인도조건","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"인도조건"},"steps":[]}}},
+        {"id":"c18","name":"하자담보기간","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"하자담보기간"},"steps":[]}}},
+        {"id":"c19","name":"입찰개시일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"입찰개시일시"},"steps":[]}}},
+        {"id":"c20","name":"입찰마감일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"입찰마감일시"},"steps":[]}}},
+        {"id":"c21","name":"개찰일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"개찰일시"},"steps":[]}}},
+        {"id":"c22","name":"등록마감일시","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"등록마감일시"},"steps":[]}}},
+        {"id":"c23","name":"계약담당자","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"공고담당자"},"steps":[{"op":"before","text":"("},{"op":"trim"}]}}},
+        {"id":"c24","name":"계약담당 전화번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"공고담당자"},"steps":[{"op":"after","text":"☎"},{"op":"before","text":")"},{"op":"trim"}]}}},
+        {"id":"c25","name":"담당부서","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"담당부서"},"steps":[]}}},
+        {"id":"c26","name":"담당자","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"담당자"},"steps":[]}}},
+        {"id":"c27","name":"담당자 전화번호","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"notice","field":"담당자전화"},"steps":[]}}},
+        {"id":"c29","name":"계약금액","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"계약금액"},"steps":[]}}},
+        {"id":"c30","name":"계약보증금","formula":{"version":2,"source":"flow","flow":{"from":{"kind":"linked","link":"contract","field":"계약보증금(원)"},"steps":[]}}}
+      ] }
+    }
+  ],
+  "columns": []
+}

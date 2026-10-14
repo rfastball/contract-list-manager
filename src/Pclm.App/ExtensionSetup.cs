@@ -40,9 +40,9 @@ internal static class ExtensionSetup
     }
 
     /// <summary>
-    /// 확장 폴더나 브라우저 안의 확장 화면을 연다. <paramref name="page"/> 는 <c>extensions/</c>(관리)·<c>extensions/shortcuts</c>(단축키).
+    /// 확장 폴더나 브라우저의 확장 관리 화면을 연다.
     /// </summary>
-    public static object? Open(string target, string page = "extensions/")
+    public static object? Open(string target)
     {
         if (target == "folder")
         {
@@ -57,7 +57,7 @@ internal static class ExtensionSetup
             "chrome" => ("chrome.exe", "chrome", @"Google\Chrome\Application\chrome.exe"),
             _ => throw new ArgumentException("Edge 또는 Chrome을 선택하세요."),
         };
-        var url = $"{scheme}://{page}";
+        var url = $"{scheme}://extensions/";
         var candidates = new List<string?>();
         foreach (var root in new[] { Registry.CurrentUser, Registry.LocalMachine })
         {

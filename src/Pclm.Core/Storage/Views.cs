@@ -30,7 +30,10 @@ public static class Views
         // 차수를 펴서 내는 것들(스키마 V15). <b>끝에 붙인다</b> — 사이에 끼우면 박제가
         // 바뀐 것 없는 절까지 통째로 다시 쓰여, 무엇이 실제로 달라졌는지 보이지 않는다.
         "v_공고차수", "v_통합차수", "v_계약차수",
-        "v_ERP원천", "v_계약업체", "v_ERP접수",
+        "v_ERP원천", "v_계약업체", "v_ERP접수", "v_가공열",
+
+        // 맞춤 뷰의 메타(docs/user-views.md §6). 맞춤 뷰(<c>u_*</c>) 자체는 설치마다 달라 여기 들지 않는다.
+        "v_맞춤뷰",
     ];
 
     /// <summary>
@@ -53,7 +56,7 @@ public static class Views
     public static IReadOnlyList<string> ReadOnly =>
     [
         "v_계획", "v_통합차수", "v_공고차수", "v_계약차수",
-        "v_ERP원천", "v_계약업체", "v_ERP접수",
+        "v_ERP원천", "v_계약업체", "v_ERP접수", "v_가공열", "v_맞춤뷰",
     ];
 
     /// <summary>
@@ -162,12 +165,67 @@ public static class Views
     [
         "계약번호", "계약본번호", "차수",
         "계약건명", "계약일자", "계약방법", "계약구분",
-        "품명", "수량", "단위", "계약금액", "수수료",
+        "품명", "수량", "단위", "계약금액", "계약보증금률(%)", "계약보증금(원)", "수수료",
         "지체상금률", "하자보수보증금률", "하자담보책임기간", "계약기간",
         "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
         "수요기관", "검사기관", "검수기관",
         "계약상대자", "대표자", "사업자등록번호", "상대자주소", "상대자전화", "상대자팩스",
     ];
+
+    /// <summary>
+    /// <c>v_공고</c> 가 내는 열 차례(사람이 세운 열 앞까지). <see cref="ContractColumns"/> 와 같은 까닭으로 이름을
+    /// 한 벌 더 든다 — 가공열이 있으면 뷰를 한 겹 감싸 바깥에서 열을 하나씩 다시 적어야 하는데(§11.1-3),
+    /// SQL 에는 "안쪽 열을 차례대로 다 내되 사이사이에 끼워라" 라고 적을 말이 없다. 어긋나면 감싼 뷰에서 그 열만
+    /// 사라지므로 <c>DatasetContractTests</c> 가 실제 뷰와 대조한다.
+    /// </summary>
+    public static IReadOnlyList<string> NoticeColumns =>
+    [
+        "입찰공고번호", "공고본번호", "차수",
+        "공고명", "공고종류", "게시일시", "입찰방식", "낙찰방법", "낙찰하한율", "계약방법", "계약구분",
+        "사업예산", "배정예산", "추정가격", "기초금액", "분할납품", "하자담보기간",
+        "공고기관", "공고담당자", "집행관", "지역제한", "사전규격등록번호",
+        "개찰일시", "입찰개시일시", "입찰마감일시", "등록마감일시",
+        "수요기관", "세부품명", "세부품명번호", "수량", "단위", "납품기한", "인도조건",
+        "담당부서", "담당자", "담당자전화", "담당자팩스",
+        "관련공고", "공고건", "현행공고",
+    ];
+
+    /// <inheritdoc cref="NoticeColumns"/>
+    public static IReadOnlyList<string> RequestColumns =>
+    [
+        "접수번호", "접수본번호", "차수",
+        "조달요구번호", "품목수",
+        "요청명", "접수일자", "업무구분", "계약법구분", "계약방법", "계약유형", "낙찰방법", "회계구분", "지급방법",
+        "품대", "수수료", "부가가치세액", "예산금액",
+        "외국산여부", "요청구분", "공개여부", "전담관", "담당과", "담당자", "선급금선고지", "선급금지급가능", "기타사항",
+        "수요기관", "수요기관코드", "기관담당자", "기관담당자전화", "기관담당자팩스",
+        "세부품명", "세부품명번호", "수량", "단위", "인도조건", "납품기한", "재고번호",
+    ];
+
+    /// <summary>
+    /// 이 자료 종류의 <b>기본 열</b> — 사람이 세운 열을 뺀 면 뷰의 열. 가공열의 원천으로 쓸 수 있는 것이 이것뿐이다
+    /// (다른 사용자 열을 원천으로 받지 않아 뷰 사이 순환이 구조적으로 막힌다, §4.1).
+    /// </summary>
+    public static IReadOnlyList<string> BaseColumns(string entityType) => entityType switch
+    {
+        "notice" => NoticeColumns,
+        "contract" => ContractColumns,
+        "request" => RequestColumns,
+        _ => throw new InvalidOperationException("가공열의 자료 종류가 올바르지 않습니다."),
+    };
+
+    /// <summary>
+    /// 이 자료 종류의 덮개 열 한 벌 — 사람 열 없이. 가공열이 <b>연결 문서</b>의 필드를 읽을 때 상대 뷰를 읽지 않고
+    /// 이것을 그 개체의 행 별칭(<c>n</c>·<c>c</c>·<c>r</c>)으로 다시 부른다 — 뷰 사이 순환이 생기지 않는다(§11.1-3).
+    /// 계약은 <c>LEFT JOIN counterparty p</c> 를 함께 걸어야 한다.
+    /// </summary>
+    internal static string Face(string entityType) => entityType switch
+    {
+        "notice" => 공고열(""),
+        "contract" => 계약열(""),
+        "request" => 접수열(""),
+        _ => throw new InvalidOperationException("가공열의 자료 종류가 올바르지 않습니다."),
+    };
 
     /// <summary>
     /// 판을 붙여 부르던 옛 이름(ADR-034 전). <see cref="Definitions"/> 가 맨 앞에서 모두 치운다.
@@ -182,6 +240,9 @@ public static class Views
         "v_공고품목_v1", "v_품목_v1", "v_접수품목_v1",
         "v_공고_v1", "v_계약_v1", "v_접수_v1",
         "v_ERP원천_v1", "v_계약업체_v1", "v_ERP접수_v1",
+
+        // 맞춤 뷰의 메타가 2판에서 서던 이름(스키마 23). 3판에서 제자리에서 v_맞춤뷰 로 바꾸었다(ADR-034).
+        "v_사용자뷰",
     ];
 
     /// <summary>빈 값은 NULL 이 아니라 빈 문자열로 낸다 — 받는 쪽의 빈 값 경고가 살아나게.</summary>
@@ -228,7 +289,7 @@ public static class Views
     /// 금액에 세 자리마다 자릿점을 넣는다. 소수부는 건드리지 않는다 — 단가에 소수점이 실재한다.
     /// 조 단위까지면 충분해서 재귀 없이 자릿수별로 편다.
     /// </summary>
-    private static string Money(string column)
+    internal static string Money(string column)
     {
         // 뜻 없는 .0 을 먼저 턴 값 위에서 자릿점을 찍는다.
         var trimmed = Number(column);
@@ -492,10 +553,53 @@ public static class Views
     /// SQLite 가 그것을 한 번 펴 놓고 건마다 집어 간다.</para>
     /// </summary>
     /// <param name="낼것"><c>현행.notice_base</c> 또는 <c>현행.notice_base || '-' || 현행.seq</c>.</param>
-    private static string 건현행(string groupExpr, string 낼것) => $"""
+    internal static string 건현행(string groupExpr, string 낼것) => $"""
         (SELECT {낼것}
          FROM ({NoticeGroups.현행공고}) 현행
          WHERE 현행.group_base = {groupExpr})
+        """;
+
+    /// <summary>
+    /// 조달 건의 사슬 — 접수·공고건·계약 본번호의 짝(ADR-022). <c>v_통합</c> 과 맞춤 뷰(docs/user-views.md §5)가 <b>이 한 벌</b>을
+    /// 부른다. 두 벌로 적으면 한쪽만 고쳐도 아무것도 실패하지 않고 맞춤 뷰의 줄만 통합과 어긋난다. 공고 자리는 건 이름이라
+    /// 공고 열은 그 건의 현행 공고(<see cref="건현행"/>)에서 낸다 — 이것도 두 쪽이 같은 함수를 부른다.
+    /// <c>Outline</c> 이 세우는 사슬과 <b>같은 규칙</b>이다(<c>v_통합</c> 의 주석).
+    /// </summary>
+    internal const string 사슬 = """
+        WITH 사슬(접수, 공고, 계약) AS (
+            -- 공고가 선 것. 줄기가 본번호가 아니라 <b>건</b>이라, 취소 후 재공고로 본번호가
+            -- 갈렸던 것이 여기서 한 줄로 합쳐진다 — 줄 하나는 조달 건이라는 이 뷰의 정의가
+            -- 그것을 요구한다(ADR-022). 계약이 없으면 계약 자리가 NULL 인 채로 한 줄이 남는다.
+            --
+            -- 건 표를 그대로 훑지 않고 <b>공고가 실제로 서 있는 건</b>만 세우는 것은, 계열만
+            -- 남고 문서가 없는 자리(취합본에서 생길 수 있다)가 빈 줄로 서지 않게 하려는 것이다.
+            SELECT rl.request_base, 건.group_base, pl.contract_base
+            FROM (SELECT DISTINCT s.group_base
+                  FROM notice_series s
+                  JOIN notice n ON n.notice_base = s.notice_base) 건
+            LEFT JOIN request_link rl ON rl.notice_group = 건.group_base
+            LEFT JOIN project_link pl ON pl.notice_group = 건.group_base
+
+            UNION ALL
+
+            -- 공고가 아직 없는 접수. 세우지 않으면 넣은 사람이 넣지 않은 줄 안다.
+            -- 링크가 있는지가 아니라 <b>그 건에 공고가 실제로 서 있는지</b>를 본다 — 링크만 남고
+            -- 그 건에 공고 줄이 하나도 없으면 위 갈래가 그 접수를 집지 않아, 접수가 통째로 사라진다.
+            SELECT r.request_base, NULL, NULL
+            FROM (SELECT DISTINCT request_base FROM request) r
+            WHERE NOT EXISTS (
+                SELECT 1 FROM request_link rl
+                JOIN notice_series s ON s.group_base = rl.notice_group
+                JOIN notice n2 ON n2.notice_base = s.notice_base
+                WHERE rl.request_base = r.request_base)
+
+            UNION ALL
+
+            -- 어디에도 매달리지 못한 계약. 계약서만 먼저 들어온 흔한 경우다.
+            SELECT NULL, NULL, c.contract_base
+            FROM (SELECT DISTINCT contract_base FROM contract) c
+            WHERE NOT EXISTS (SELECT 1 FROM project_link pl WHERE pl.contract_base = c.contract_base)
+        )
         """;
 
     /// <inheritdoc cref="LatestNotice"/>
@@ -690,12 +794,59 @@ public static class Views
     private static string UserColumns(
         IEnumerable<UserColumnDefinition> columns, string entityType, string keyExpression)
     {
-        var wanted = columns.Where(c => c.EntityType == entityType).ToList();
+        // 가공열은 여기 서지 않는다 — 감싼 바깥(Wrap)에서 덮개를 마친 값을 읽는다.
+        var wanted = columns.Where(c => c.EntityType == entityType && c.Kind != "computed").ToList();
         if (wanted.Count == 0) return string.Empty;
 
         const string separator = ",\n            ";
         return separator + string.Join(separator,
             wanted.Select(c => UserColumn(entityType, keyExpression, c.FieldName)));
+    }
+
+    /// <summary>
+    /// 가공열이 하나라도 있으면 뷰를 한 겹 감싼다(§11.1-3):
+    /// <c>SELECT 현재."열1", …, (식) AS "가공열", … FROM (안쪽 뷰 본문) AS 현재</c>.
+    ///
+    /// <para><b>바깥 목록은 지금 열 순서를 그대로 하나씩 적는다.</b> 사람 열의 <c>sort_order</c> 가 입력열과
+    /// 가공열을 섞으므로 <c>현재.*</c> 뒤에 붙일 수 없다 — 계약면 박제(<c>views.txt</c>)가 바뀌지 않아야 한다.
+    /// 가공열이 없으면 감싸지 않는다 — 지금 뷰 그대로다.</para>
+    ///
+    /// <para>가공식이 읽는 자기 행의 열은 <c>현재."열"</c> 이라 정정(<c>field_override</c>)을 마친 값이다.</para>
+    /// </summary>
+    private static string Wrap(string body, string entityType, IReadOnlyList<UserColumnDefinition> columns,
+        IReadOnlyDictionary<(string Entity, string Name), string> broken)
+    {
+        var mine = columns.Where(c => c.EntityType == entityType).ToList();
+        if (!mine.Any(c => c.Kind == "computed")) return body;
+
+        var outer = BaseColumns(entityType).Select(name => $"{FlowCompiler.Self}.{FlowCompiler.Ident(name)}")
+            .Concat(mine.Select(c => c.Kind != "computed"
+                ? $"{FlowCompiler.Self}.{FlowCompiler.Ident(c.FieldName)}"
+                : broken.TryGetValue((entityType, c.FieldName), out var why)
+                    ? $"{BrokenMarker(why)} AS {FlowCompiler.Ident(c.FieldName)}"
+                    : $"{ComputedColumn.Expression(entityType, c.Options!)} AS {FlowCompiler.Ident(c.FieldName)}"));
+        return "SELECT\n    " + string.Join(",\n    ", outer) + $"\nFROM (\n{body}\n) AS {FlowCompiler.Self}";
+    }
+
+    /// <summary>
+    /// 깨진 가공열의 자리 — 빈 글이다. 소비자의 빈 값 경고가 그 칸에서 울린다. 까닭은 뷰 정의 안 주석으로 남겨
+    /// <see cref="BrokenIn"/> 이 읽는다 — 상태를 담는 표나 뷰를 따로 두지 않아(소비자가 뷰를 시트로 늘어놓는다),
+    /// 남의 파일을 읽기로 열어도 같은 것이 보인다.
+    /// </summary>
+    private static string BrokenMarker(string why) =>
+        $"'' /* 깨진 가공식: {why.Replace("*/", "* /").ReplaceLineEndings(" ")} */";
+
+    private static readonly System.Text.RegularExpressions.Regex BrokenPattern =
+        new(@"'' /\* 깨진 가공식: (.*?) \*/ AS ""((?:[^""]|"""")+)""", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+    /// <summary>면 뷰의 정의 글에서 깨진 가공열(이름 → 까닭)을 읽는다.</summary>
+    public static IReadOnlyDictionary<string, string> BrokenIn(string? viewSql)
+    {
+        var found = new Dictionary<string, string>();
+        if (viewSql is null) return found;
+        foreach (System.Text.RegularExpressions.Match m in BrokenPattern.Matches(viewSql))
+            found[m.Groups[2].Value.Replace("\"\"", "\"")] = m.Groups[1].Value;
+        return found;
     }
 
     /// <summary>열마다 쓰는 것이라 짧아야 읽힌다 — <c>N</c> 은 공고의 덮개다.</summary>
@@ -776,25 +927,7 @@ public static class Views
             -- 키 열이라 Face 로 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 이 공고가 다른
             -- 건에 속한 것처럼 보이기만 한다(Views.KeyColumns).
             {Text(공고건("n.notice_base"))} AS 공고건,
-            {Text(건현행(공고건("n.notice_base"), "현행.notice_base || '-' || 현행.seq"))} AS 현행공고,
-
-            -- 계약방법과 계약구분을 줄여 한 칸에 적는다 — 「제한(총액)」. 재료는 사람이 고친 뒤의
-            -- 값이다. 둘 중 하나라도 표에 없으면 통째로 비운다: 틀린 글자는 그대로 문서에
-            -- 찍히지만 빈칸은 받는 쪽이 알아챈다. 「제한()」 도, 코드 그대로도 내지 않는다.
-            {N("입찰방법", 입찰방법)}{noticeColumns}
-        """;
-
-    /// <summary><see cref="공고열"/> 의 「입찰방법」 — 줄임표에 없는 값이 하나라도 있으면 빈 문자열.</summary>
-    private static string 입찰방법 => $"""
-        COALESCE(
-                (CASE {Faced("notice", "n.notice_base", "n.seq", "계약방법", Text("n.contract_method"))}
-                    WHEN '일반경쟁' THEN '일반' WHEN '제한경쟁' THEN '제한'
-                    WHEN '지명경쟁' THEN '지명' WHEN '수의계약' THEN '수의' END)
-                || '(' ||
-                (CASE {Faced("notice", "n.notice_base", "n.seq", "계약구분", Text("n.contract_kind"))}
-                    WHEN '총액계약' THEN '총액' WHEN '일반단가계약' THEN '단가'
-                    WHEN '단가계약' THEN '단가' WHEN '제3자단가계약' THEN '제3자단가' END)
-                || ')', '')
+            {Text(건현행(공고건("n.notice_base"), "현행.notice_base || '-' || 현행.seq"))} AS 현행공고{noticeColumns}
         """;
 
     /// <summary>
@@ -815,6 +948,8 @@ public static class Views
             {C("수량", Text("CAST(c.quantity AS TEXT)"))},
             {C("단위", Text("c.unit"))},
             {C("계약금액", Money("c.amount"))},
+            {C("계약보증금률(%)", Number("c.guarantee_rate"))},
+            {C("계약보증금(원)", Money("c.guarantee_amount"))},
             {C("수수료", Money("c.fee"))},
             {C("지체상금률", Number("c.delay_penalty_rate"))},
             {C("하자보수보증금률", Number("c.warranty_bond_rate"))},
@@ -839,166 +974,12 @@ public static class Views
             {C("상대자팩스", Text(PartyField("fax")))}{contractColumns}
         """;
 
-    private static string PartyField(string column) =>
-        $"CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) " +
-        $"WHEN 0 THEN p.{column} WHEN 1 THEN (SELECT e.{column} FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) ELSE '' END";
-
-    public static IReadOnlyList<string> Definitions(IEnumerable<UserColumnDefinition> userColumns)
-    {
-        var columns = userColumns.ToList();
-        var contractColumns = UserColumns(columns, "contract", "c.contract_base");
-        var noticeColumns = UserColumns(columns, "notice", "n.notice_base");
-        var requestColumns = UserColumns(columns, "request", "r.request_base");
-
-        // v_통합 이 계약 뷰에서 받아 오는 열. 사람이 세운 계약 열도 함께 온다 —
-        // v_계약 이 그 열까지 낸 뒤이므로 이름만 이어 붙이면 된다.
-        var unifiedContract = string.Join(",\n            ",
-            ContractColumns
-                .Concat(columns.Where(c => c.EntityType == "contract").Select(c => c.FieldName))
-                .Select(name => $"COALESCE(k.\"{name}\", '') AS \"{name}\""));
-
-        // 접수 열은 이 뷰 하나에만 쓰여 여기 둔다. 공고·계약은 차수 뷰와 나눠 쓰므로
-        // 열 목록째 밖으로 나가 있다(공고열·계약열).
-        static string R(string name, string expression) =>
-            Face("request", "r.request_base", "r.seq", name, expression);
-
-        return
-    [
-        // 옛 이름(ADR-034 전)을 모두 치운다. 판을 붙여 부르던 뷰는 이름을 제자리에서 바꾸며
-        // 나란히 남기지 않기로 했다 — 갱신된 DB 에 남으면 받는 쪽이 그것을 시트로 늘어놓고,
-        // 표가 바뀌는 순간 <b>깨진 뷰</b>가 된다. 스키마 판과 상관없이 열 때마다 치운다(뷰를
-        // 짓는 이 뭉치는 판올림이 없어도 돈다). 차례는 아래와 같은 까닭으로 얹힌 것부터다.
-        .. LegacyNames.Select(name => $"DROP VIEW IF EXISTS {name};"),
-
-        // 통합은 계약 뷰 위에 얹히므로, 계약을 다시 짓기 전에 먼저 치운다. 통합은 접수까지
-        // 얹으므로 접수 뷰보다도 앞서 치워야 한다 — 가리키는 뷰가 살아 있으면 SQLite 가 막는다.
-        // 계획은 접수·공고·계약 셋을 다 가리키므로 그 셋보다 앞선다.
-        //
-        // 통합차수가 <b>맨 앞</b>이다. 계약·접수에 더해 v_공고차수까지 얹혀 이 뭉치에서 가장
-        // 위에 있다. 뷰 하나가 실패하면 RefreshViews 가 던져 <b>앱이 아예 뜨지 않는다</b>.
-        "DROP VIEW IF EXISTS v_통합차수;",
-        "DROP VIEW IF EXISTS v_계획;",
-        "DROP VIEW IF EXISTS v_통합;",
-
-        // 짓다 만 중간 뷰의 잔재. 예전 DB 에 남아 있으면 치운다.
-        "DROP VIEW IF EXISTS v_계약_기본;",
-        "DROP VIEW IF EXISTS _계약_기본;",
-
-        $"""
-        DROP VIEW IF EXISTS v_공고;
-        CREATE VIEW v_공고 AS
-        SELECT
-        {공고열(noticeColumns)}
-        FROM notice n
-        {LatestNotice};
-        """,
-
-        // ── 공고 차수 ────────────────────────────────────────────────
-        //
-        // 줄 하나가 <b>공고 문서 한 장</b>이다. v_공고 와 열이 한 글자도 다르지 않고
-        // (같은 공고열 하나를 쓴다) LatestNotice 조인만 없다 — 최신 차수로 좁히지 않으므로
-        // 취소공고도, 변경 전 차수도 제 줄로 선다.
-        //
-        // 「공고건」·「현행공고」는 여기서도 그 <b>건</b>의 것이다. 그래서 이 뷰는 "이 건에
-        // 무엇 무엇이 있었고 지금 무엇이 서 있는가" 를 한 표로 낸다.
-        //
-        // <b>읽기 전용이다</b>(Views.ReadOnly). Store.FaceView 가 공고 뷰를 v_공고 하나로
-        // 알아, 옛 차수의 칸을 여기서 고치면 덮개의 original 을 찾지 못해 빈 문자열로 박힌다.
-        $"""
-        DROP VIEW IF EXISTS v_공고차수;
-        CREATE VIEW v_공고차수 AS
-        SELECT
-        {공고열(noticeColumns)}
-        FROM notice n;
-        """,
-
-        // 공고 품목. v_계약품목 이 계약에 대해 하는 것을 공고에 대해 한다 — 줄 하나가 품목 한 줄이다.
-        // 수요기관이 여럿인 공고에서는 줄마다 수요기관이 다르므로, 그 기관의 담당자를 이름으로 이어 붙인다.
-        $"""
-        DROP VIEW IF EXISTS v_공고품목;
-        CREATE VIEW v_공고품목 AS
-        SELECT
-            n.notice_base || '-' || n.seq         AS 입찰공고번호,
-            {Text("n.title")}                     AS 공고명,
-            i.line_no                             AS 순번,
-            {Text("i.demand_agency")}             AS 수요기관,
-            {Text("i.item_name")}                 AS 세부품명,
-            {Text("i.detail_item_number")}        AS 세부품명번호,
-            {Text("i.item_id_number")}            AS 물품식별번호,
-            {Text("i.specification")}             AS 규격,
-            {Text("CAST(i.quantity AS TEXT)")}    AS 수량,
-            {Text("i.unit")}                      AS 단위,
-            {Money("i.unit_price")}               AS 추정단가,
-            {DeliveryDeadline("i.delivery_due", "i.delivery_days")} AS 납품기한,
-            {Text("i.delivery_place")}            AS 납품장소,
-            {Text("i.delivery_terms")}            AS 인도조건,
-            {Text("t.department")}                AS 담당부서,
-            {Text("t.officer")}                   AS 담당자,
-            {Text("t.phone")}                     AS 담당자전화,
-            {Text("t.fax")}                       AS 담당자팩스
-        FROM notice_item i
-        JOIN notice n ON n.notice_base = i.notice_base AND n.seq = i.seq
-        {LatestNotice}
-        LEFT JOIN notice_officer_contact t
-               ON t.notice_base = i.notice_base AND t.seq = i.seq
-              AND t.demand_agency = i.demand_agency;
-        """,
-
-        $"""
-        DROP VIEW IF EXISTS _계약_기본;
-        DROP VIEW IF EXISTS v_계약;
-        CREATE VIEW v_계약 AS
-        SELECT
-        {계약열(contractColumns)}
-        FROM contract c
-        {LatestContract}
-        LEFT JOIN counterparty p ON c.counterparty_number = p.business_number;
-        """,
-
-        // ── 계약 차수 ────────────────────────────────────────────────
-        //
-        // 줄 하나가 <b>계약 문서 한 장</b>이다. v_계약 과 열이 같고 LatestContract 만 없다 —
-        // 변경계약이 들어와도 앞차수가 제 줄로 남는다. v_공고차수 와 같은 까닭으로
-        // <b>읽기 전용</b>이다.
-        $"""
-        DROP VIEW IF EXISTS v_계약차수;
-        CREATE VIEW v_계약차수 AS
-        SELECT
-        {계약열(contractColumns)}
-        FROM contract c
-        LEFT JOIN counterparty p ON c.counterparty_number = p.business_number;
-        """,
-
-        $"""
-        DROP VIEW IF EXISTS v_계약품목;
-        CREATE VIEW v_계약품목 AS
-        SELECT
-            c.contract_base || c.seq              AS 계약번호,
-            {Text("c.title")}                     AS 계약건명,
-            i.line_no                             AS 순번,
-            {Text("i.item_name")}                 AS 품명,
-            {Text("i.specification")}             AS 규격,
-            {Text("i.classification_number")}     AS 물품분류번호,
-            {Text("i.item_id_number")}            AS 물품식별번호,
-            {Text("CAST(i.quantity AS TEXT)")}    AS 수량,
-            {Text("i.unit")}                      AS 단위,
-            {Money("i.unit_price")}               AS 단가,
-            {Money("i.amount")}                   AS 금액,
-            {Text("i.demand_agency")}             AS 수요기관,
-            {DateText("i.delivery_due")}          AS 납품기한,
-            {Text("i.delivery_terms")}            AS 인도조건
-        FROM contract_item i
-        JOIN contract c ON c.contract_base = i.contract_base AND c.seq = i.seq
-        {LatestContract};
-        """,
-
-        // 접수. 줄 하나가 접수서 하나(최신 차수)다 — 공고와 1:1 이라 그 줄이 조달 건 하나를 가리킨다.
-        // 모든 열을 Face 로 감싼다: 새 열을 더할 때 그 자리도 함께 감싸지 않으면 그 칸만
-        // 조용히 고칠 수 없게 된다(ADR-020).
-        $"""
-        DROP VIEW IF EXISTS v_접수;
-        CREATE VIEW v_접수 AS
-        SELECT
+    /// <summary>
+    /// 접수 뷰가 내는 열 한 벌. 뷰는 <c>v_접수</c> 하나뿐이지만, 가공열이 연결 접수의 필드를 읽을 때 같은 덮개 식을
+    /// 다시 부르므로(<see cref="Face(string)"/>) 공고열·계약열처럼 밖으로 꺼내 둔다.
+    /// </summary>
+    /// <param name="requestColumns">사람이 세운 접수 열. 뒤에 그대로 이어 붙는다.</param>
+    private static string 접수열(string requestColumns) => $"""
             -- 키 열은 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다.
             -- 이 두 이름은 대표조달요구번호·대표조달요구본번호에서 제자리로 바꿨다(ADR-027,
             -- ADR-014 의 두 번째 예외). 키가 접수번호가 되어 옛 이름이 거짓이 되었다.
@@ -1051,13 +1032,169 @@ public static class Views
             -- 재고번호도 같은 규칙이지만 세부품명 옆이 아니라 끝에 붙인다 — 계약면은
             -- 늘리기만 하는 자리라, 사이에 끼우면 뒤 열의 엑셀 자리가 한 칸씩 밀린다.
             {R("재고번호", Text(UniformRequestItem("i.stock_number")))}{requestColumns}
-        FROM request r
-        {LatestRequest};
+        """;
+
+    /// <summary>접수의 덮개. <see cref="N"/> 과 같다.</summary>
+    private static string R(string name, string expression) =>
+        Face("request", "r.request_base", "r.seq", name, expression);
+
+    private static string PartyField(string column) =>
+        $"CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) " +
+        $"WHEN 0 THEN p.{column} WHEN 1 THEN (SELECT e.{column} FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) ELSE '' END";
+
+    /// <param name="broken">빈 글로 세울 가공열(종류·이름 → 까닭). <see cref="Database"/> 가 열마다 준비해 보고 가린다.</param>
+    public static IReadOnlyList<string> Definitions(IEnumerable<UserColumnDefinition> userColumns,
+        IReadOnlyDictionary<(string Entity, string Name), string>? broken = null)
+    {
+        broken ??= new Dictionary<(string, string), string>();
+        var columns = userColumns.ToList();
+        var contractColumns = UserColumns(columns, "contract", "c.contract_base");
+        var noticeColumns = UserColumns(columns, "notice", "n.notice_base");
+        var requestColumns = UserColumns(columns, "request", "r.request_base");
+
+        // v_통합 이 계약 뷰에서 받아 오는 열. 사람이 세운 계약 열도 함께 온다 —
+        // v_계약 이 그 열까지 낸 뒤이므로 이름만 이어 붙이면 된다.
+        var unifiedContract = string.Join(",\n            ",
+            ContractColumns
+                .Concat(columns.Where(c => c.EntityType == "contract").Select(c => c.FieldName))
+                .Select(name => $"COALESCE(k.\"{name}\", '') AS \"{name}\""));
+
+        // 뷰 본문. 공고·계약은 최신 차수로 좁히는 조인만 두 뷰가 다르다.
+        var 공고본문 = "SELECT\n" + 공고열(noticeColumns) + "\nFROM notice n\n";
+        var 계약본문 = "SELECT\n" + 계약열(contractColumns) + "\nFROM contract c\n";
+        const string 상대자 = "\nLEFT JOIN counterparty p ON c.counterparty_number = p.business_number";
+        var 접수본문 = "SELECT\n" + 접수열(requestColumns) + "\nFROM request r\n" + LatestRequest;
+
+        return
+    [
+        // 옛 이름(ADR-034 전)을 모두 치운다. 판을 붙여 부르던 뷰는 이름을 제자리에서 바꾸며
+        // 나란히 남기지 않기로 했다 — 갱신된 DB 에 남으면 받는 쪽이 그것을 시트로 늘어놓고,
+        // 표가 바뀌는 순간 <b>깨진 뷰</b>가 된다. 스키마 판과 상관없이 열 때마다 치운다(뷰를
+        // 짓는 이 뭉치는 판올림이 없어도 돈다). 차례는 아래와 같은 까닭으로 얹힌 것부터다.
+        .. LegacyNames.Select(name => $"DROP VIEW IF EXISTS {name};"),
+
+        // 통합은 계약 뷰 위에 얹히므로, 계약을 다시 짓기 전에 먼저 치운다. 통합은 접수까지
+        // 얹으므로 접수 뷰보다도 앞서 치워야 한다 — 가리키는 뷰가 살아 있으면 SQLite 가 막는다.
+        // 계획은 접수·공고·계약 셋을 다 가리키므로 그 셋보다 앞선다.
+        //
+        // 통합차수가 <b>맨 앞</b>이다. 계약·접수에 더해 v_공고차수까지 얹혀 이 뭉치에서 가장
+        // 위에 있다. 뷰 하나가 실패하면 RefreshViews 가 던져 <b>앱이 아예 뜨지 않는다</b>.
+        "DROP VIEW IF EXISTS v_통합차수;",
+        "DROP VIEW IF EXISTS v_계획;",
+        "DROP VIEW IF EXISTS v_통합;",
+
+        // 짓다 만 중간 뷰의 잔재. 예전 DB 에 남아 있으면 치운다.
+        "DROP VIEW IF EXISTS v_계약_기본;",
+        "DROP VIEW IF EXISTS _계약_기본;",
+
+        $"""
+        DROP VIEW IF EXISTS v_공고;
+        CREATE VIEW v_공고 AS
+        {Wrap(공고본문 + LatestNotice, "notice", columns, broken)};
+        """,
+
+        // ── 공고 차수 ────────────────────────────────────────────────
+        //
+        // 줄 하나가 <b>공고 문서 한 장</b>이다. v_공고 와 열이 한 글자도 다르지 않고
+        // (같은 공고열 하나를 쓴다) LatestNotice 조인만 없다 — 최신 차수로 좁히지 않으므로
+        // 취소공고도, 변경 전 차수도 제 줄로 선다.
+        //
+        // 「공고건」·「현행공고」는 여기서도 그 <b>건</b>의 것이다. 그래서 이 뷰는 "이 건에
+        // 무엇 무엇이 있었고 지금 무엇이 서 있는가" 를 한 표로 낸다.
+        //
+        // <b>읽기 전용이다</b>(Views.ReadOnly). Store.FaceView 가 공고 뷰를 v_공고 하나로
+        // 알아, 옛 차수의 칸을 여기서 고치면 덮개의 original 을 찾지 못해 빈 문자열로 박힌다.
+        $"""
+        DROP VIEW IF EXISTS v_공고차수;
+        CREATE VIEW v_공고차수 AS
+        {Wrap(공고본문, "notice", columns, broken)};
+        """,
+
+        // 공고 품목. v_계약품목 이 계약에 대해 하는 것을 공고에 대해 한다 — 줄 하나가 품목 한 줄이다.
+        // 수요기관이 여럿인 공고에서는 줄마다 수요기관이 다르므로, 그 기관의 담당자를 이름으로 이어 붙인다.
+        $"""
+        DROP VIEW IF EXISTS v_공고품목;
+        CREATE VIEW v_공고품목 AS
+        SELECT
+            n.notice_base || '-' || n.seq         AS 입찰공고번호,
+            {Text("n.title")}                     AS 공고명,
+            i.line_no                             AS 순번,
+            {Text("i.demand_agency")}             AS 수요기관,
+            {Text("i.item_name")}                 AS 세부품명,
+            {Text("i.detail_item_number")}        AS 세부품명번호,
+            {Text("i.item_id_number")}            AS 물품식별번호,
+            {Text("i.specification")}             AS 규격,
+            {Text("CAST(i.quantity AS TEXT)")}    AS 수량,
+            {Text("i.unit")}                      AS 단위,
+            {Money("i.unit_price")}               AS 추정단가,
+            {DeliveryDeadline("i.delivery_due", "i.delivery_days")} AS 납품기한,
+            {Text("i.delivery_place")}            AS 납품장소,
+            {Text("i.delivery_terms")}            AS 인도조건,
+            {Text("t.department")}                AS 담당부서,
+            {Text("t.officer")}                   AS 담당자,
+            {Text("t.phone")}                     AS 담당자전화,
+            {Text("t.fax")}                       AS 담당자팩스
+        FROM notice_item i
+        JOIN notice n ON n.notice_base = i.notice_base AND n.seq = i.seq
+        {LatestNotice}
+        LEFT JOIN notice_officer_contact t
+               ON t.notice_base = i.notice_base AND t.seq = i.seq
+              AND t.demand_agency = i.demand_agency;
+        """,
+
+        $"""
+        DROP VIEW IF EXISTS _계약_기본;
+        DROP VIEW IF EXISTS v_계약;
+        CREATE VIEW v_계약 AS
+        {Wrap(계약본문 + LatestContract + 상대자, "contract", columns, broken)};
+        """,
+
+        // ── 계약 차수 ────────────────────────────────────────────────
+        //
+        // 줄 하나가 <b>계약 문서 한 장</b>이다. v_계약 과 열이 같고 LatestContract 만 없다 —
+        // 변경계약이 들어와도 앞차수가 제 줄로 남는다. v_공고차수 와 같은 까닭으로
+        // <b>읽기 전용</b>이다.
+        $"""
+        DROP VIEW IF EXISTS v_계약차수;
+        CREATE VIEW v_계약차수 AS
+        {Wrap(계약본문 + 상대자, "contract", columns, broken)};
+        """,
+
+        $"""
+        DROP VIEW IF EXISTS v_계약품목;
+        CREATE VIEW v_계약품목 AS
+        SELECT
+            c.contract_base || c.seq              AS 계약번호,
+            {Text("c.title")}                     AS 계약건명,
+            i.line_no                             AS 순번,
+            {Text("i.item_name")}                 AS 품명,
+            {Text("i.specification")}             AS 규격,
+            {Text("i.classification_number")}     AS 물품분류번호,
+            {Text("i.item_id_number")}            AS 물품식별번호,
+            {Text("CAST(i.quantity AS TEXT)")}    AS 수량,
+            {Text("i.unit")}                      AS 단위,
+            {Money("i.unit_price")}               AS 단가,
+            {Money("i.amount")}                   AS 금액,
+            {Text("i.demand_agency")}             AS 수요기관,
+            {DateText("i.delivery_due")}          AS 납품기한,
+            {Text("i.delivery_terms")}            AS 인도조건
+        FROM contract_item i
+        JOIN contract c ON c.contract_base = i.contract_base AND c.seq = i.seq
+        {LatestContract};
+        """,
+
+        // 접수. 줄 하나가 접수서 하나(최신 차수)다 — 공고와 1:1 이라 그 줄이 조달 건 하나를 가리킨다.
+        // 모든 열을 Face 로 감싼다: 새 열을 더할 때 그 자리도 함께 감싸지 않으면 그 칸만
+        // 조용히 고칠 수 없게 된다(ADR-020).
+        $"""
+        DROP VIEW IF EXISTS v_접수;
+        CREATE VIEW v_접수 AS
+        {Wrap(접수본문, "request", columns, broken)};
         """,
 
         // 접수 품목. 줄 하나가 조달요구 하나다.
         // 「입찰공고번호」·「공고순번」은 request_item_link 에서 온다 — 어느 조달요구가 어느
-        // 공고 품목이 되었는지, 수량·단가로 지은 짝의 결과다. 이어지지 않았으면 빈 문자열이다.
+        // 공고 품목이 되었는지, 명시 접수번호·차수·품목순번으로 지은 짝의 결과다. 이어지지 않았으면 빈 문자열이다.
         $"""
         DROP VIEW IF EXISTS v_접수품목;
         CREATE VIEW v_접수품목 AS
@@ -1124,40 +1261,7 @@ public static class Views
         $"""
         DROP VIEW IF EXISTS v_통합;
         CREATE VIEW v_통합 AS
-        WITH 사슬(접수, 공고, 계약) AS (
-            -- 공고가 선 것. 줄기가 본번호가 아니라 <b>건</b>이라, 취소 후 재공고로 본번호가
-            -- 갈렸던 것이 여기서 한 줄로 합쳐진다 — 줄 하나는 조달 건이라는 이 뷰의 정의가
-            -- 그것을 요구한다(ADR-022). 계약이 없으면 계약 자리가 NULL 인 채로 한 줄이 남는다.
-            --
-            -- 건 표를 그대로 훑지 않고 <b>공고가 실제로 서 있는 건</b>만 세우는 것은, 계열만
-            -- 남고 문서가 없는 자리(취합본에서 생길 수 있다)가 빈 줄로 서지 않게 하려는 것이다.
-            SELECT rl.request_base, 건.group_base, pl.contract_base
-            FROM (SELECT DISTINCT s.group_base
-                  FROM notice_series s
-                  JOIN notice n ON n.notice_base = s.notice_base) 건
-            LEFT JOIN request_link rl ON rl.notice_group = 건.group_base
-            LEFT JOIN project_link pl ON pl.notice_group = 건.group_base
-
-            UNION ALL
-
-            -- 공고가 아직 없는 접수. 세우지 않으면 넣은 사람이 넣지 않은 줄 안다.
-            -- 링크가 있는지가 아니라 <b>그 건에 공고가 실제로 서 있는지</b>를 본다 — 링크만 남고
-            -- 그 건에 공고 줄이 하나도 없으면 위 갈래가 그 접수를 집지 않아, 접수가 통째로 사라진다.
-            SELECT r.request_base, NULL, NULL
-            FROM (SELECT DISTINCT request_base FROM request) r
-            WHERE NOT EXISTS (
-                SELECT 1 FROM request_link rl
-                JOIN notice_series s ON s.group_base = rl.notice_group
-                JOIN notice n2 ON n2.notice_base = s.notice_base
-                WHERE rl.request_base = r.request_base)
-
-            UNION ALL
-
-            -- 어디에도 매달리지 못한 계약. 계약서만 먼저 들어온 흔한 경우다.
-            SELECT NULL, NULL, c.contract_base
-            FROM (SELECT DISTINCT contract_base FROM contract) c
-            WHERE NOT EXISTS (SELECT 1 FROM project_link pl WHERE pl.contract_base = c.contract_base)
-        )
+        {사슬}
         SELECT
             {unifiedContract},
             COALESCE(g.입찰공고번호, '')     AS 입찰공고번호,
@@ -1359,7 +1463,7 @@ public static class Views
         LEFT JOIN 계약묶음 m       ON m.공고건 = rl.notice_group
         LEFT JOIN v_계약 k      ON k.계약본번호 = m.본번호;
         """,
-        """
+        $"""
         DROP VIEW IF EXISTS v_ERP원천;
         CREATE VIEW v_ERP원천 AS
         SELECT s.entity_type AS 자료종류, s.entity_base AS 내부키, s.entity_seq AS 차수,
@@ -1374,6 +1478,15 @@ public static class Views
           coalesce(business_number,'') AS 사업자등록번호, coalesce(representative,'') AS 대표자,
           coalesce(share_rate,'') AS 계약지분율, coalesce(share_amount,'') AS 계약지분금액
         FROM erp_partner;
+        DROP VIEW IF EXISTS v_가공열;
+        CREATE VIEW v_가공열 AS
+        SELECT CAST(json_extract(options, '$.id') AS TEXT) AS 식별자,
+               entity_type AS 자료종류,
+               CASE entity_type WHEN 'notice' THEN 'v_공고' WHEN 'contract' THEN 'v_계약' ELSE 'v_접수' END AS 대상뷰,
+               field_name AS 열이름,
+               {ResultTypes(columns, broken)} AS 결과타입,
+               options AS 가공식
+        FROM user_column WHERE kind = 'computed';
         DROP VIEW IF EXISTS v_ERP접수;
         CREATE VIEW v_ERP접수 AS
         SELECT r.request_base AS 내부키,r.seq AS 접수차수,
@@ -1382,13 +1495,74 @@ public static class Views
           coalesce(r.title,'') AS 요청명,coalesce(r.received_on,'') AS 접수일자
         FROM request r WHERE EXISTS(SELECT 1 FROM erp_source s WHERE s.entity_type='request' AND s.entity_base=r.request_base AND s.entity_seq=r.seq);
         """,
+
+        // v_맞춤뷰 는 여기 없다 — 결과타입이 맞춤 뷰를 지어 본 뒤에야 정해져 UserViewBuilder.Build 가 맨 끝에 짓는다.
     ];
+    }
+
+    /// <summary>
+    /// <c>v_맞춤뷰</c>(docs/user-views.md §6) — 맞춤 뷰의 필드 하나당 한 줄. <c>v_가공열</c> 처럼 소비자가 작업자료 신원 +
+    /// 식별자로 이름 바뀜을 따라온다. <paramref name="types"/> 는 (뷰 식별자, 필드 식별자) → 끝 꼴(<c>number</c>·<c>date</c>);
+    /// 없는 필드(깨진 식 포함)는 글이다. 2판의 <c>v_사용자뷰</c> 를 제자리에서 바꾼 것이라 옛 이름은 <see cref="LegacyNames"/> 가 치운다.
+    /// </summary>
+    internal static string UserViewMeta(IReadOnlyDictionary<(string View, string Column), string> types)
+    {
+        var cases = types.Where(t => t.Value is "number" or "date").Select(t =>
+            $"WHEN v.id = {FlowCompiler.Lit(t.Key.View)} AND json_extract(c.value, '$.id') = {FlowCompiler.Lit(t.Key.Column)} THEN '{t.Value}'").ToList();
+        var type = cases.Count == 0 ? "'text'" : $"CASE {string.Join(" ", cases)} ELSE 'text' END";
+        return $"""
+            DROP VIEW IF EXISTS v_맞춤뷰;
+            CREATE VIEW v_맞춤뷰 AS
+            SELECT v.id AS 뷰식별자,
+                   '{UserViewPrefix}' || v.name AS 뷰이름,
+                   CAST(coalesce(json_extract(c.value, '$.id'), '') AS TEXT) AS 열식별자,
+                   CAST(coalesce(json_extract(c.value, '$.name'), '') AS TEXT) AS 열이름,
+                   CAST(c.key + 1 AS TEXT) AS 차례,
+                   {type} AS 결과타입,
+                   CAST(coalesce(json_extract(c.value, '$.formula'), '') AS TEXT) AS 가공식
+            -- 손으로 고친 파일의 깨진 정의 하나가 이 뷰 전체를 읽지 못하게 하지 않는다.
+            FROM user_view v, json_each(CASE WHEN json_valid(v.definition) THEN v.definition ELSE json_object() END, '$.columns') c;
+            """;
+    }
+
+    /// <summary>맞춤 뷰 이름의 머리. 계약면(<c>v_</c>)과 섞이지 않게, 내장 뷰 이름을 바꿀 때 부딪치지 않게 둔다.</summary>
+    public const string UserViewPrefix = "u_";
+
+    /// <summary>
+    /// 맞춤 뷰 하나(docs/user-views.md §5) — <c>WITH 사슬 … SELECT (식) AS "필드", … FROM 사슬 s LEFT JOIN 세 문서</c>.
+    /// 줄과 거르기·접기는 <paramref name="frame"/> 이 정하고, 차례는 정의의 차례다. 깨진 필드(<paramref name="broken"/>,
+    /// 필드 식별자 → 까닭)는 가공열처럼 빈 글 + 까닭 주석으로 선다(<see cref="BrokenIn"/> 이 읽는다).
+    /// </summary>
+    internal static string UserView(string name, UserViewFrame frame,
+        IReadOnlyList<(string Id, string Name, string? Expression)> columns, IReadOnlyDictionary<string, string> broken)
+    {
+        var view = FlowCompiler.Ident(UserViewPrefix + name);
+        var list = columns.Select(c => broken.TryGetValue(c.Id, out var why) || c.Expression is null
+            ? $"{BrokenMarker(why ?? "")} AS {FlowCompiler.Ident(c.Name)}"
+            : $"{c.Expression} AS {FlowCompiler.Ident(c.Name)}");
+        return $"DROP VIEW IF EXISTS {view};\nCREATE VIEW {view} AS\n" + frame.Statement(string.Join(",\n    ", list)) + ";";
+    }
+
+    /// <summary>
+    /// <c>v_가공열.결과타입</c> — 식의 끝 꼴(<c>text</c>·<c>number</c>·<c>date</c>). 꼴은 꼴 검사가 정하므로 SQL 로
+    /// 셀 수 없어, 뷰를 지을 때 열마다 적어 둔다. 정의가 바뀌면 뷰도 다시 지어지므로 늙지 않는다.
+    /// </summary>
+    private static string ResultTypes(IReadOnlyList<UserColumnDefinition> columns,
+        IReadOnlyDictionary<(string Entity, string Name), string> broken)
+    {
+        // 깨진 열은 글이다 — 빈 글을 내므로.
+        var cases = columns.Where(c => c.Kind == "computed" && !broken.ContainsKey((c.EntityType, c.FieldName))).Select(c =>
+        {
+            var shape = ComputedColumn.FinalShape(c.EntityType, c.Options!) switch { "number" => "number", "date" => "date", _ => "text" };
+            return $"WHEN entity_type = {FlowCompiler.Lit(c.EntityType)} AND field_name = {FlowCompiler.Lit(c.FieldName)} THEN '{shape}'";
+        }).ToList();
+        return cases.Count == 0 ? "'text'" : $"CASE {string.Join(" ", cases)} ELSE 'text' END";
     }
 }
 
 /// <summary>사람이 채우는 열 하나의 정의.</summary>
-/// <param name="Kind">text · choice · date · number. 편집 화면이 무엇을 띄울지 정한다.</param>
-/// <param name="Options">choice 일 때 고를 값들. 세로줄로 나눈다.</param>
+/// <param name="Kind">text · choice · date · number · computed. computed는 결과를 직접 편집하지 않는다.</param>
+/// <param name="Options">choice는 세로줄로 나눈 후보, computed는 가공식 v2 JSON(<see cref="FlowFormula"/>).</param>
 /// <param name="SortOrder">SQLite INTEGER 가 64비트라 long 이다.</param>
 public sealed record UserColumnDefinition(
     string EntityType,
@@ -1398,5 +1572,5 @@ public sealed record UserColumnDefinition(
     long SortOrder)
 {
     public IReadOnlyList<string> Choices =>
-        Options is null ? [] : [.. Options.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        Kind != "choice" || Options is null ? [] : [.. Options.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 }

@@ -64,24 +64,9 @@ describe("열람 창", () => {
     expect(await screen.findByRole("columnheader", { name: /진행상태/ })).toBeTruthy();
 
     expect(document.querySelector("td.editable, th.editable")).toBeNull();
+    await user.click(screen.getAllByRole("checkbox", { name: /행 선택$/ })[0]);
     expect(screen.queryByRole("button", { name: "선택 자료 삭제…" })).toBeNull();
-  });
-
-  it("연결 화면의 잇고 끊는 단추가 잠기고 다시 잇기가 없다", async () => {
-    열람으로();
-    const user = userEvent.setup();
-    render(<App />);
-    await 띠();
-
-    await user.click(screen.getByRole("button", { name: /공고 연결/ }));
-    await screen.findByRole("listbox", { name: "계약 목록" });
-    await screen.findAllByRole("button", { name: "후보 제외" });
-
-    for (const b of [
-      ...screen.getAllByRole("button", { name: "연결" }),
-      ...screen.getAllByRole("button", { name: "후보 제외" }),
-    ]) expect(잠김(b)).toBe(true);
-    expect(screen.queryByRole("button", { name: "명시 참조로 다시 잇기" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "일괄 편집" })).toBeNull();
   });
 
   it("설정의 고치는 자리는 모두 잠기고 열어 보기·폴더 열기·닫기만 남는다", async () => {
@@ -92,23 +77,46 @@ describe("열람 창", () => {
 
     await user.click(screen.getByRole("button", { name: "설정" }));
     const dialog = await screen.findByRole("dialog", { name: "설정" });
-    await within(dialog).findByText("열람 중인 자료");
+    await within(dialog).findByRole("heading", { name: "열람 중인 자료" });
 
-    // 나라장터로 가는 길은 고치는 일이 아니라 옮겨 가는 일이다.
-    const 남는것 = new Set(["폴더 열기", "다른 자료 열어 보기…", "닫기", "라이선스 정보", "나라장터 열기"]);
-    for (const b of within(dialog).getAllByRole("button"))
+    // 나라장터로 가는 길은 고치는 일이 아니라 옮겨 가는 일이다. 목차도 설정 안에서 옮겨 가는 길이라 열려 있다.
+    const 목차 = within(dialog).getByRole("navigation", { name: "설정 목차" });
+    for (const b of within(목차).getAllByRole("button")) expect(잠김(b)).toBe(false);
+    const 남는것 = new Set(["폴더 열기", "다른 자료 열어 보기…", "닫기", "라이선스 정보", "전체 자료 내보내기"]);
+    for (const b of within(dialog).getAllByRole("button").filter((b) => !목차.contains(b)))
       expect([b.textContent, 잠김(b)]).toEqual([b.textContent, !남는것.has(b.textContent ?? "")]);
 
     for (const input of within(dialog).getAllByRole("textbox")) expect(잠김(input)).toBe(true);
 
     // 수집 도구는 설정에 없다 — 나라장터로 가는 길만 남는다.
     expect(within(dialog).queryByText("고급 · 수집 매핑과 JSON 검토")).toBeNull();
-    expect(within(dialog).getByText("브라우저 수집은 왼쪽 메뉴의 나라장터에서 봅니다.")).toBeTruthy();
+    expect(within(dialog).queryByRole("heading", { name: "브라우저 수집" })).toBeNull();
 
     // 작업자료를 바꾸는 일은 본 창에서만 한다. 열람 창은 그 길을 알려 줄 뿐이다.
     for (const name of ["작업자료 옮기기…", "작업자료 바꾸기…", "새 계약자료…", "백업 만들기…"])
       expect(잠김(within(dialog).getByRole("button", { name }))).toBe(true);
     expect(within(dialog).getByText("이 자료로 일하려면 본 창의 「작업자료 바꾸기」를 쓰세요.")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await user.click(screen.getByRole("button", { name: "구조" }));
+    await user.click(screen.getByRole("button", { name: "열 관리" }));
+    const manager = within(await screen.findByRole("region", { name: "열 관리" }));
+    expect(manager.queryByRole("textbox", { name: "새 열 이름" })).toBeNull();
+    await user.click(await manager.findByRole("button", { name: /^메모/ }));
+    expect(await manager.findByRole("region", { name: "목록 미리보기" })).toBeTruthy();
+    expect(잠김(manager.getByLabelText("열 이름"))).toBe(true);
+    expect(잠김(manager.getByRole("button", { name: /^입력열\. / }))).toBe(true);
+    for (const b of within(manager.getByRole("group", { name: "값 종류" })).getAllByRole("button")) expect(잠김(b)).toBe(true);
+    for (const name of ["입력열 만들기", "가공열 만들기", "저장", "열 메뉴"])
+      expect(manager.queryByRole("button", { name })).toBeNull();
+
+    // 가공열은 보표를 볼 수 있되 단계를 더하거나 고칠 수 없다.
+    await user.click(within(manager.getByRole("group", { name: "자료 종류" })).getByRole("button", { name: "공고" }));
+    await user.click(await manager.findByRole("button", { name: /^품명 모음 · 식/ }));
+    expect(await manager.findByRole("grid", { name: "값 흐름" })).toBeTruthy();
+    expect(manager.queryByRole("button", { name: "단계 추가" })).toBeNull();
+    expect(manager.queryByRole("button", { name: "단계 지우기" })).toBeNull();
+    expect(manager.queryByRole("button", { name: "SQL로 꺼내 직접 편집…" })).toBeNull();
+    for (const field of within(manager.getByRole("region", { name: "단계 설정" })).queryAllByRole("button")) expect(잠김(field)).toBe(true);
   });
 
   it("나라장터는 수집이 들어오지 않는다고 말하고, 남은 기록만 보이며 수집 도구를 세우지 않는다", async () => {
@@ -122,7 +130,7 @@ describe("열람 창", () => {
     await user.click(source);
 
     expect(await screen.findByText("이 창에는 수집한 자료가 저장되지 않습니다.")).toBeTruthy();
-    expect(screen.getByText(/작업자료 창에만 저장합니다/)).toBeTruthy();
+    expect(screen.getByText(/가져오기는 작업자료 창에서만 합니다/)).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "이 파일에 남은 수집 기록" })).toBeTruthy();
     expect(screen.getByText("열람 중이라 기록을 보기만 합니다.")).toBeTruthy();
     // 통로는 그리지 않는다 — 이 창은 수집 대상이 아니다.
@@ -165,11 +173,12 @@ describe("작업자료 창", () => {
 
     expect(screen.queryByText("열람 중")).toBeNull();
     expect(document.querySelector("th.editable")).not.toBeNull();
+    await user.click(screen.getAllByRole("checkbox", { name: /행 선택$/ })[0]);
     expect(screen.getByRole("button", { name: "선택 자료 삭제…" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "설정" }));
     const dialog = await screen.findByRole("dialog", { name: "설정" });
-    expect(within(dialog).getByText("저장 위치")).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "저장 위치" })).toBeTruthy();
     for (const name of [
       "제출본 만들기", "저장", "다른 자료 열어 보기…",
       "작업자료 옮기기…", "작업자료 바꾸기…", "새 계약자료…", "백업 만들기…",
@@ -177,7 +186,8 @@ describe("작업자료 창", () => {
     expect(within(dialog).queryByText(/본 창의 「작업자료 바꾸기」/)).toBeNull();
 
     // 수집 도구는 나라장터에 선다. 설정은 그리로 가는 길만 남기고, 가면 설정이 닫힌다.
-    await user.click(within(dialog).getByRole("button", { name: "나라장터 열기" }));
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    await user.click(screen.getByRole("tab", { name: /^나라장터/ }));
     expect(screen.queryByRole("dialog", { name: "설정" })).toBeNull();
     expect(screen.getByRole("tab", { name: /^나라장터/ }).getAttribute("aria-selected")).toBe("true");
     await user.click(await screen.findByRole("button", { name: /고급 · 수집 규칙과 지난 수집 다시 보기/ }));

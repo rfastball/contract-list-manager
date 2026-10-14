@@ -20,7 +20,7 @@ namespace Pclm.Core.Storage;
 public static class Schema
 {
     /// <summary>스키마 판. 올릴 때마다 <see cref="Steps"/> 에 단계를 하나 더하고 이것도 하나 올린다.</summary>
-    public const int Version = 20;
+    public const int Version = 27;
 
     /// <summary><see cref="Baseline"/> 이 짓는 판. 이보다 옛 판은 받지 않는다.</summary>
     public const int BaselineVersion = 19;
@@ -32,7 +32,196 @@ public static class Schema
     /// 갓 지은 파일의 스키마가 조용히 갈린다 — <c>contract/schema.txt</c> 박제가 그것을 붙든다.
     /// 빈 파일도 기준선 뒤에 이것을 밟으므로 둘은 언제나 같은 길을 지난다.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> Steps = [V20];
+    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27];
+
+    /// <summary>
+    /// 이 판을 <b>지나는</b> 작업자료에 서식용 예시 보기를 한 번 심는다(<see cref="Database.Migrate"/> — docs/user-views.md §13).
+    /// 판이 「심었다」 는 표지라, 사람이 지운 뒤에는 다시 열어도 되살아나지 않는다. 갓 지은 파일은 이 판을 지나도 심지 않는다 —
+    /// 빈 작업자료는 <see cref="PclmFile.Create"/> 가 심는다(취합본처럼 다른 역할로 짓는 빈 파일에는 들지 않게).
+    /// </summary>
+    public const int ExampleViewVersion = 26;
+
+    /// <summary>
+    /// 이 판을 <b>지나는</b> 작업자료에서, v26 이 심은 예시 보기를 사람이 손대지 않았으면 지금 구성으로 갈아 끼운다
+    /// (<see cref="Store.UpgradeExampleViews"/> — docs/user-views.md §13). 고쳤거나 지운 보기는 그대로 둔다.
+    /// </summary>
+    public const int ExampleViewUpgradeVersion = 27;
+
+    /// <summary>
+    /// v26 → v27. <b>표는 그대로다.</b> 손대지 않은 예시 보기를 사람 이름이 앞서는 지금 구성으로 갈아 끼우는 일은
+    /// <see cref="Database.Migrate"/> 가 한다.
+    /// </summary>
+    private const string V27 = "-- 표는 그대로다. 손대지 않은 서식용 예시 보기는 Database.Migrate 가 갈아 끼운다.";
+
+    /// <summary>
+    /// v25 → v26. <b>표는 그대로다.</b> 이 단계를 밟는 작업자료에 서식용 예시 보기를 심는 일은 SQL 이 아니라
+    /// <see cref="Database.Migrate"/> 가 한다 — 정의는 이 판의 구성을 얼려 둔 사본(<c>presets/example-view-v26.json</c>)이라 여기 옮겨 적지 않는다.
+    /// </summary>
+    private const string V26 = "-- 표는 그대로다. 서식용 예시 보기는 Database.Migrate 가 심는다.";
+
+    // 배포 전 연결 정책 교체: 수동·추천 링크를 버리고 명시 참조에서 재생성한다.
+    private const string V25 = """
+        DELETE FROM request_item_link;
+        DELETE FROM project_link;
+        DELETE FROM request_link;
+        DROP TABLE link_rejection;
+        DROP TABLE request_link_rejection;
+        ALTER TABLE project_link DROP COLUMN confidence;
+        ALTER TABLE project_link DROP COLUMN confirmed_at;
+        ALTER TABLE project_link DROP COLUMN decided_by;
+        ALTER TABLE project_link DROP COLUMN evidence;
+        ALTER TABLE project_link DROP COLUMN rule_version;
+        ALTER TABLE request_link DROP COLUMN confidence;
+        ALTER TABLE request_link DROP COLUMN confirmed_at;
+        ALTER TABLE request_link DROP COLUMN decided_by;
+        ALTER TABLE request_link DROP COLUMN evidence;
+        ALTER TABLE request_link DROP COLUMN rule_version;
+        """;
+
+    /// <summary>
+    /// v23 → v24. <b>맞춤 뷰(3판)</b>(docs/user-views.md §4) — 기준 문서를 걷는다. 줄의 뜻이 「기준 문서 1건」 에서
+    /// <b>조달 건</b>(<c>v_통합</c> 과 같은 사슬)으로 바뀌고, 필드는 문서를 붙여 읽는다(<c>공고.공고명</c>). 정의는 v1 → v2 로 옮긴다:
+    ///
+    /// <list type="bullet">
+    /// <item>원천 <c>field f</c> → <c>linked(기준) f</c>, <c>items</c> → <c>linked(기준) items</c>. 단계가 읽는 행의 열
+    ///   (<c>비면</c>·사칙·<c>날짜차이</c> 의 <c>field</c>)은 기준의 문서 이름을 붙인다(<c>메모</c> → <c>공고.메모</c>).</item>
+    /// <item>기준이 공고·접수이고 열이 <c>연결계약 |&gt; 꺼내기 f |&gt; 잇기 ", "</c> <b>그대로</b>면 <c>계약.f</c> 로 바꾸고 그 뷰를
+    ///   <c>fold</c>(계약이 여럿인 건은 한 줄로 모으기)로 둔다 — 계약마다 셈해 계약본번호 차례로 <c>", "</c> 로 잇는 것이라 같은 값이다.</item>
+    /// <item>그 밖의 여러 건 열(<c>연결계약 |&gt; 처음 …</c>·<c>개수</c> 등)은 <b>옮기지 않는다</b> — 새 환경에서 깨진 식으로 서서 사람이
+    ///   고친다. 조용히 다른 값을 내지 않게 하는 것이다. SQL 열의 글도 그대로다(<c>현재</c> 가 없어져 깨진 식으로 선다).</item>
+    /// <item>나머지 뷰는 <c>split</c>(계약마다 한 줄).</item>
+    /// </list>
+    ///
+    /// <para>뷰의 <b>줄 수는 바뀐다</b>. 공고 기준이던 뷰는 공고마다 한 줄이었는데 이제 담긴 문서가 하나라도 있는 조달 건마다
+    /// 한 줄이다(<c>fold</c> 면 공고건마다 한 줄이라 같다). 값은 옮긴 식이 앞 판과 같은 것을 낸다.</para>
+    /// </summary>
+    private const string V24 = $"""
+        CREATE TABLE user_view_next (
+            id         TEXT PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            definition TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO user_view_next (id, name, definition, sort_order)
+        SELECT v.id, v.name,
+            CASE WHEN json_valid(v.definition) AND json_type(v.definition, '$.columns') = 'array' THEN json_object(
+                'version', 2,
+                'contracts', CASE WHEN EXISTS (SELECT 1 FROM json_each(v.definition, '$.columns') c WHERE {계약잇기}) THEN 'fold' ELSE 'split' END,
+                'columns', json(coalesce((SELECT json_group_array(json(
+                    CASE
+                        WHEN {계약잇기} THEN json_set(c.value, '$.formula.flow', json_object(
+                            'from', json_object('kind', 'linked', 'link', 'contract', 'field', json_extract(c.value, '$.formula.flow.steps[0].field')),
+                            'steps', json('[]')))
+                        WHEN json_extract(c.value, '$.formula.source') = 'flow' THEN json_set(c.value,
+                            '$.formula.flow.from', json(CASE json_extract(c.value, '$.formula.flow.from.kind')
+                                WHEN 'field' THEN json_object('kind', 'linked', 'link', v.base, 'field', json_extract(c.value, '$.formula.flow.from.field'))
+                                WHEN 'items' THEN json_object('kind', 'linked', 'link', v.base, 'items', json('true'))
+                                ELSE json_extract(c.value, '$.formula.flow.from') END),
+                            '$.formula.flow.steps', json(coalesce((SELECT json_group_array(json(
+                                CASE WHEN json_extract(s.value, '$.op') IN ('ifEmpty', 'add', 'sub', 'mul', 'div', 'dateDiff')
+                                          AND json_type(s.value, '$.field') = 'text'
+                                     THEN json_set(s.value, '$.field',
+                                          CASE v.base WHEN 'notice' THEN '공고' WHEN 'request' THEN '접수' ELSE '계약' END
+                                          || '.' || json_extract(s.value, '$.field'))
+                                     ELSE s.value END) ORDER BY s.key)
+                                FROM json_each(c.value, '$.formula.flow.steps') s), '[]')))
+                        ELSE c.value
+                    END) ORDER BY c.key)
+                    FROM json_each(v.definition, '$.columns') c), '[]')))
+            ELSE v.definition END,
+            v.sort_order
+        FROM user_view v;
+        DROP TABLE user_view;
+        ALTER TABLE user_view_next RENAME TO user_view;
+        """;
+
+    /// <summary>
+    /// v24 판올림이 <c>fold</c> 로 옮기는 열 — 공고·접수 기준에서 <c>연결계약 |&gt; 꺼내기 f |&gt; 잇기 ", "</c> 그대로(다른 자리가
+    /// 하나도 붙지 않은 것). 바깥에 <c>v</c>(user_view)·<c>c</c>(열 하나의 json_each) 가 있어야 한다.
+    /// </summary>
+    private const string 계약잇기 = """
+        (v.base IN ('notice', 'request')
+             AND json_extract(c.value, '$.formula.source') = 'flow'
+             AND (SELECT count(*) FROM json_each(c.value, '$.formula.flow.from')) = 2
+             AND json_extract(c.value, '$.formula.flow.from.kind') = 'linked'
+             AND json_extract(c.value, '$.formula.flow.from.link') = 'contract'
+             AND json_array_length(c.value, '$.formula.flow.steps') = 2
+             AND (SELECT count(*) FROM json_each(c.value, '$.formula.flow.steps[0]')) = 2
+             AND json_extract(c.value, '$.formula.flow.steps[0].op') = 'get'
+             AND json_type(c.value, '$.formula.flow.steps[0].field') = 'text'
+             AND (SELECT count(*) FROM json_each(c.value, '$.formula.flow.steps[1]')) = 2
+             AND json_extract(c.value, '$.formula.flow.steps[1].op') = 'join'
+             AND json_extract(c.value, '$.formula.flow.steps[1].text') = ', ')
+        """;
+
+    /// <summary>
+    /// v22 → v23. <b>사용자 뷰</b>(docs/user-views.md §4) — 기준 하나와 흐름식 열 목록. 뷰는 표가 아니라 정의로 있고,
+    /// 계약면 뷰를 지을 때마다 <c>u_&lt;name&gt;</c> 으로 다시 선다(<see cref="Database"/>). <c>id</c> 는 만들 때 뽑는 불투명
+    /// 식별자라 이름을 바꿔도 남는다 — 소비자가 <c>v_사용자뷰</c>(v24 부터 <c>v_맞춤뷰</c>) 에서 그것으로 이름 바뀜을 따라온다.
+    /// </summary>
+    private const string V23 = """
+        CREATE TABLE user_view (
+            id         TEXT PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            base       TEXT NOT NULL CHECK (base IN ('notice', 'contract', 'request')),
+            definition TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        """;
+
+    /// <summary>
+    /// v21 → v22. <b>가공식을 v2(흐름식)로 옮겨 쓴다</b>(docs/column-management.md §4.5·§11.2). 표는 그대로다 —
+    /// <c>kind</c> 도 그대로 <c>computed</c>(식이 있음)이고 <c>options</c> 의 글만 바뀐다.
+    ///
+    /// <para>옮기는 규칙은 화면의 <c>migrate.ts</c>·<see cref="Flow.MigrateV1"/> 와 같다: <c>pick</c> 은 단계로 남기지 않고
+    /// 그 뒤 <c>distinct</c> 의 기준 필드로 흡수한다(가장 가까운 앞 <c>pick</c> 의 것), <c>at</c> 은 <c>nth</c> 로,
+    /// <c>get</c> 의 <c>text</c> 는 <c>field</c> 로. 세 벌이 같은 결과를 내는지 <c>tests/flow-cases.json</c> 의 v1 사례가 본다.</para>
+    ///
+    /// <para><c>json_group_array(… ORDER BY …)</c> 는 SQLite 3.44 부터다. 판올림은 앱이 들고 다니는 SQLite 가 하므로
+    /// 소비자의 판과 상관없다.</para>
+    /// </summary>
+    private const string V22 = """
+        UPDATE user_column
+        SET options = json_object(
+            'version', 2,
+            'id', coalesce(json_extract(options, '$.id'), ''),
+            'source', 'flow',
+            'flow', json_object(
+                'from', json_object('kind', 'items'),
+                'steps', (
+                    SELECT json_group_array(json(
+                        CASE json_extract(s.value, '$.op')
+                            WHEN 'distinct' THEN coalesce(
+                                (SELECT CASE WHEN json_array_length(json_extract(p.value, '$.fields')) > 0
+                                             THEN json_object('op', 'distinct', 'fields', json(json_extract(p.value, '$.fields'))) END
+                                 FROM json_each(user_column.options, '$.steps') p
+                                 WHERE p.key < s.key AND json_extract(p.value, '$.op') = 'pick'
+                                 ORDER BY p.key DESC LIMIT 1),
+                                json_object('op', 'distinct'))
+                            WHEN 'at' THEN json_object('op', 'nth', 'n', coalesce(json_extract(s.value, '$.index'), 1))
+                            WHEN 'get' THEN json_object('op', 'get', 'field', coalesce(json_extract(s.value, '$.text'), ''))
+                            WHEN 'format' THEN json_object('op', 'format', 'text', coalesce(json_extract(s.value, '$.text'), ''))
+                            WHEN 'join' THEN json_object('op', 'join', 'text', coalesce(json_extract(s.value, '$.text'), ''))
+                            ELSE json_object('op', json_extract(s.value, '$.op'))
+                        END) ORDER BY s.key)
+                    FROM json_each(user_column.options, '$.steps') s
+                    WHERE json_extract(s.value, '$.op') <> 'pick')))
+        WHERE kind = 'computed' AND json_extract(options, '$.version') = 1;
+        """;
+
+    private const string V21 = """
+        CREATE TABLE user_column_next (
+            entity_type TEXT NOT NULL CHECK (entity_type IN ('contract', 'notice', 'request')),
+            field_name TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'text' CHECK (kind IN ('text', 'choice', 'date', 'number', 'computed')),
+            options TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (entity_type, field_name)
+        );
+        INSERT INTO user_column_next SELECT * FROM user_column;
+        DROP TABLE user_column;
+        ALTER TABLE user_column_next RENAME TO user_column;
+        """;
 
     /// <summary>
     /// v19 → v20. <b>파일이 스스로 PCLM 임과 역할을 밝힌다</b>(ADR-031).

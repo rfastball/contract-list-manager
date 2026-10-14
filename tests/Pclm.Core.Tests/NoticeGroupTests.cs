@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
 using Pclm.Core.Storage;
@@ -217,10 +217,10 @@ public class NoticeGroupTests : IDisposable
         _store.UpsertContract(계약("R26TA09080469"));
 
         var 원공고 = new EntityRef("notice", "R26BK09011054", "000");
-        new RequestLinker(_database).Confirm(
-            new EntityRef("request", "MBKLMH26930006", "000"), 원공고, 1.0);
-        new Linker(_database).Confirm(
-            new EntityRef("contract", "R26TA09080469", "00"), 원공고, 1.0);
+        ReferenceFixture.Request(_database,
+            new EntityRef("request", "MBKLMH26930006", "000"), 원공고);
+        ReferenceFixture.Contract(_database,
+            new EntityRef("contract", "R26TA09080469", "00"), 원공고);
 
         Assert.Equal(
             [
@@ -345,9 +345,9 @@ public class NoticeGroupTests : IDisposable
         Put("R26BK09011054", "000");
         _store.UpsertContract(계약("R26TA09080469"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09080469", "00"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
+            new EntityRef("notice", "R26BK09011054", "000"));
 
         // 재공고가 들어오며 건이 합쳐진다.
         Put("R26BK09012082", "000", "R26BK09011054-000");
@@ -379,92 +379,6 @@ public class NoticeGroupTests : IDisposable
     // ── 밀어낸 것은 알린다 ───────────────────────────────────────
 
     /// <summary>
-    /// 원공고와 재공고에 접수를 각각 이어 둔 자료가 한 건이 되면, <c>notice_group</c> 이
-    /// UNIQUE 라 <b>하나는 밀려난다</b>. 남는 것은 사람이 확정한 쪽이고, 밀린 쪽은
-    /// <see cref="NoticeGroupChange"/> 에 담겨 <b>반드시 사람 눈에 닿는다</b>.
-    ///
-    /// <para>인수인계 직후에 실제로 생기는 모양이라 판올림에서도 곧바로 이 자리에 온다.</para>
-    /// </summary>
-    [Fact]
-    public void 한_건에_접수가_둘이면_사람_확정이_남고_밀린_쪽을_알린다()
-    {
-        Put("R26BK09011054", "000");
-        Put("R26BK09012082", "000");
-
-        _store.UpsertRequest(접수("MBKLMH26930006"));
-        _store.UpsertRequest(접수("MBKLMH26930007"));
-
-        // 사람이 원공고에 이었다. 기계는 재공고에 이었고 시각은 그쪽이 늦다.
-        new RequestLinker(_database).Confirm(
-            new EntityRef("request", "MBKLMH26930006", "000"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
-
-        Execute(
-            """
-            UPDATE request_link SET confirmed_at = '2026-06-28T00:00:00.0000000Z'
-            WHERE request_base = 'MBKLMH26930006';
-
-            INSERT INTO request_link (request_base, notice_group, confidence, confirmed_at, decided_by)
-            VALUES ('MBKLMH26930007', 'R26BK09012082', 0.9, '2026-07-29T00:00:00.0000000Z', 'auto');
-            """);
-
-        // 이제 둘이 한 건이 된다. 관계는 손으로 넣고 재계산을 직접 부른다 —
-        // 밀린 쪽이 담겨 나오는지가 여기서 볼 것이라, 결과를 받는 자리가 필요하다.
-        Execute(
-            """
-            INSERT INTO notice_relation (notice_base, seq, line_no, related)
-            VALUES ('R26BK09012082', '000', 1, 'R26BK09011054-000');
-            """);
-
-        NoticeGroupChange change;
-        using (var connection = _database.Open())
-            change = NoticeGroups.Rebuild(connection, transaction: null);
-
-        Assert.True(change.있나);
-        Assert.Equal(1, change.이은건수);
-        Assert.Empty(change.끊긴링크);
-
-        var 밀림 = Assert.Single(change.밀린접수);
-        Assert.Contains("MBKLMH26930007", 밀림);
-        Assert.Contains("MBKLMH26930006", 밀림);
-
-        // 사람이 확정한 쪽이 남는다. 늦게 이었다는 것만으로 기계가 사람을 밀어내지 않는다.
-        Assert.Equal(
-            ["MBKLMH26930006|R26BK09011054"],
-            Read("SELECT request_base, notice_group FROM request_link;"));
-    }
-
-    /// <summary>
-    /// 밀어낸 것은 <b>글이 되어야</b> 사람에게 닿는다. 창은 상자로 띄우고 명령줄은 그대로
-    /// 찍으므로 글은 한 벌이다 — <see cref="MergeReportText"/> 와 같은 자세다.
-    ///
-    /// <para><b>이은 것만으로는 아무 말도 하지 않는다.</b> 여기서 글이 서면 판올림마다 상자가
-    /// 떠서, 정작 밀린 날의 상자도 읽히지 않고 닫힌다.</para>
-    /// </summary>
-    [Fact]
-    public void 밀어낸_것이_있을_때만_글이_선다()
-    {
-        Assert.Null(NoticeGroupText.Render(null));
-        Assert.Null(NoticeGroupText.Render(new NoticeGroupChange(3, [], [])));
-
-        var text = NoticeGroupText.Render(new NoticeGroupChange(
-            1,
-            ["계약 링크 R26TA09110501 — 가리키던 공고건 R26BK09011054 이 없어졌습니다"],
-            ["접수 MBKLMH26930007 가 공고건 R26BK09011054 에서 밀렸습니다 — 남은 것은 MBKLMH26930006"]));
-
-        Assert.NotNull(text);
-        Assert.Contains("공고건 1개로 이어졌습니다", text);
-
-        Assert.Contains("밀린 접수 1건", text);
-        Assert.Contains("MBKLMH26930007", text);
-
-        Assert.Contains("끊긴 링크 1건", text);
-        Assert.Contains("R26TA09110501", text);
-    }
-
-    // ── 지우기 ───────────────────────────────────────────────────
-
-    /// <summary>
     /// 재공고를 지우면 건이 갈리고, <b>링크는 원공고 쪽에 남는다</b>. 건 이름이 원공고라
     /// 옮겨 붙일 것이 없다 — 이름을 가장 이른 본번호로 둔 값어치가 여기서 나온다.
     /// </summary>
@@ -476,9 +390,9 @@ public class NoticeGroupTests : IDisposable
         Put("R26BK09012082", "000", "R26BK09011054-001", "R26BK09011054-000");
 
         _store.UpsertContract(계약("R26TA09080469"));
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09080469", "00"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
+            new EntityRef("notice", "R26BK09011054", "000"));
 
         _store.Delete(new EntityRef("notice", "R26BK09012082", "000"), wholeSeries: true);
 
@@ -501,9 +415,9 @@ public class NoticeGroupTests : IDisposable
     {
         Put("R26BK09011054", "000");
         _store.UpsertContract(계약("R26TA09080469"));
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09080469", "00"),
-            new EntityRef("notice", "R26BK09011054", "000"), 1.0);
+            new EntityRef("notice", "R26BK09011054", "000"));
 
         _store.Delete(new EntityRef("notice", "R26BK09011054", "000"), wholeSeries: true);
 
@@ -531,8 +445,8 @@ public class NoticeGroupTests : IDisposable
         var 공고 = new EntityRef("notice", "R26BK09011054", "000");
         Assert.False(_store.PlanDeletion(공고, wholeSeries: true).Linked);
 
-        new RequestLinker(_database).Confirm(
-            new EntityRef("request", "MBKLMH26930006", "000"), 공고, 1.0);
+        ReferenceFixture.Request(_database,
+            new EntityRef("request", "MBKLMH26930006", "000"), 공고);
 
         Assert.True(_store.PlanDeletion(공고, wholeSeries: true).Linked);
     }
@@ -567,13 +481,13 @@ public class NoticeGroupTests : IDisposable
         _store.UpsertRequest(접수("MBKLMH26930006"));
         _store.UpsertContract(계약("R26TA09080469"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09080469", "00"),
-            new EntityRef("notice", noticeBase, seq), 1.0);
+            new EntityRef("notice", noticeBase, seq));
 
-        new RequestLinker(_database).Confirm(
+        ReferenceFixture.Request(_database,
             new EntityRef("request", "MBKLMH26930006", "000"),
-            new EntityRef("notice", noticeBase, seq), 1.0);
+            new EntityRef("notice", noticeBase, seq));
     }
 
     private static ContractRecord 계약(string @base) => new()

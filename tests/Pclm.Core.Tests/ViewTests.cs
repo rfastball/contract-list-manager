@@ -264,21 +264,21 @@ public sealed class ViewTests : IDisposable
         // settings
         Assert.NotNull(new SettingsStore(database).Read());
 
-        // linkCandidates · compareLink
-        var linker = new Linker(database);
-        Assert.NotEmpty(linker.Work().Contracts);
-        Assert.NotEmpty(linker.Notices());
-        var 공고 = new EntityRef("notice", "N-1", "0");
-        Assert.NotEmpty(linker.Compare(계약, 공고));
-
-        // requestLinkCandidates · compareRequestLink
-        var requestLinker = new RequestLinker(database);
-        Assert.NotEmpty(requestLinker.Work().Requests);
-        Assert.NotEmpty(requestLinker.Notices());
-        Assert.NotEmpty(requestLinker.Compare(new EntityRef("request", "R-1", "0"), 공고));
-
         // export — 파일은 밖에 떨어지고 자료에는 쓰지 않는다.
         var saved = new Exporter(database).Export(In("관리대장.xlsx"));
         Assert.True(File.Exists(saved));
+
+        // 화면 사진은 선택·정렬 순서를 유지하며 엑셀 수식/숫자로 재해석하지 않는다.
+        var snapshot = new SheetSnapshot(["번호", "메모"], [["0002", "=1+1"], ["0001", "둘째"]]);
+        var selected = Exporter.ExportSheet(In("선택.xlsx"), "선택 자료", snapshot);
+        using var workbook = new ClosedXML.Excel.XLWorkbook(selected);
+        var sheet = Assert.Single(workbook.Worksheets);
+        Assert.Equal("0002", sheet.Cell(2, 1).GetString());
+        Assert.Equal("0001", sheet.Cell(3, 1).GetString());
+        Assert.Equal("=1+1", sheet.Cell(2, 2).GetString());
+        Assert.False(sheet.Cell(2, 2).HasFormula);
+        Assert.Equal("@", sheet.Cell(2, 1).Style.NumberFormat.Format);
+        Assert.Throws<InvalidOperationException>(() => Exporter.ExportSheet(In("잘못된.xlsx"), "선택 자료",
+            snapshot with { Rows = [["부족"]] }));
     }
 }

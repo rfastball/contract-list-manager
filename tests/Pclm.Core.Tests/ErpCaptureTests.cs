@@ -196,7 +196,7 @@ public sealed class ErpCaptureTests : IDisposable
 
     /// <summary>
     /// 사람이 고친 칸은 이번 수집이 그 아래 값을 바꿀 때만 다시 묻는다. 바뀐 것이 없는데 수집할 때마다
-    /// 고르게 하면 단축키 저장이 영영 막힌다. 복원은 그 차수의 덮개만 걷는다(ADR-020).
+    /// 고르게 하면 같은 화면을 가져올 때마다 고를 것이 남는다. 복원은 그 차수의 덮개만 걷는다(ADR-020).
     /// </summary>
     [Fact]
     public void 정정값은_수집이_그_아래_값을_바꿀_때만_묻고_복원은_그_차수의_덮개만_걷는다()
@@ -396,6 +396,38 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal(0, output.Length);
     }
 
+    [Fact]
+    public void 계약방법은_코드로_읽는_화면과_이름으로_읽는_화면이_같은_이름을_담는다()
+    {
+        // 계약 상세(01579)는 코드, 변경계약서 작성(01608)은 이름으로 온다. 코드표에 없으면 같은 차수를 두 화면에서 읽을 때
+        // 「수의계약」 이 「계030004 (명칭 미확정)」 으로 바뀌는 변경이 검토에 뜬다.
+        foreach (var p in Mapping.Defaults().Profiles)
+        {
+            var f = p.Fields.SingleOrDefault(f => f.Target == "contract_method");
+            if (f is null || f.Transform != "code") continue;
+            Assert.Equal("수의계약", Mapping.ConvertValue("계030004", f));
+            Assert.Equal("일반경쟁", Mapping.ConvertValue("계030001", f));
+            Assert.Equal("제한경쟁", Mapping.ConvertValue("계030003", f));
+        }
+    }
+
+    [Theory]
+    [InlineData("g2b-notice-a-v1", "bidPbancNo", "T26BK00000001", "bidPbancOrd", "000")]
+    [InlineData("g2b-notice-b-v1", "bidPbancText", "T26BK00000001-000", null, null)]
+    [InlineData("g2b-contract-v1", "ctrtNoOrd", "T26TA00000001-00", null, null)]
+    public void 머리가_T_인_시험용_번호도_받는다(string profile, string baseKey, string baseValue, string? seqKey, string? seqValue)
+    {
+        var point = new Dictionary<string, string> { [baseKey] = baseValue };
+        if (seqKey is not null) point[seqKey] = seqValue!;
+        var input = JsonSerializer.SerializeToElement(new { pointInfo = point, tables = new { } });
+        var doc = Mapping.Map(Mapping.Defaults(), profile, input);
+        Assert.StartsWith("T26", doc.Base);
+        // 머리글자는 R·T 둘뿐이다.
+        point[baseKey] = "X" + baseValue[1..];
+        Assert.Throws<InvalidOperationException>(() =>
+            Mapping.Map(Mapping.Defaults(), profile, JsonSerializer.SerializeToElement(new { pointInfo = point, tables = new { } })));
+    }
+
 
     [Fact]
     public void JSON_변경은_검토하고_미수집과_정정값은_보존한다()
@@ -503,9 +535,11 @@ public sealed class ErpCaptureTests : IDisposable
         {
             using var stream = entry.Open(); using var document = JsonDocument.Parse(stream);
             var point = document.RootElement.GetProperty("pointInfo");
-            var profile = point.TryGetProperty("ctrtNoOrd", out _) ? "g2b-contract-v1" :
+            // 화면 번호가 있으면 그 화면의 프로필이다(ADR-037). 키로 짐작하면 변경계약서 작성(01608)이 공고로 간다.
+            var profile = Screens.ProfileFor(mapping, Screens.Leaf(point))?.Id ??
+                (point.TryGetProperty("ctrtNoOrd", out _) ? "g2b-contract-v1" :
                 point.TryGetProperty("ctrtDmndBizNm", out _) ? document.RootElement.GetProperty("tables").TryGetProperty("mf_wfm_container_gvDmndItem", out _) ? "g2b-request-b-v1" : "g2b-request-v1" :
-                point.TryGetProperty("bidPbancText", out _) ? "g2b-notice-b-v1" : "g2b-notice-a-v1";
+                point.TryGetProperty("bidPbancText", out _) ? "g2b-notice-b-v1" : "g2b-notice-a-v1");
             try {
                 Assert.NotEmpty(Mapping.Map(mapping, profile, document.RootElement).Rows);
                 // 저장까지 가는 것은 허용 목록의 화면뿐이다(ADR-037).
@@ -538,10 +572,75 @@ public sealed class ErpCaptureTests : IDisposable
         }
         ExplicitLinks.Resolve(db);
         Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(DISTINCT group_base) FROM notice_series"));
-        Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM request_link WHERE decided_by='explicit'"));
+        Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM request_link"));
         Assert.Empty(c.Query(NoticeGroups.현행공고));
         Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM request_item_link")); // 차수가 다른 공고 품목 둘이면 고르지 않는다.
         Assert.Equal(2, c.ExecuteScalar<int>("SELECT count(*) FROM request_item WHERE request_number='REQ1'"));
+    }
+
+    [Fact]
+    public void 명시참조_변경과_삭제는_문서와_품목_연결을_재계산한다()
+    {
+        var db = new Database(DbPath);
+        using var c = db.Open();
+        c.Execute("""
+            INSERT INTO request_series(request_base) VALUES('TESTR1'),('TESTR2');
+            INSERT INTO request(request_base,seq,title,updated_at) VALUES('TESTR1','000','같은 이름','2026-01-01'),('TESTR2','000','같은 이름','2026-01-01');
+            INSERT INTO request_item(request_base,seq,line_no,ref_request_base,ref_request_seq,ref_request_item)
+                VALUES('TESTR1','000',1,'TESTR1','000','001'),('TESTR2','000',1,'TESTR2','000','001');
+            INSERT INTO notice_group(group_base) VALUES('TESTN1'),('TESTN2');
+            INSERT INTO notice_series(notice_base,group_base) VALUES('TESTN1','TESTN1'),('TESTN2','TESTN2');
+            INSERT INTO notice(notice_base,seq,title,updated_at) VALUES('TESTN1','000','같은 이름','2026-01-01'),('TESTN2','000','같은 이름','2026-01-01');
+            INSERT INTO notice_item(notice_base,seq,line_no) VALUES('TESTN1','000',1),('TESTN2','000',1);
+            INSERT INTO contract_series(contract_base) VALUES('TESTC');
+            INSERT INTO contract(contract_base,seq,title,updated_at) VALUES('TESTC','00','같은 이름','2026-01-01');
+            """);
+        ExplicitLinks.Resolve(db);
+        Assert.Empty(c.Query("SELECT * FROM project_link UNION ALL SELECT * FROM request_link"));
+
+        c.Execute("""
+            UPDATE notice_item SET ref_request_base='TESTR1',ref_request_seq='000',ref_request_item='001' WHERE notice_base='TESTN1';
+            UPDATE contract SET ref_notice_base='TESTN1';
+            """);
+        ExplicitLinks.Resolve(db);
+        Assert.Equal("TESTR1", c.QuerySingle<string>("SELECT request_base FROM request_link"));
+        Assert.Equal("TESTR1", c.QuerySingle<string>("SELECT request_base FROM request_item_link"));
+        Assert.Equal("TESTN1", c.QuerySingle<string>("SELECT notice_group FROM project_link"));
+
+        c.Execute("""
+            INSERT INTO notice(notice_base,seq,title,updated_at) VALUES('TESTN1','001','변경공고','2026-01-02');
+            INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base,ref_request_seq,ref_request_item)
+                VALUES('TESTN1','001',1,'TESTR1','000','001');
+            """);
+        ExplicitLinks.Resolve(db);
+        Assert.Equal("001", c.QuerySingle<string>("SELECT notice_seq FROM request_item_link"));
+
+        // 서로 모순되는 명시 참조는 어느 쪽도 임의로 고르지 않는다.
+        c.Execute("UPDATE contract SET ref_request_base='TESTR2';");
+        using (var tx = c.BeginTransaction())
+        {
+            Assert.Contains(ExplicitLinks.Resolve(c, tx), r => r.Base == "TESTC" && r.State == "참조 충돌");
+            tx.Commit();
+        }
+        Assert.Empty(c.Query("SELECT * FROM project_link"));
+        c.Execute("UPDATE contract SET ref_request_base=NULL;");
+
+        c.Execute("""
+            UPDATE notice_item SET ref_request_base='TESTR2' WHERE notice_base='TESTN1';
+            INSERT INTO contract(contract_base,seq,title,ref_notice_base,updated_at) VALUES('TESTC','01','같은 이름','TESTN2','2026-01-02');
+            """);
+        ExplicitLinks.Resolve(db);
+        ExplicitLinks.Resolve(db); // 같은 자료로 다시 계산해도 중복이나 옛 연결이 남지 않는다.
+        Assert.Equal("TESTR2", c.QuerySingle<string>("SELECT request_base FROM request_link"));
+        Assert.Equal("TESTR2", c.QuerySingle<string>("SELECT request_base FROM request_item_link"));
+        Assert.Equal("TESTN2", c.QuerySingle<string>("SELECT notice_group FROM project_link"));
+
+        new Store(db).Delete(new EntityRef("contract", "TESTC", "01"), wholeSeries: false);
+        Assert.Equal("TESTN1", c.QuerySingle<string>("SELECT notice_group FROM project_link"));
+        c.Execute("UPDATE notice_item SET ref_request_base=NULL; UPDATE contract SET ref_notice_base=NULL;");
+        ExplicitLinks.Resolve(db);
+        Assert.Empty(c.Query("SELECT * FROM project_link UNION ALL SELECT * FROM request_link"));
+        Assert.Empty(c.Query("SELECT * FROM request_item_link"));
     }
 
     /// <summary>
@@ -584,6 +683,28 @@ public sealed class ErpCaptureTests : IDisposable
         host.Save(input, host.Inspect(input).BaseToken, Guid.NewGuid().ToString(), new());
         using var c = db.Open();
         Assert.Equal("납품장소 입고도", c.QuerySingle<string>("SELECT delivery_terms FROM notice_item"));
+    }
+
+    /// <summary>
+    /// 입찰공고 상세(01179)의 게시일시는 그 화면의 「미리보기」 창에만 있다. 01179 프로필이 그 칸을 읽지 않아, 01196 을 따로
+    /// 열지 않으면 공고가 게시일시 없이 남아 「공고 대기」 에 머물렀다. 미리보기를 닫고 다시 읽으면 걷지 않은 칸이라 그대로 둔다.
+    /// </summary>
+    [Fact]
+    public void 입찰공고_상세의_미리보기에서_게시일시를_읽고_닫힌_채_다시_읽어도_지우지_않는다()
+    {
+        var db = new Database(DbPath); var host = new ErpCapture(db); var set = Mapping.Defaults();
+        CaptureInput Read(object pointInfo) => new("g2b-notice-a-v1", Mapping.Hash(set),
+            JsonSerializer.SerializeToElement(new { pointInfo, tables = new { } }), "live", Screen: "01179");
+
+        var preview = Read(new { bidPbancNo = "R26BK00000088", bidPbancOrd = "000", bidPbancNm = "시험 공고", pbancPstgDt = "2026/09/01 10:30:00" });
+        host.Save(preview, host.Inspect(preview).BaseToken, Guid.NewGuid().ToString(), new());
+        using var c = db.Open();
+        Assert.Equal("2026-09-01 10:30:00", c.QuerySingle<string>("SELECT posted_at FROM notice"));
+
+        var closed = Read(new { bidPbancNo = "R26BK00000088", bidPbancOrd = "000", bidPbancNm = "시험 공고" });
+        Assert.DoesNotContain(host.Inspect(closed).Changes, ch => ch.Field == "posted_at");
+        host.Save(closed, host.Inspect(closed).BaseToken, Guid.NewGuid().ToString(), new());
+        Assert.Equal("2026-09-01 10:30:00", c.QuerySingle<string>("SELECT posted_at FROM notice"));
     }
 
     private static byte[] Frame(byte[] payload)

@@ -24,7 +24,7 @@ if (Flag("--home") && homeArg is null)
 var home = homeArg is null ? Home.Default : new Home(homeArg);
 
 // 값을 받지 않는 깃발. Positional 이 뒤에 오는 자리 인자를 옵션 값으로 삼키지 않게 알려 준다.
-string[] switches = ["--아님", "--해제", "--명시", "--계열", "--예"];
+string[] switches = ["--계열", "--예"];
 
 // --file 은 다른 자료를 열어 본다. 창의 열람과 같은 길이다 — 원본을 읽기 전용으로 홈에 한 벌 떠서
 // 그 사본을 읽는다. 원본은 판도 뷰도 바뀌지 않는다(ADR-031). 읽는 명령에만 받는다: 쓰는 명령이
@@ -80,13 +80,6 @@ switch (home.Resolve())
         database = ready.Database;
         foreach (var note in ready.Notes) { Console.WriteLine(note); Console.WriteLine(); }
 
-        // 판올림이 건을 다시 지으며 사람이 이어 둔 접수나 링크를 밀어냈으면 알린다. 오류를 내지 않는
-        // 자리라 여기서 말하지 않으면 이어 둔 사람은 사라진 줄도 모른다 — 글은 창과 한 벌을 쓴다.
-        if (ready.NoticeGroupText is { } 건알림)
-        {
-            Console.Write(건알림);
-            Console.WriteLine();
-        }
         break;
 
     default:
@@ -98,7 +91,6 @@ switch (command)
     case "plan": Plan(); break;
     case "status": Status(); break;
     case "현황": 현황(); break;
-    case "link": Link(); break;
     case "export": Export(); break;
     case "set": Set(); break;
     case "fix": Fix(); break;
@@ -223,126 +215,6 @@ void 현황()
     }
 }
 
-void Link()
-{
-    var linker = new Linker(database);
-    var requestLinker = new RequestLinker(database);
-    var rest = Positional();
-
-    // 명시 참조로만 다시 잇는다. 기계가 추천만으로 잇는 길은 없다(ADR-029).
-    if (Flag("--명시"))
-    {
-        Console.WriteLine($"명시 참조 연결 {ExplicitLinks.Resolve(database)}건 · 기존 링크 유지");
-        return;
-    }
-
-    if (Flag("--해제"))
-    {
-        if (FindLinkable(rest.FirstOrDefault()) is not { } target) { Environment.Exit(2); return; }
-
-        if (target.EntityType == "request") requestLinker.Unlink(target);
-        else linker.Unlink(target);
-
-        Console.WriteLine($"해제  {target.Display}");
-        return;
-    }
-
-    if (Flag("--아님"))
-    {
-        if (FindLinkable(rest.FirstOrDefault()) is not { } rejected) { Environment.Exit(2); return; }
-        if (Find(rest.Skip(1).FirstOrDefault(), "notice") is not { } from) { Environment.Exit(2); return; }
-
-        if (rejected.EntityType == "request") requestLinker.Reject(rejected, from);
-        else linker.Reject(rejected, from);
-
-        Console.WriteLine($"아님  {rejected.Display}  ↮  {from.Display}");
-        return;
-    }
-
-    if (rest.Count >= 2)
-    {
-        // 왼쪽이 무엇이냐로 길이 갈린다. 접수번호와 계약번호는 Resolve 가 가려 준다.
-        if (FindLinkable(rest[0]) is not { } left) { Environment.Exit(2); return; }
-        if (Find(rest[1], "notice") is not { } notice) { Environment.Exit(2); return; }
-
-        if (left.EntityType == "request") requestLinker.Confirm(left, notice, 1.0);
-        else linker.Confirm(left, notice, 1.0);
-
-        Console.WriteLine($"확정  {left.Display}  ←  {notice.Display}");
-        return;
-    }
-
-    Console.WriteLine($"명시 참조 연결 {ExplicitLinks.Resolve(database)}건");
-
-    var requestCandidates = requestLinker.Candidates();
-    var candidates = linker.Candidates();
-
-    if (requestCandidates.Count == 0 && candidates.Count == 0)
-    {
-        Console.WriteLine("사람이 볼 후보가 없습니다.");
-        return;
-    }
-
-    if (requestCandidates.Count > 0)
-    {
-        Console.WriteLine("접수 ↔ 공고 (확정: pclm link <접수번호|요청번호> <공고번호> · 물리치기: --아님)\n");
-        foreach (var group in requestCandidates.GroupBy(c => c.Request.Display))
-        {
-            Console.WriteLine($"  {group.Key}  {group.First().RequestTitle}");
-            foreach (var c in group.Take(3))
-            {
-                var linked = c.NoticeLinkedCount > 0 ? " · 이미 접수가 붙어 있음" : "";
-                Console.WriteLine($"      품목  {c.Confidence,5:P0}  {c.Notice.Display}  {c.NoticeTitle}   ({c.Reason}{linked})");
-                if (c.Blocker is not null) Console.WriteLine($"              └ 확인할 점: {c.Blocker}");
-            }
-            Console.WriteLine();
-        }
-    }
-
-    if (candidates.Count == 0) return;
-
-    Console.WriteLine("계약 ↔ 공고 (확정: pclm link <계약번호> <공고번호> · 물리치기: --아님)\n");
-    foreach (var group in candidates.GroupBy(c => c.Contract.Display))
-    {
-        Console.WriteLine($"  {group.Key}  {group.First().ContractTitle}");
-        foreach (var c in group.Take(3))
-        {
-            // 이미 다른 계약이 붙어 있어도 후보에서 빼지 않는다 — 한 공고에 계약이 여럿일 수 있다.
-            var linked = c.NoticeContractCount > 0 ? $" · 이미 {c.NoticeContractCount}건 연결됨" : "";
-            var mark = c.TitleMatched ? "건명" : "약함";
-
-            Console.WriteLine($"      {mark}  {c.Confidence,5:P0}  {c.Notice.Display}  {c.NoticeTitle}   ({c.Reason}{linked})");
-            if (c.Blocker is not null) Console.WriteLine($"              └ 확인할 점: {c.Blocker}");
-        }
-        Console.WriteLine();
-    }
-}
-
-/// <summary>
-/// 잇는 쪽이 될 수 있는 것 — <b>계약이거나 접수</b>. 공고는 언제나 이어지는 쪽이라 여기 오지 않는다.
-/// </summary>
-EntityRef? FindLinkable(string? key)
-{
-    var entity = key is null ? null : new Store(database).Resolve(key);
-    if (entity?.EntityType is "contract" or "request") return entity;
-
-    Console.Error.WriteLine($"그런 계약·접수가 없습니다: {key ?? "(빠짐)"}");
-    return null;
-}
-
-/// <summary>사람이 친 키를 실제 행으로 옮긴다. 없으면 까닭을 적고 null.</summary>
-EntityRef? Find(string? key, string entityType)
-{
-    var entity = key is null ? null : new Store(database).Resolve(key);
-    if (entity?.EntityType == entityType) return entity;
-
-    Console.Error.WriteLine(entityType == "contract"
-        ? $"그런 계약이 없습니다: {key ?? "(빠짐)"}"
-        : $"그런 공고가 없습니다: {key ?? "(빠짐)"}");
-
-    return null;
-}
-
 void Export()
 {
     // 자리를 짚지 않으면 지금 폴더에 떨어뜨린다 — 앱 데이터 폴더에 조용히 넣으면
@@ -446,7 +318,18 @@ void Merge()
 
     foreach (var m in 못찾음) Console.WriteLine($"※ {m}");
 
-    var report = new Merger().Merge(files, 취합본);
+    MergeReport report;
+    try
+    {
+        report = new Merger().Merge(files, 취합본);
+    }
+    catch (InvalidOperationException ex)
+    {
+        // 받아들인 제출본이 없으면 Merger 가 결과물을 쓰기 전에 멈춘다 — 까닭을 그대로 보인다.
+        Console.Error.WriteLine(ex.Message);
+        Environment.Exit(2);
+        return;
+    }
 
     // 글은 Core 가 짓는다 — 창이 취합본 옆에 남기는 것과 한 글자도 다르면 안 된다.
     Console.Write(MergeReportText.Render(report, 취합본));
@@ -607,10 +490,6 @@ void Help() => Console.WriteLine("""
                                         인자가 없으면 지난번에 고른 엑셀을 다시 읽는다
     pclm status                         쌓인 상태를 본다
     pclm 현황                            계획을 분모로 본 진행 (지금 지표는 가상이다)
-    pclm link [키 공고번호]              공고에 계약·접수를 잇는다 (인자 없으면 명시 참조 연결 + 후보)
-      --아님 <키> <공고번호>            이 짝은 아니라고 판정한다 (다시 후보로 오르지 않는다)
-      --해제 <키>                       링크를 푼다
-      --명시                            ERP 명시 참조로만 다시 잇는다 (후보는 내지 않고 있던 링크는 둔다)
     pclm export [경로]                  계약면을 엑셀로 내보낸다 (그 시점의 사진)
     pclm submit [경로]                  내 자료 한 벌을 제출본 파일로 뜬다 (.pclm)
       --이름 <이름>                     제출본 파일 이름에 쓸 내 이름을 정해 둔다
@@ -638,8 +517,7 @@ bool Flag(string name) => Array.IndexOf(args, name) >= 0;
 
 // 명령 뒤의 자리 인자만. --옵션과 그 뒤에 붙는 값을 함께 건너뛴다 —
 // 건너뛰지 않으면 "set 키 열 값 --home 폴더" 에서 경로가 값에 딸려 들어간다.
-// 다만 값을 받지 않는 깃발은 저 혼자 건너뛴다. 함께 건너뛰면
-// "link --아님 계약 공고" 에서 계약번호가 깃발의 값으로 사라진다.
+// 값을 받지 않는 깃발은 저 혼자 건너뛴다.
 List<string> Positional()
 {
     var result = new List<string>();

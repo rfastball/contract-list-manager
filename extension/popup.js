@@ -1,13 +1,14 @@
 (async () => {
-  const inPage = location.origin === "https://www.g2b.go.kr";
-  const labels = { title: "공고명", notice_kind: "공고종류", posted_at: "게시일시",
-    award_method: "낙찰방법", contract_method: "계약방법", notice_agency: "공고기관" };
+  // 툴바 팝업 하나뿐이다 — 나라장터 화면 위에는 아무것도 그리지 않는다. 가져오기는 계약 목록 오른쪽의 「지금 보는 화면」
+  // 이 하고(ADR-036), 여기는 연결이 살아 있는지와 이 탭을 그쪽에서 어떻게 보는지를 알리며, 앱 없이도 되는 엑셀
+  // 내보내기 하나를 둔다.
+  const byId = id => document.getElementById(id);
 
-  // 현재 화면 엑셀로 내보내기. 수집기의 단추와 앱의 「지금 보는 화면」(ADR-036)이 같은 길을 쓴다 — 앱이 부르면
-  // 중계기가 이 탭의 수집기에 알리고, 내려받기는 이 탭에서 일어난다.
+  // 현재 화면 엑셀로 내보내기. 중계기가 탭의 표를 읽어 주고, 파일은 여기서 지어 내려받는다. 앱이 부르는 내보내기는
+  // 중계기가 그 탭 안에서 같은 이름 규칙으로 끝낸다(background.js downloadTab).
   async function exportPage() {
-    const result = await chrome.runtime.sendMessage({ type: "pclm-capture", action: "export" });
-    if (result.kind !== "exported") throw new Error(result.message || "화면을 읽지 못했습니다.");
+    const result = await chrome.runtime.sendMessage({ type: "pclm-export" });
+    if (result?.kind !== "exported") throw new Error(result?.message || "화면을 읽지 못했습니다.");
     const bytes = pclmWorkbook(result.sheets);
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
     const link = document.createElement("a");
@@ -18,286 +19,58 @@
     return result;
   }
 
-  // 수집기 한 벌. 팝업은 문서 자체에, 페이지 수집기는 shadow DOM 안에 그린다.
-  async function collector(root, panel) {
-    const byId = id => root.getElementById(id);
-    let state = "blocked", busy = false, stopped = false, fingerprint, observed, captureId, preview, choices = {}, timer;
-    function render(view) {
-      state = view.kind;
-      captureId = view.captureId;
-      preview = view.preview;
-      choices = {};
-      byId("changes").replaceChildren();
-      for (const change of view.changes || []) {
-        if (!change.conflict) continue;
-        const label = document.createElement("label");
-        // 덮개는 이번 수집이 그 아래 값을 바꿀 때만 온다. 사람이 고친 값과 새로 읽은 값을 나란히 보인다.
-        label.textContent = change.override
-          ? `${change.table} ${change.override}: 정정값 ${change.before || "빈값"} · 새 수집값 ${change.after || "빈값"}`
-          : `${change.table} ${change.line || ""} ${change.field}: ${change.before ?? "빈값"} → ${change.after ?? "빈값"}`;
-        const select = document.createElement("select");
-        const plain = !change.override && change.field !== "__row";
-        for (const [value, text] of [["", "선택 필요"], ["keep", "기존값 유지"], ["apply", change.override ? "수집 원값으로 복원" : change.field === "__row" ? "행 삭제" : "수집값 적용"]]) {
-          const option = document.createElement("option"); option.value = value; option.textContent = text; select.append(option);
-        }
-        // 화면에서 방금 읽은 값을 담으려고 수집하는 것이라 「수집값 적용」 이 기본이다. 사람이 고친 값을
-        // 버리는 복원과 줄을 지우는 삭제는 되돌릴 수 없어 여전히 사람이 고른다.
-        // 있던 값을 빈 값으로 바꾸는 것만은 「기존값 유지」 가 기본이다 — 늦게 그려지는 탭을 빈 칸으로
-        // 읽은 것이 대부분이라, 한 번 누름에 멀쩡한 값이 지워졌다. 단축키도 같은 기본을 쓴다(background.js wipes).
-        const wipe = plain && (change.after ?? "") === "" && (change.before ?? "") !== "";
-        if (plain) { select.value = wipe ? "keep" : "apply"; choices[change.id] = select.value; }
-        select.onchange = () => { choices[change.id] = select.value; };
-        label.append(select); byId("changes").append(label);
-      }
-      if (view.destination) byId("destination").textContent = `저장 대상: ${view.destination}`;
-      else if (view.connection) byId("destination").textContent = "DB 저장 대상 연결 안 됨";
-      byId("environment").textContent = view.environment === "development" ? "개발용" : "";
-      byId("scope").textContent = `품목 ${view.itemCount || 0}행 · 매핑 범위 확인됨`;
-      byId("collector").dataset.state = state;
-      byId("compact-status").textContent = ({ ready: "저장 가능", stored: "저장 확인됨", pending: "결과 미확인",
-        retry: "재시도 가능", blocked: "확인 필요", busy: "처리 중" })[state];
-      byId("status").textContent = view.message;
-      byId("help").hidden = !view.connection;
-      byId("error").hidden = !view.detail;
-      byId("error-text").textContent = view.detail || "";
-      byId("previous").hidden = !view.previous;
-      if (view.entity) {
-        byId("target").hidden = false;
-        byId("entity").textContent = `${({ request: "접수", notice: "공고", contract: "계약" })[view.entityType] || "자료"} · ${view.entity}`;
-        byId("title").textContent = view.fields?.title || "";
-        byId("preview").replaceChildren();
-        for (const [key, value] of Object.entries(view.fields || {})) {
-          if (key === "title") continue; // 제목은 대상 요약에서 항상 보인다.
-          const dt = document.createElement("dt"), dd = document.createElement("dd");
-          dt.textContent = labels[key] || key; dd.textContent = value; byId("preview").append(dt, dd);
-        }
-      } else if (state === "blocked") byId("target").hidden = true;
-      byId("action").textContent = ({ ready: "검토한 자료 저장", stored: "현재 화면 다시 확인",
-        pending: "저장 결과 확인", retry: "같은 요청 다시 저장", blocked: "현재 화면 확인", busy: "다시 확인" })[state];
-      byId("inspect").hidden = state !== "ready";
-      if (view.fingerprint) fingerprint = view.fingerprint;
-      if (panel && ["pending", "retry"].includes(state)) panel.hidden = false;
-    }
-    async function request(action) {
-      if (busy) return;
-      busy = true;
-      const focused = root.activeElement;
-      byId("action").disabled = byId("inspect").disabled = true;
-      byId("collector").setAttribute("aria-busy", "true");
-      byId("action").textContent = action === "save" || action === "retry" ? "저장 중…" : "확인 중…";
-      byId("compact-status").textContent = byId("action").textContent;
-      byId("status").textContent = action === "save" || action === "retry" ? "검토한 자료를 저장하고 있습니다." : "화면과 저장 결과를 확인하고 있습니다.";
-      try {
-        const view = await chrome.runtime.sendMessage({ type: "pclm-capture", action, captureId, preview, choices });
-        if (!stopped) render(view);
-      } catch (error) {
-        if (!stopped) render({ kind: "pending", message: "요청 결과를 확인하지 못했습니다. 결과를 다시 확인해 주세요.", detail: error.message });
-      } finally {
-        busy = false;
-        byId("action").disabled = byId("inspect").disabled = false;
-        byId("collector").removeAttribute("aria-busy");
-        if (focused === byId("inspect") && focused.hidden) byId("action").focus();
-      }
-    }
-    byId("export").onclick = async event => {
-      if (!event.isTrusted || byId("export").disabled) return;
-      const button = byId("export"), status = byId("export-status");
-      button.disabled = true; button.textContent = "엑셀 파일 만드는 중…";
-      status.textContent = "현재 화면의 필드와 표를 읽고 있습니다.";
-      try {
-        const result = await exportPage();
-        status.textContent = `${result.sheets.length - 1}개 자료 시트의 다운로드를 요청했습니다. 현재 로딩된 범위만 포함합니다.` +
-          (result.warnings.length ? ` 미수집 ${result.warnings.length}건은 파일의 ‘수집 정보’를 확인하세요.` : "");
-      } catch (error) { status.textContent = `${error.message} 다시 시도해 주세요.`; }
-      finally { button.disabled = false; button.textContent = "현재 화면 엑셀로 내보내기"; }
-    };
-    byId("action").onclick = event => {
-      // ERP 페이지 스크립트가 합성한 클릭으로 개인 DB 저장을 실행하지 않는다.
-      if (event.isTrusted) request(({ ready: "save", pending: "recover", retry: "retry" })[state] || "inspect");
-    };
-    byId("inspect").onclick = () => request("inspect");
-    byId("settings").onclick = event => {
-      if (!event.isTrusted) return;
-      // 콘텐츠 스크립트는 설정 창을 직접 열 수 없어 중계기에 맡긴다.
-      if (inPage) chrome.runtime.sendMessage({ type: "pclm-options" }); else chrome.runtime.openOptionsPage();
-    };
-    // 콘텐츠 스크립트에는 chrome.commands 가 없다. 페이지 수집기는 중계기에게 묻는다.
-    (inPage ? chrome.runtime.sendMessage({ type: "pclm-shortcut" })
-      : chrome.commands.getAll().then(all => all.find(c => c.name === "save-current")?.shortcut)).then(shortcut => {
-      byId("shortcut").textContent = shortcut ? `단축키 ${shortcut} — 현재 화면 바로 저장` : "단축키 없음 — 설정에서 지정";
-    }, () => { byId("shortcut").textContent = "단축키 없음 — 설정에서 지정"; });
-    // 페이지 수집기를 띄울지는 설정 창의 표시 방식 하나가 정한다. 여기서는 그 값을 바꾸기만 하고,
-    // 패널을 걷고 세우는 것은 아래 storage 변경 감시가 한다 — 길이 둘이면 설정 창과 어긋난다.
-    const pin = byId("pin");
-    if (inPage) {
-      pin.textContent = "숨기기";
-      pin.title = "화면에서 수집기를 숨깁니다. 툴바의 확장 아이콘에서 다시 띄울 수 있습니다.";
-      pin.setAttribute("aria-label", "숨기기 — 툴바의 확장 아이콘에서 다시 띄울 수 있습니다");
-      pin.hidden = false;
-      // 페이지 스크립트가 합성한 클릭으로 수집기를 치우지 못하게 한다.
-      pin.onclick = event => { if (event.isTrusted) chrome.storage.local.set({ panelMode: "button" }); };
-    } else {
-      // 툴바 팝업은 간결한 모양이다(popup.css). 내보내기 안내는 누른 뒤의 결과만 보인다.
-      byId("collector").dataset.surface = "popup";
-      byId("export-status").textContent = "";
-      let mode =(await chrome.storage.local.get("panelMode")).panelMode === "button" ? "button" : "always";
-      const label = () => {
-        pin.textContent = mode === "button" ? "화면에 항상 띄우기" : "화면에서 숨기기";
-        pin.title = mode === "button" ? "나라장터 화면 오른쪽 아래에 수집기를 항상 띄웁니다."
-          : "나라장터 화면에서 수집기를 숨깁니다. 이 버튼으로 다시 띄울 수 있습니다.";
-      };
-      label(); pin.hidden = false;
-      pin.onclick = async event => {
-        if (!event.isTrusted) return;
-        mode = mode === "button" ? "always" : "button";
-        await chrome.storage.local.set({ panelMode: mode });
-        label();
-        byId("status").textContent = mode === "button" ? "나라장터 화면에서 수집기를 숨겼습니다."
-          : "나라장터 화면 오른쪽 아래에 수집기를 띄웁니다.";
-      };
-      await request("inspect"); return;
-    }
-
-    byId("collapse").hidden = false;
-    byId("collapse").onclick = () => {
-      const collapsed = !byId("content").hidden;
-      byId("content").hidden = collapsed;
-      byId("compact-status").hidden = !collapsed;
-      byId("collapse").textContent = collapsed ? "펼치기" : "접기";
-      byId("collapse").setAttribute("aria-expanded", String(!collapsed));
-    };
-    const check = async () => {
-      if (stopped || busy || document.hidden || ["pending", "retry"].includes(state)) return;
-      const supported = Boolean(document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle"));
-      panel.hidden = false;
-      if (!supported) {
-        observed = fingerprint = undefined;
-        render({ kind: "blocked", message: "이 화면은 저장하지 않습니다. 접수·공고·계약 상세 화면을 열거나, 엑셀로 내보내세요." });
-        return;
-      }
-      // 페이지 원문은 MAIN world 수집기에서 읽는다. 상태가 바뀔 때에만 사용자가 검토를 이어간다.
-      const current = location.href + "|" + document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")?.textContent + "|" + [...document.querySelectorAll('[id^="mf_wfm_container"] input, [id^="mf_wfm_container"] select')].map(e => `${e.value}:${e.readOnly}`).join("|");
-      if (current !== observed) { observed = current; await request("inspect"); }
-    };
-    // ponytail: 1초마다 허용된 필드만 관찰. 대형 화면에서 비용이 커지면 ERP의 화면 전환 이벤트로 교체한다.
-    const hide = () => clearInterval(timer);
-    const show = event => {
-      if (event.persisted) { clearInterval(timer); timer = setInterval(check, 1000); check(); }
-    };
-    timer = setInterval(check, 1000);
-    window.addEventListener("pagehide", hide);
-    window.addEventListener("pageshow", show);
-    await check();
-    return {
-      // 단축키 결과. 패널이 떠 있으면 배지 대신 여기에 그린다.
-      show(view) { render(view); panel.hidden = false; },
-      // 연결 환경이 바뀌면 같은 화면이라도 다시 확인한다.
-      refresh() { observed = undefined; },
-      stop() {
-        stopped = true; clearInterval(timer);
-        window.removeEventListener("pagehide", hide);
-        window.removeEventListener("pageshow", show);
-        panel.remove();
-      },
-    };
+  // 작업자료는 hello 가 알려 준 경로다. 사람이 알아보는 것은 파일 이름이라 그것만 보인다.
+  const fileName = path => path.split(/[\\/]/).filter(Boolean).pop() || path;
+  function tabLine(tab) {
+    if (!tab?.g2b) return "나라장터 화면이 아닙니다.";
+    // 이어져 있다는 것은 호스트가 살아 있다는 뜻일 뿐이다 — 호스트는 브라우저가 띄우므로 창이 닫혀 있어도 이어진다.
+    if (tab.state === "supported") return "이 화면은 계약 목록 창 오른쪽 「지금 보는 화면」에서 가져옵니다. 창이 닫혀 있으면 계약 목록을 여세요.";
+    if (tab.state === "unsupported") return "이 화면은 수집하지 않습니다. 엑셀로는 내보낼 수 있습니다.";
+    if (tab.state === "error") return tab.message || "화면을 읽지 못했습니다.";
+    return "화면을 읽는 중입니다.";
+  }
+  function render(status) {
+    const connected = Boolean(status?.connected), tab = status?.tab;
+    byId("environment").textContent = status?.environment === "development" ? "개발용" : "";
+    byId("connection").dataset.connected = String(connected);
+    byId("connection").textContent = connected ? "계약 목록과 이어져 있습니다" : "계약 목록에 연결되지 않았습니다";
+    const destination = connected && typeof status.destination === "string" && status.destination ? fileName(status.destination) : "";
+    // 개발 전환이 켜져 있으면 개발용 호스트만 찾는다 — 업무용 계약 목록을 켜도 영영 이어지지 않으니 그 까닭을 먼저 말한다.
+    byId("destination").textContent = connected ? destination && `작업자료 ${destination}`
+      : status?.environment === "development"
+        ? "확장 설정에서 「개발 DB 사용」 이 켜져 있어 개발용 계약 목록만 찾습니다. 업무용이면 설정에서 끄세요."
+        : "계약 목록을 실행하면 자동으로 이어집니다.";
+    byId("destination").hidden = !byId("destination").textContent;
+    // 이 탭이 그쪽에서 어떻게 보이는지는 연결돼 있을 때만 뜻이 있다. 나라장터가 아니라는 것은 내보내기가 왜 꺼졌는지라 늘 보인다.
+    byId("tab").hidden = !(tab && (!tab.g2b || connected));
+    byId("tab").textContent = byId("tab").hidden ? "" : tabLine(tab);
+    byId("tab").dataset.state = tab?.g2b ? tab.state || "reading" : "elsewhere";
+    if (!exporting) byId("export").disabled = !tab?.g2b;
   }
 
-  if (!inPage) { await collector(document); return; }
-  // 확장을 다시 불러오면 열린 탭의 옛 수집기는 chrome API 가 끊긴 채 남아 설정 전환도 단축키 결과도
-  // 받지 못한다. 중계기가 새로 넣은 쪽이 옛 것을 물러나게 한다 — DOM 이벤트는 끊기지 않아 옛 쪽도
-  // 듣는다. 둘이 한꺼번에 들어와도 늦은 쪽 하나만 남는다. 이 신호를 모르는 옛 판의 패널은 직접 걷는다.
-  window.dispatchEvent(new CustomEvent("pclm-takeover"));
-  document.getElementById("pclm-collector")?.remove();
-  let mounted, queue = Promise.resolve(), retired = false;
-  window.addEventListener("pclm-takeover", () => {
-    retired = true; mounted?.stop(); mounted = undefined;
-    document.getElementById("pclm-toast")?.remove();
-  }, { once: true });
-  async function mount() {
-    const [html, css] = await Promise.all(["popup.html", "popup.css"].map(async file => {
-      const response = await fetch(chrome.runtime.getURL(file));
-      if (!response.ok) throw new Error("수집기 화면을 불러오지 못했습니다.");
-      return response.text();
-    }));
-    const panel = document.createElement("div");
-    panel.id = "pclm-collector";
-    panel.style.cssText = "all:initial;position:fixed;right:16px;bottom:16px;width:min(360px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;z-index:2147483647;border-radius:9px;box-shadow:0 6px 24px rgba(0,0,0,.24);";
-    panel.hidden = true;
-    const root = panel.attachShadow({ mode: "open" });
-    const style = document.createElement("style"); style.textContent = css;
-    root.append(style, new DOMParser().parseFromString(html, "text/html").getElementById("collector"));
-    document.documentElement.append(panel);
-    mounted = await collector(root, panel);
-    if (retired) { mounted.stop(); mounted = undefined; }
+  let exporting = false;
+  byId("settings").onclick = event => { if (event.isTrusted) chrome.runtime.openOptionsPage(); };
+  byId("export").onclick = async event => {
+    if (!event.isTrusted || byId("export").disabled) return;
+    const button = byId("export"), status = byId("export-status");
+    exporting = true; button.disabled = true; button.textContent = "엑셀 파일 만드는 중…";
+    status.textContent = "현재 화면의 필드와 표를 읽고 있습니다.";
+    try {
+      const result = await exportPage();
+      status.textContent = `${result.sheets.length - 1}개 자료 시트의 다운로드를 요청했습니다. 현재 로딩된 범위만 포함합니다.` +
+        (result.warnings.length ? ` 미수집 ${result.warnings.length}건은 파일의 ‘수집 정보’를 확인하세요.` : "");
+    } catch (error) { status.textContent = `${error.message} 다시 시도해 주세요.`; }
+    finally { exporting = false; button.disabled = false; button.textContent = "현재 화면 엑셀로 내보내기"; }
+  };
+
+  async function refresh() {
+    let status = null;
+    try { status = await chrome.runtime.sendMessage({ type: "pclm-status" }); } catch { /* 중계기가 답하지 않는다 — 연결 안 됨으로 그린다 */ }
+    render(status);
   }
-  // 설정 창의 표시 방식을 차례로 반영한다. 「툴바 버튼으로만」이면 패널도 1초 관찰도 두지 않는다.
-  const apply = mode => queue = queue.then(() => {
-    if (retired) return;
-    if (mode === "button") { mounted?.stop(); mounted = undefined; }
-    else if (!mounted) return mount();
-  }).catch(() => {});
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || retired) return;
-    if (changes.panelMode) apply(changes.panelMode.newValue);
-    if (changes.erpDevelopment) mounted?.refresh();
-  });
-  // 단축키 결과 알림. 툴바 배지의 작은 ✓ 나 패널 안 상태 글자만으로는 저장됐는지 알기 어렵다 —
-  // 표시 방식과 관계없이 화면 위쪽 가운데에 크게 띄운다. 페이지 스타일이 닿지 않게 shadow DOM 에 그린다.
-  let toastTimer;
-  function toast(view) {
-    const outcome = view?.kind === "stored" && !view.previous ? "ok" : view?.kind === "blocked" && view.detail ? "error" : "review";
-    document.getElementById("pclm-toast")?.remove();
-    clearTimeout(toastTimer);
-    const host = document.createElement("div");
-    host.id = "pclm-toast";
-    host.style.cssText = "all:initial;position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:2147483647;";
-    const root = host.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    style.textContent = `
-      .toast { --ok:#1e8449; --review:#a05a00; --error:#b3261e; --card:#fff; --ink:#1c2126; --muted:#5c626b;
-        display:flex; gap:12px; align-items:flex-start; min-width:320px; max-width:min(560px, calc(100vw - 32px));
-        padding:14px 18px; border-radius:9px; border-left:6px solid var(--tone); background:var(--card); color:var(--ink);
-        box-shadow:0 8px 28px rgba(0,0,0,.28); cursor:pointer; overflow-wrap:anywhere;
-        font:14px/1.5 "Pretendard GOV Variable","Malgun Gothic",system-ui,sans-serif; }
-      .ok { --tone:var(--ok); } .review { --tone:var(--review); } .error { --tone:var(--error); }
-      .mark { flex:none; width:28px; height:28px; border-radius:50%; display:grid; place-items:center;
-        background:var(--tone); color:#fff; font-weight:700; font-size:16px; }
-      strong { display:block; font-size:16px; font-weight:600; color:var(--tone); }
-      span.sub { display:block; color:var(--muted); font-size:13px; margin-top:2px; }
-      @media (prefers-color-scheme: dark) { .toast { --ok:#43b877; --review:#e0a850; --error:#f2867b; --card:#1c2127; --ink:#e7eaee; --muted:#aab1bb; } .mark { color:#0f1418; } }
-      @media (prefers-reduced-motion: no-preference) { .toast { animation:in .16s ease-out; } @keyframes in { from { opacity:0; transform:translateY(-8px); } } }`;
-    const box = document.createElement("div");
-    box.className = `toast ${outcome}`;
-    box.setAttribute("role", outcome === "error" ? "alert" : "status");
-    const mark = document.createElement("span");
-    mark.className = "mark"; mark.textContent = ({ ok: "✓", review: "!", error: "×" })[outcome];
-    const text = document.createElement("div");
-    const head = document.createElement("strong");
-    head.textContent = ({ ok: "계약 목록에 저장했습니다", review: "저장하지 않았습니다 — 검토가 필요합니다", error: "저장하지 못했습니다" })[outcome];
-    const kind = ({ request: "접수", notice: "공고", contract: "계약" })[view?.entityType];
-    const target = [kind, view?.entity, view?.fields?.title].filter(Boolean).join(" · ");
-    text.append(head);
-    for (const line of outcome === "ok" ? [target] : [view?.message, target]) {
-      if (!line) continue;
-      const sub = document.createElement("span"); sub.className = "sub"; sub.textContent = line; text.append(sub);
-    }
-    box.append(mark, text);
-    root.append(style, box);
-    const close = () => { clearTimeout(toastTimer); host.remove(); };
-    box.onclick = close;
-    document.documentElement.append(host);
-    toastTimer = setTimeout(close, outcome === "ok" ? 4000 : 8000);
-  }
-  chrome.runtime.onMessage.addListener((message, sender, respond) => {
-    // 중계기(서비스 워커)만 보낸다. 다른 탭의 콘텐츠 스크립트는 탭으로 메시지를 보낼 수 없다.
-    if (retired || sender.id !== chrome.runtime.id || sender.tab) return;
-    // 앱의 「지금 보는 화면」 에서 고른 내보내기. 결과는 브라우저의 내려받기가 보인다.
-    if (message?.type === "pclm-export") { exportPage().then(() => respond(true), () => respond(false)); return true; }
-    if (message?.type !== "pclm-command-result") return;
-    toast(message.view);
-    // 패널이 없으면 중계기가 배지를 붙이고, 검토가 필요하면 팝업을 연다.
-    if (!mounted) { respond(false); return; }
-    mounted.show(message.view); respond(true);
-  });
-  await apply((await chrome.storage.local.get("panelMode")).panelMode);
+  await refresh();
+  // 열려 있는 동안 2초마다 다시 읽는다 — 연 다음에 앱을 켜거나 탭을 옮겨도 팝업이 연 순간에 머물지 않는다.
+  // 그리던 화면이 걷혔으면(다른 팝업이 같은 문서에 섰으면) 멈춘다.
+  const root = byId("collector");
+  const timer = setInterval(() => { if (byId("collector") !== root) clearInterval(timer); else void refresh(); }, 2000);
 })();

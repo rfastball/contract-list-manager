@@ -35,6 +35,56 @@ public class FieldOverrideTests : IDisposable
     }
 
     [Fact]
+    public void 일괄편집은_검증과_저장이_한번이며_실패하면_모두_유지한다()
+    {
+        _store.UpsertContract(Contract("00"));
+        CellChange[] changes = [
+            new(계약.Display, "메모", "일괄", "", "set"),
+            new(계약.Display, "계약금액", "7", "164,872,340", "set"),
+        ];
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약", [changes[0], changes[1] with { Original = "낡은 값" }]));
+        Assert.Equal("", Cell("v_계약", "메모"));
+        using (var connection = _database.Open())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TRIGGER reject_batch BEFORE INSERT ON field_override BEGIN SELECT RAISE(ABORT, 'test'); END;";
+            command.ExecuteNonQuery();
+        }
+        Assert.Throws<SqliteException>(() => _store.BatchEdit("v_계약", changes));
+        Assert.Equal("", Cell("v_계약", "메모"));
+        using (var connection = _database.Open())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "DROP TRIGGER reject_batch;";
+            command.ExecuteNonQuery();
+        }
+        Assert.Equal(2, _store.BatchEdit("v_통합", changes));
+        Assert.Equal("일괄", Cell("v_계약", "메모"));
+        Assert.Equal("7", Cell("v_계약", "계약금액"));
+        Assert.Equal("164,872,340", Assert.Single(_store.Overrides("contract")).Original);
+        _store.BatchEdit("v_계약", [changes[1] with { Original = "7", Operation = "revert" }]);
+        Assert.Equal("164,872,340", Cell("v_계약", "계약금액"));
+    }
+
+    [Fact]
+    public void 일괄편집도_읽기전용과_주소와_열형식을_지킨다()
+    {
+        _store.UpsertContract(Contract("00"));
+        var change = new CellChange(계약.Display, "메모", "값", "", "set");
+        Assert.Throws<InvalidOperationException>(() => new Store(new Database(_path, Access.Read)).BatchEdit("v_계약", [change]));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약차수", [change]));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_공고", [change]));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_통합", [change with { Field = "공고명" }]));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약", [change with { Field = "계약번호" }]));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약", [change, change]));
+        _store.AddUserColumn("contract", "날짜", "date", []);
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약", [change with { Field = "날짜", Value = "2026-02-31" }]));
+        _store.UpsertContract(Contract("01"));
+        Assert.Throws<InvalidOperationException>(() => _store.BatchEdit("v_계약", [change]));
+        Assert.Equal("", Cell("v_계약", "메모"));
+    }
+
+    [Fact]
     public void 고친_값이_계약면에_뜬다()
     {
         _store.UpsertContract(Contract("00"));
@@ -193,75 +243,20 @@ public class FieldOverrideTests : IDisposable
         }
     }
 
-    // ── 입찰방법 ─────────────────────────────────────────
-    // 계약방법과 계약구분에서 짓는 칸. 재료는 사람이 고친 뒤의 값이고, 재료가 표에 없으면
-    // 통째로 비운다 — 틀린 글자는 그대로 문서에 찍히지만 빈칸은 받는 쪽이 알아챈다.
-
-    private static readonly EntityRef 지은공고 = new("notice", "R26BK00000001", "000");
-
-    [Theory]
-    [InlineData("제한경쟁", "총액계약", "제한(총액)")]
-    [InlineData("일반경쟁", "일반단가계약", "일반(단가)")]
-    [InlineData("지명경쟁", "단가계약", "지명(단가)")]
-    [InlineData("수의계약", "제3자단가계약", "수의(제3자단가)")]
-    public void 입찰방법은_계약방법과_계약구분을_줄여_잇는다(string method, string kind, string expected)
-    {
-        _store.UpsertNotice(지은(method, kind));
-
-        Assert.Equal(expected, Cell("v_공고", "입찰방법"));
-        Assert.Equal(expected, Cell("v_공고차수", "입찰방법"));
-    }
-
-    /// <summary>한쪽이라도 모르면 「제한()」 도 코드 그대로도 아니라 빈 문자열 — NULL 도 아니다.</summary>
-    [Theory]
-    [InlineData("제한경쟁", "")]
-    [InlineData("", "총액계약")]
-    [InlineData("제한경쟁", "계999999 (명칭 미확정)")]
-    [InlineData(null, null)]
-    public void 입찰방법은_한쪽이라도_모르면_비운다(string? method, string? kind)
-    {
-        _store.UpsertNotice(지은(method, kind));
-
-        using var connection = _database.OpenReadOnly();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 입찰방법 FROM v_공고;";
-        using var reader = command.ExecuteReader();
-        Assert.True(reader.Read());
-
-        Assert.False(reader.IsDBNull(0), "빈 값이 NULL 로 새면 받는 쪽의 빈 값 경고가 죽는다.");
-        Assert.Equal("", reader.GetString(0));
-    }
-
-    /// <summary>사람이 계약방법을 고치면 입찰방법도 그 값을 따른다 — 두 칸이 서로 다른 말을 하지 않는다.</summary>
     [Fact]
-    public void 입찰방법은_고친_계약방법을_따른다()
+    public void 계약방법과_계약구분은_ID를_가공하지_않고_투영한다()
     {
-        _store.UpsertNotice(지은("제한경쟁", "총액계약"));
-
-        _store.SetOverride(지은공고, "계약방법", "일반경쟁");
-
-        Assert.Equal("일반(총액)", Cell("v_공고", "입찰방법"));
+        _store.UpsertNotice(new NoticeRecord
+        {
+            NoticeBase = 공고.Base, Seq = 공고.Seq,
+            ContractMethod = "방법001", ContractKind = "구분002",
+        });
+        foreach (var view in new[] { "v_공고", "v_공고차수" })
+        {
+            Assert.Equal("방법001", Cell(view, "계약방법"));
+            Assert.Equal("구분002", Cell(view, "계약구분"));
+        }
     }
-
-    [Fact]
-    public void 입찰방법을_직접_고치면_그것이_이긴다()
-    {
-        _store.UpsertNotice(지은("제한경쟁", "총액계약"));
-        _store.SetOverride(지은공고, "계약방법", "일반경쟁");
-
-        _store.SetOverride(지은공고, "입찰방법", "지명(총액)");
-
-        Assert.Equal("지명(총액)", Cell("v_공고", "입찰방법"));
-    }
-
-    private static NoticeRecord 지은(string? method, string? kind) => new()
-    {
-        NoticeBase = "R26BK00000001",
-        Seq = "000",
-        Title = "시험용 물품 구매",
-        ContractMethod = method,
-        ContractKind = kind,
-    };
 
     // ── 막는 것들 ────────────────────────────────────────
     // 화면이 걸러도 다리와 명령줄로 직접 부를 수 있다. 검사는 Store 하나에 모여 있다.

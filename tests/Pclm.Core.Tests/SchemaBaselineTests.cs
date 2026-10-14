@@ -49,6 +49,30 @@ public sealed class SchemaBaselineTests : IDisposable
         Assert.Equal(Schema.Version, Schema.BaselineVersion + Schema.Steps.Count);
     }
 
+    [Fact]
+    public void 가공열_판올림은_기존_열_정의와_수동값을_보존한다()
+    {
+        using (var old = new SqliteConnection($"Data Source={_path};Pooling=False"))
+        {
+            old.Open();
+            using var command = old.CreateCommand();
+            command.CommandText = Schema.Baseline + Schema.Steps[0] + """
+                INSERT INTO contract_series VALUES('TEST');
+                INSERT INTO contract_user_field VALUES('TEST','메모','보존할 값','2026-01-01');
+                UPDATE user_column SET kind='choice', options='준비|완료' WHERE field_name='진행상태';
+                PRAGMA user_version=20;
+                """;
+            command.ExecuteNonQuery();
+        }
+        var database = new Database(_path);
+        database.Migrate();
+        Assert.Equal(["준비", "완료"], new Store(database).UserColumns("contract").Single(c => c.FieldName == "진행상태").Choices);
+        using var current = database.OpenReadOnly();
+        using var read = current.CreateCommand();
+        read.CommandText = "SELECT value FROM contract_user_field WHERE field_name='메모'";
+        Assert.Equal("보존할 값", read.ExecuteScalar());
+    }
+
     /// <summary>
     /// 기준선보다 옛 시험판은 <b>한 바이트도 고치지 않고</b> 거절한다. 반쯤 손댄 채 실패하면
     /// 0.7.0 으로 열어 올리는 길마저 흐려진다.

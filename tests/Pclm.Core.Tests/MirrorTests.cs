@@ -175,6 +175,7 @@ public sealed class MirrorTests : IDisposable
             pointInfo = new Dictionary<string, string>
             {
                 ["ctrtNoOrd"] = $"R26TA00000001-{seq}", ["ctrtNm"] = title, ["ctrtDt"] = date,
+                ["ctrtGtnrt"] = "5", ["ctrtGrnteAmt"] = "8094520",
                 ["bidPbancNo"] = "R26BK00000001", ["dmstUntyGrpNm"] = "가온시험기관",
             },
             tables = new Dictionary<string, object>
@@ -215,7 +216,9 @@ public sealed class MirrorTests : IDisposable
         {
             new MirrorScreen("01117", "request", "접수", "조달요구 접수(목록형)"),
             new MirrorScreen("01179", "notice", "공고", "입찰공고 상세"),
+            new MirrorScreen("01196", "notice", "공고", "입찰공고상세조회(통합)"),
             new MirrorScreen("01579", "contract", "계약", "계약 상세"),
+            new MirrorScreen("01608", "contract", "계약", "물품·일반용역 변경계약서 작성"),
         }, Mirror.SupportedScreens(_db));
     }
 
@@ -234,6 +237,8 @@ public sealed class MirrorTests : IDisposable
         var date = Assert.Single(shot.Fields, f => f.Column == "계약일자");
         Assert.Equal(("new", "2026/09/14", null), (date.Kind, date.Value, date.Raw)); // 화면이 이름표를 보내지 않았다.
         Assert.Equal("30,400,000", Assert.Single(shot.Fields, f => f.Column == "계약금액").Value);
+        Assert.Equal("5", Assert.Single(shot.Fields, f => f.Column == "계약보증금률(%)").Value);
+        Assert.Equal("8,094,520", Assert.Single(shot.Fields, f => f.Column == "계약보증금(원)").Value);
         Assert.DoesNotContain(shot.Fields, f => f.Column is "진행상태" or "메모"); // 사람이 채우는 열은 화면에서 오지 않는다.
         Assert.True(shot.Rest > 0);
         Assert.Equal(shot.ViewColumns, shot.Fields.Count + shot.Rest);
@@ -246,7 +251,9 @@ public sealed class MirrorTests : IDisposable
             shot.Place.Select(p => (p.Kind, p.State, p.Number)));
         Assert.False(shot.Place[1].Collected);
         Assert.Equal(new[] { ("00", "ghost") }, shot.Rounds.Select(r => (r.Seq, r.State)));
-        Assert.Null(shot.Blocked);
+        Assert.Empty(shot.Missing);
+        Assert.Equal((0, ""), (shot.KeptCells, shot.KeptIn));
+        Assert.Equal(((bool?)true, (bool?)true), (shot.TotalsWithDefaults, shot.TotalsWithoutMissing));
 
         Assert.Equal(before, Footprint(watcher));
     }
@@ -346,7 +353,7 @@ public sealed class MirrorTests : IDisposable
     }
 
     [Fact]
-    public void 고르지_않으면_사람이_고친_값은_그대로_두고_빈_값으로_지우는_변경은_유지한다()
+    public void 바뀌는_값은_늘_적용하고_빈_값으로_지우는_변경은_고를_때만_비운다()
     {
         Save(Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000)));
         var wiped = Contract("00", "", "20261002", (1, 6, 2_000_000));
@@ -355,18 +362,94 @@ public sealed class MirrorTests : IDisposable
         var title = Assert.Single(preview.Changes, ch => ch.Field == "title");
         var date = Assert.Single(preview.Changes, ch => ch.Field == "contracted_on");
         Assert.Equal(("keep", "apply"), (choices[title.Id], choices[date.Id]));
+        // 다른 값으로 바뀌는 것은 고른 것과 상관없이 늘 적용한다.
+        Assert.Equal("apply", Mirror.DefaultChoices(preview, new HashSet<string> { date.Id })[date.Id]);
+
+        // 유지하므로 남는 값을 보이고, 비우기를 고르는 자리를 단다.
         var shot = Mirror.Project(_db, wiped);
-        Assert.Equal("same", Assert.Single(shot.Fields, f => f.Column == "계약건명").Kind); // 유지하므로 그대로 보인다.
+        var blank = Assert.Single(shot.Fields, f => f.Column == "계약건명");
+        Assert.Equal(("blank", "시험 음향설비 구매", title.Id), (blank.Kind, blank.Value, blank.ChoiceId));
         Assert.Equal("changed", Assert.Single(shot.Fields, f => f.Column == "계약일자").Kind);
+
+        // 고르면 비운다 — 빈 값은 NULL 이 아니라 빈 문자열로 계약면에 선다.
+        new ErpCapture(_db).Save(wiped, shot.BaseToken, Guid.NewGuid().ToString(), Mirror.DefaultChoices(preview, new HashSet<string> { blank.ChoiceId! }));
+        using var c = _db.OpenReadOnly();
+        Assert.Equal(("", "2026/10/02"), c.QuerySingle<(string, string)>("SELECT 계약건명, 계약일자 FROM v_계약"));
     }
 
     [Fact]
-    public void 품목_대응을_골라야_하는_화면은_창에서_가져오지_않는다()
+    public void 기본_선택은_고를_것이_있는_충돌마다_빠짐없이_하나씩_낸다()
     {
         Save(Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000), (2, 1, 18_400_000)));
-        // 품목 하나가 빠진 화면 — 빠진 행을 지울지는 사람이 Chrome 의 수집기에서 고른다.
-        var shot = Mirror.Project(_db, Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000)));
-        Assert.Equal("화면에 없는 품목 행을 지울지 골라야 합니다.", shot.Blocked);
+        using (var c = _db.Open())
+            c.Execute("""
+                INSERT INTO field_override(entity_type, base, seq, column_name, value, original, updated_at) VALUES
+                    ('contract', 'R26TA00000001', '00', '계약건명', '사람이 고친 건명', '시험 음향설비 구매', 'before');
+                """);
+        // 건명이 바뀌고(덮개 아래), 날짜가 바뀌고, 품목 2가 빠진 화면.
+        var screen = Contract("00", "화면에서 바뀐 건명", "20261002", (1, 6, 2_000_000));
+        var preview = new ErpCapture(_db).Inspect(screen);
+        var conflicts = preview.Changes.Where(ch => ch.Conflict).ToList();
+        Assert.Contains(conflicts, ch => ch.Field == "__override");
+        Assert.Contains(conflicts, ch => ch.Field == "__row");
+        var none = Mirror.DefaultChoices(preview, new HashSet<string>());
+        Assert.Equal(conflicts.Select(ch => ch.Id).Order(), none.Keys.Order());
+        var all = Mirror.DefaultChoices(preview, conflicts.Select(ch => ch.Id).ToHashSet());
+        foreach (var change in conflicts)
+        {
+            var optIn = change.Field is "__override" or "__row" || Mirror.Wipes(change);
+            Assert.Equal(optIn ? "keep" : "apply", none[change.Id]);
+            Assert.Equal("apply", all[change.Id]);
+        }
+    }
+
+    [Fact]
+    public void 화면에_없는_행은_그대로_두는_것이_기본이고_고르면_지우며_계약_총액이_맞는지_미리_알린다()
+    {
+        Save(Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000), (2, 1, 18_400_000)));
+        // 품목 하나가 빠진 화면 — 머리 총액은 화면의 품목에서 셈하므로 남은 행과 맞지 않는다.
+        var screen = Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000));
+        var shot = Mirror.Project(_db, screen);
+        var gone = Assert.Single(shot.Missing);
+        Assert.Equal(("contract_item", "품목", 2, "시험 품목 2", "18,400,000"), (gone.Table, gone.TableName, gone.Line, gone.Label, gone.Amount));
+        Assert.Equal(2, shot.Items.Count); // 그대로 두므로 품목 전체에는 남는다.
+        Assert.Equal(((bool?)false, (bool?)true), (shot.TotalsWithDefaults, shot.TotalsWithoutMissing));
+
+        // 기본으로는 저장이 총액을 거절한다 — 투영이 미리 말한 그대로.
+        var (input, preview) = Mirror.Prepare(_db, screen);
+        Assert.Equal(shot.BaseToken, preview.BaseToken);
+        var host = new ErpCapture(_db);
+        var refused = Assert.Throws<InvalidOperationException>(() =>
+            host.Save(input, preview.BaseToken, Guid.NewGuid().ToString(), Mirror.DefaultChoices(preview, new HashSet<string>())));
+        Assert.StartsWith("선택한 품목 금액과 계약 총액이 다릅니다", refused.Message);
+
+        // 지우기를 고르면 그 행과 추적을 지운다.
+        host.Save(input, preview.BaseToken, Guid.NewGuid().ToString(), Mirror.DefaultChoices(preview, new HashSet<string> { gone.ChoiceId }));
+        using var c = _db.OpenReadOnly();
+        Assert.Equal(new[] { 1L }, c.Query<long>("SELECT line_no FROM contract_item"));
+        Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM erp_row WHERE table_name='contract_item'"));
+    }
+
+    [Fact]
+    public void 작업자료의_줄과_짝이_없는_화면의_줄은_새_줄로_가져온다()
+    {
+        Save(Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000)));
+        // 같은 차수에 품목 줄이 하나 더 선 화면 — 예전에는 옛 줄과 짝지으라며 창에서 막았다.
+        var screen = Contract("00", "시험 음향설비 구매", "20260914", (1, 6, 2_000_000), (2, 1, 18_400_000));
+        Assert.NotEmpty(new ErpCapture(_db).Inspect(screen).Unmatched);
+
+        var shot = Mirror.Project(_db, screen);
+        Assert.Equal(new[] { ("1", false), ("2", true) }, shot.Items.Select(i => (i.Line, i.Added)));
+        Assert.Equal((bool?)true, shot.TotalsWithDefaults);
+
+        // 가져오기는 같은 입력을 지어 같은 토큰을 얻고, 막히지 않고 저장한다.
+        var (input, preview) = Mirror.Prepare(_db, screen);
+        Assert.Empty(preview.Unmatched);
+        Assert.Equal(shot.BaseToken, preview.BaseToken);
+        new ErpCapture(_db).Save(input, preview.BaseToken, Guid.NewGuid().ToString(), Mirror.DefaultChoices(preview, new HashSet<string>()));
+        using var c = _db.OpenReadOnly();
+        Assert.Equal(new[] { ("1", "12,000,000"), ("2", "18,400,000") },
+            c.Query<(string, string)>("SELECT CAST(순번 AS TEXT), 금액 FROM v_계약품목 ORDER BY 순번"));
     }
 
     [Fact]
@@ -394,7 +477,8 @@ public sealed class MirrorTests : IDisposable
         Assert.Equal(new[] { "notice.posted_at" }, notice["게시일시"]);
         Assert.Equal(new[] { "notice.estimated_price" }, notice["추정가격"]);
         Assert.Equal(new[] { "notice_item.item_name" }, notice["세부품명"]); // 품목 줄을 잇는 조건은 재료가 아니다.
-        Assert.Equal(new[] { "notice.contract_kind", "notice.contract_method" }, notice["입찰방법"]); // 덮개 표는 걷는다.
+        Assert.Equal(new[] { "notice.contract_method" }, notice["계약방법"]);
+        Assert.Equal(new[] { "notice.contract_kind" }, notice["계약구분"]);
         Assert.Equal(new[] { "notice_schedule.starts_at" }, notice["개찰일시"]);
 
         var request = Views.FaceReferences("request");
@@ -439,9 +523,29 @@ public sealed class MirrorTests : IDisposable
         var tab = JsonSerializer.SerializeToElement(new { tabId = 1, state = "supported", screenRows = screen.Select(r =>
             new { group = r.Group, label = r.Label, text = r.Text, source = r.Source }) });
         Assert.Equal(screen, Mirror.ScreenRows(tab));
+        Assert.Null(Mirror.Export(tab)); // 옛 확장은 내보내기 결과를 싣지 않는다.
         Assert.True(Mirror.Points("table:contract_item", "table:contract_item:2"));
         Assert.False(Mirror.Points("table:contract_item", "table:contract_item_x:2"));
         Assert.False(Mirror.Points("", ""));
+    }
+
+    [Fact]
+    public void 앱이_부른_내보내기의_결과는_탭_보고에_실려_그대로_건너오고_모양이_틀리면_모르는_것으로_둔다()
+    {
+        var home = Path.Combine(_root, "홈");
+        var pid = Environment.ProcessId;
+        Live(home);
+        JsonElement Of(object tab) => JsonSerializer.SerializeToElement(new { front = 1, frontAt = 1, tabs = new[] { tab } });
+
+        Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "unsupported",
+            export = new { at = 1_700_000_000_123L, ok = false, message = "표를 찾지 못했습니다." } }), DateTime.Now));
+        var tab = Assert.Single(ExtensionRelay.ReadTabs(home)).Report.GetProperty("tabs")[0];
+        Assert.Equal(new MirrorExport(1_700_000_000_123L, false, "표를 찾지 못했습니다."), Mirror.Export(tab));
+        Assert.Equal(new MirrorExport(5, true, ""), Mirror.Export(JsonSerializer.SerializeToElement(new { export = new { at = 5, ok = true } })));
+        // 모양이 틀리면 결과를 모르는 것이다 — 성공으로 읽지 않는다.
+        Assert.Null(Mirror.Export(JsonSerializer.SerializeToElement(new { export = new { at = "어제", ok = true } })));
+        Assert.Null(Mirror.Export(JsonSerializer.SerializeToElement(new { export = new { at = 5, ok = "예" } })));
+        Assert.Null(Mirror.Export(JsonSerializer.SerializeToElement(new { export = "성공" })));
     }
 
     [Fact]
@@ -455,25 +559,30 @@ public sealed class MirrorTests : IDisposable
             JsonSerializer.SerializeToElement(new { front = 1, frontAt = 1, tabs = new[] { tab }, settings });
 
         Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "supported", screenRows = new[] { Row("시험") } },
-            new { panelMode = "button", shortcut = "Alt+Shift+S", siteAccess = true }), DateTime.Now));
+            new { siteAccess = true }), DateTime.Now));
         var read = Assert.Single(ExtensionRelay.ReadTabs(home)).Report;
-        Assert.Equal("button", read.GetProperty("settings").GetProperty("panelMode").GetString());
+        Assert.True(read.GetProperty("settings").GetProperty("siteAccess").GetBoolean());
         Assert.Equal("시험", read.GetProperty("tabs")[0].GetProperty("screenRows")[0].GetProperty("text").GetString());
 
         Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "supported", screenRows = new[] { Row(7) } }), DateTime.Now));
         Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "supported", screenRows = "줄" }), DateTime.Now));
         Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "supported",
             screenRows = Enumerable.Repeat(Row("x"), ExtensionRelay.MaxScreenRows + 1).ToArray() }), DateTime.Now));
-        Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" },
-            new { panelMode = "sometimes", shortcut = "", siteAccess = true }), DateTime.Now));
-        Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" },
-            new { panelMode = "always", shortcut = "<script>", siteAccess = true }), DateTime.Now));
+        Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" }, new { siteAccess = "예" }), DateTime.Now));
         // 메뉴 번호는 빈 글이거나 숫자 다섯만.
         Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "unsupported", menu = "01175" }), DateTime.Now));
         Assert.Equal("01175", Assert.Single(ExtensionRelay.ReadTabs(home)).Report.GetProperty("tabs")[0].GetProperty("menu").GetString());
         Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "unsupported", menu = "" }), DateTime.Now));
         Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "unsupported", menu = "<b>메뉴</b>" }), DateTime.Now));
         Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "unsupported", menu = 1175 }), DateTime.Now));
+        // 옛 확장(0.9 까지)이 함께 싣던 수집기 띄우는 방식·단축키는 받되 적지 않는다(ADR-042) — 홈에 임의 글이 남지 않는다.
+        Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" },
+            new { panelMode = "always", shortcut = "<script>", siteAccess = false }), DateTime.Now));
+        var old = Assert.Single(ExtensionRelay.ReadTabs(home)).Report.GetProperty("settings");
+        Assert.False(old.GetProperty("siteAccess").GetBoolean());
+        Assert.False(old.TryGetProperty("panelMode", out _));
+        Assert.False(old.TryGetProperty("shortcut", out _));
+        Assert.NotNull(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" }, new { shortcut = "" }), DateTime.Now));
         // 설정 없는 보고(옛 확장)도 받는다.
         Assert.Null(ExtensionRelay.WriteTabs(home, pid, Of(new { tabId = 1, state = "reading" }), DateTime.Now));
         Assert.Equal(JsonValueKind.Null, Assert.Single(ExtensionRelay.ReadTabs(home)).Report.GetProperty("settings").ValueKind);
@@ -485,20 +594,18 @@ public sealed class MirrorTests : IDisposable
         var home = Path.Combine(_root, "홈");
         var pid = Environment.ProcessId;
         Live(home);
-        Assert.Throws<InvalidOperationException>(() => ExtensionRelay.SendSetting(home, pid, "setPanelMode", "sometimes"));
+        // 수집기 띄우는 방식·단축키 화면 명령은 걷었다(ADR-042) — 놓지도 넘기지도 않는다.
+        Assert.Throws<InvalidOperationException>(() => ExtensionRelay.SendSetting(home, pid, "setPanelMode"));
+        Assert.Throws<InvalidOperationException>(() => ExtensionRelay.SendSetting(home, pid, "openShortcuts"));
         Assert.Throws<InvalidOperationException>(() => ExtensionRelay.SendSetting(home, pid, "focusTab"));
-        Assert.Throws<InvalidOperationException>(() => ExtensionRelay.Send(home, pid, "openShortcuts", 3));
-        Assert.True(ExtensionRelay.SendSetting(home, pid, "setPanelMode", "button"));
-        Assert.True(ExtensionRelay.SendSetting(home, pid, "openShortcuts"));
+        Assert.Throws<InvalidOperationException>(() => ExtensionRelay.Send(home, pid, "openExtensions", 3));
         Assert.True(ExtensionRelay.SendSetting(home, pid, "openExtensions"));
-        File.WriteAllText(Path.Combine(ExtensionRelay.CommandDirectory(home, pid), "9999999999999999998-zz.json"), """{"command":"setPanelMode","mode":"never"}""");
+        File.WriteAllText(Path.Combine(ExtensionRelay.CommandDirectory(home, pid), "9999999999999999998-zz.json"), """{"command":"setPanelMode","mode":"button"}""");
 
         var delivered = new List<JsonObject>();
         using var watcher = new ExtensionRelay.Watcher(home, pid, delivered.Add, TimeSpan.FromHours(1));
         watcher.Drain();
-        Assert.Equal(new[] { """{"protocolVersion":2,"command":"setPanelMode","mode":"button"}""", """{"protocolVersion":2,"command":"openShortcuts"}""",
-                """{"protocolVersion":2,"command":"openExtensions"}""" },
-            delivered.Select(c => c.ToJsonString()));
+        Assert.Equal(new[] { """{"protocolVersion":2,"command":"openExtensions"}""" }, delivered.Select(c => c.ToJsonString()));
         Assert.Empty(Directory.GetFiles(ExtensionRelay.CommandDirectory(home, pid)));
     }
 }

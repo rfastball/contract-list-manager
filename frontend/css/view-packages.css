@@ -1,0 +1,16 @@
+.view-packages { display: grid; gap: var(--sp-12); min-width: 0; }
+.view-packages p { margin: 0; max-width: 70ch; overflow-wrap: anywhere; }
+.view-packages legend { font-weight: 600; margin-bottom: var(--sp-8); }
+.vp-choices { display: grid; gap: var(--sp-8); }
+.vp-choices label { display: flex; align-items: flex-start; gap: var(--sp-8); cursor: pointer; }
+.vp-choices input { margin-top: .3em; accent-color: var(--a-primary); }
+.vp-choices small { display: block; color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.vp-actions { display: flex; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-12); }
+.vp-preview { border-top: 1px solid var(--a-border); padding-top: var(--sp-16); overflow-wrap: anywhere; }
+.vp-preview h4, .vp-preview h5 { margin: 0 0 var(--sp-8); font-size: inherit; }
+.vp-preview h5 { margin-top: var(--sp-16); }
+.vp-preview ul { margin: var(--sp-8) 0; padding-left: var(--sp-24); }
+.vp-muted { color: var(--n-ink-soft); }
+.vp-error { color: var(--a-danger); white-space: pre-line; }
+.vp-success { color: var(--a-ok); }
+.view-packages :focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }

@@ -226,8 +226,27 @@ public static class PclmFile
             command.Parameters.AddWithValue("$role", role);
             command.ExecuteNonQuery();
         }
+        else
+        {
+            // 빈 작업자료는 서식용 예시 보기 하나를 들고 선다(docs/user-views.md §13). 취합본·제출본으로 짓는 빈 파일에는
+            // 들지 않는다 — 취합본의 맞춤 뷰는 제출본에서만 온다.
+            using var connection = database.Open();
+            using var transaction = connection.BeginTransaction();
+            Store.SeedExampleViews(connection, transaction);
+            Database.Refresh(connection, transaction);
+            transaction.Commit();
+        }
 
         return database;
+    }
+
+    /// <summary>열린 파일의 역할이 작업자료인가 — 판올림이 예시 보기를 심을지 정한다(<see cref="Schema.ExampleViewVersion"/>).</summary>
+    internal static bool IsWork(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT role FROM pclm_file WHERE singleton = 1;";
+        return command.ExecuteScalar() as string == PclmRole.Work;
     }
 
     /// <summary>

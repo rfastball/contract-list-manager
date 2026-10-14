@@ -116,6 +116,38 @@ public sealed class WorkfileSwitchTests : IDisposable
 
     private ErpCapture Host(string path) => new(path, environment: "development", home: _home);
 
+    /// <summary>
+    /// 창의 고급 도구 「검토한 자료 저장」 도 쪽지를 본다. 창이 연 파일을 쪽지가 더는 가리키지 않으면(다른 창·명령줄이
+    /// 작업자료를 바꿨다) 거절한다 — 사람이 다음에 열 자료가 아닌 곳에 성공을 알리며 쓰지 않는다.
+    /// </summary>
+    [Fact]
+    public void 고급_도구의_저장은_쪽지가_다른_파일을_가리키면_거절하고_쓰지_않는다()
+    {
+        var snapshot = new CaptureInput(
+            "g2b-notice-a-v1", Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
+            {
+                pointInfo = new { bidPbancNo = "R26BK00000002", bidPbancOrd = "001", bidPbancNm = "지어낸 공고", pbancInstUntyGrpNm = "시험기관" },
+                tables = new { },
+            }), "live", Screen: "01179");
+        var preview = Assert.IsType<CapturePreview>(ErpTools.Invoke(_current, "inspect", JsonSerializer.Serialize(snapshot, Mapping.Json), _home));
+        string Capture() => JsonSerializer.Serialize(new { snapshot, baseToken = preview.BaseToken, captureId = Guid.NewGuid().ToString(),
+            choices = new Dictionary<string, string>() }, Mapping.Json);
+
+        var other = PclmFile.Create(In("다른 작업자료.pclm"), PclmRole.Work);
+        _home.WriteConfig(other.Path, PclmFile.Inspect(other.Path).DatasetId!);
+        var before = Dump(_current.Path);
+
+        var refused = Assert.Throws<InvalidOperationException>(() => ErpTools.Invoke(_current, "capture", Capture(), _home));
+        Assert.Contains("저장 대상이 바뀌었습니다", refused.Message);
+        Assert.Equal(before, Dump(_current.Path));
+        Assert.Equal(0, Count(_current.Path, "erp_capture"));
+
+        // 쪽지가 이 파일로 돌아오면 같은 자료가 들어간다.
+        _home.WriteConfig(_current.Path, CurrentId);
+        ErpTools.Invoke(_current, "capture", Capture(), _home);
+        Assert.Equal(1, Count(_current.Path, "erp_capture"));
+    }
+
     // ── 옮기기 ───────────────────────────────────────────────────────
 
     [Fact]
@@ -197,6 +229,23 @@ public sealed class WorkfileSwitchTests : IDisposable
         Assert.Throws<IOException>(() => _home.MoveTo(_current, walOnly));
         Assert.False(File.Exists(walOnly));
         Assert.Equal(config, ConfigBytes());
+    }
+
+    /// <summary>
+    /// 작업자료를 새로 세우는 자리(옮기기·새 계약자료·사본에서 새로)는 덮지 않는다. 그래서 창의 저장 대화상자는 덮어쓰기를
+    /// 묻지 않고(<c>OverwritePrompt = false</c>), 이미 있는 자리를 고르면 이 거절이 다른 이름을 고르라고 말해야 한다 —
+    /// 「바꾸시겠습니까?」 에 「예」 를 받은 뒤 덮지 않겠다고 거절하면 사람은 무엇이 맞는지 모른다.
+    /// </summary>
+    [Fact]
+    public void 새_작업자료_자리에_파일이_있으면_다른_이름을_고르라고_거절한다()
+    {
+        var target = In("있는 파일.pclm");
+        File.WriteAllText(target, "남의 것");
+
+        var refused = Assert.Throws<IOException>(() => Home.CheckNewTarget(_current, target));
+
+        Assert.Contains("다른 이름을 고르세요", refused.Message);
+        Assert.Equal("남의 것", File.ReadAllText(target));
     }
 
     [Fact]

@@ -208,6 +208,7 @@ public class DatasetContractTests : IDisposable
                 CREATE VIEW v_계획_v1 AS
                     SELECT r.접수번호, g.입찰공고번호, k.계약번호
                     FROM v_접수_v1 r LEFT JOIN v_공고_v1 g ON 0 LEFT JOIN v_계약_v1 k ON 0;
+                CREATE VIEW v_사용자뷰 AS SELECT 1 AS 옛;
                 """;
             command.ExecuteNonQuery();
         }
@@ -227,7 +228,8 @@ public class DatasetContractTests : IDisposable
     public void 옛_이름은_지금_이름과_겹치지_않는다()
     {
         Assert.Empty(Views.LegacyNames.Intersect(Views.Names));
-        Assert.All(Views.LegacyNames, name => Assert.Matches(@"_v\d+$", name));
+        // 판을 붙여 부르던 것과, 판 없이 제자리에서 이름을 바꾼 것(2판의 맞춤 뷰 메타) 하나.
+        Assert.Equal(["v_사용자뷰"], Views.LegacyNames.Where(name => !System.Text.RegularExpressions.Regex.IsMatch(name, @"_v\d+$")));
     }
 
     /// <summary>

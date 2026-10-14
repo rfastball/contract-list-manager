@@ -1,8 +1,8 @@
-<Project>
+﻿<Project>
 
   <!-- 실행 파일에 버전을 새긴다. publish.ps1 이 이 값을 읽어 배포물 이름에 쓴다. -->
   <PropertyGroup>
-    <Version>0.10.0</Version>
+    <Version>0.15.0</Version>
   </PropertyGroup>
 
 </Project>

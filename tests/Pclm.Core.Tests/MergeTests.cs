@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Pclm.Core.Storage;
 using Xunit;
 
@@ -207,39 +207,16 @@ public class MergeTests : IDisposable
         Assert.Equal(["김철수가 읽은 품목"], Read(Out, "SELECT item_name FROM contract_item ORDER BY line_no;"));
     }
 
-    /// <summary>
-    /// <c>request_link.notice_group</c> 은 UNIQUE 다. 두 사람이 같은 건에 <b>다른 접수</b>를 이어
-    /// 두는 것은 인수인계 직후에 정상이라, 취합이 거기서 터지면 안 된다.
-    /// </summary>
     [Fact]
-    public void 한_공고에_접수가_둘이어도_터지지_않는다()
+    public void 취합한_명시참조로_관계를_재생성한다()
     {
-        var 홍 = 제출본("홍길동",
-            접수("R-1", "홍길동이 맡은 접수", "2026-08-20T09:00:00.0000000Z"),
-            공고("N-1", "같은 공고", "2026-08-20T09:00:00.0000000Z"),
-            """
-            INSERT INTO request_link (request_base, notice_group, confidence, confirmed_at)
-            VALUES ('R-1', 'N-1', 1.0, '2026-08-22T09:00:00.0000000Z');
-            """);
-
-        var 김 = 제출본("김철수",
-            접수("R-2", "김철수가 맡은 접수", "2026-08-20T09:00:00.0000000Z"),
-            공고("N-1", "같은 공고", "2026-08-20T09:00:00.0000000Z"),
-            """
-            INSERT INTO request_link (request_base, notice_group, confidence, confirmed_at)
-            VALUES ('R-2', 'N-1', 1.0, '2026-08-28T09:00:00.0000000Z');
-            """);
-
-        var report = new Merger().Merge([홍, 김], Out);
-
-        // 늦게 이은 쪽만 실린다. 둘 다 넣으면 UNIQUE 위반으로 취합이 통째로 터진다.
-        Assert.Equal(["R-2|N-1"], Read(Out, "SELECT request_base, notice_group FROM request_link;"));
-
-        var 겹침 = Assert.Single(report.겹친것);
-        Assert.Equal("공고 하나에 접수 둘", 겹침.종류);
-        Assert.Equal("N-1", 겹침.키);
-        Assert.Equal("김철수", 겹침.실림.제출자);
-        Assert.Equal("홍길동", Assert.Single(겹침.밀림).제출자);
+        var first = 제출본("담당자A", 접수("R-1", "접수", "2026-08-20"), 공고("N-1", "공고", "2026-08-20"),
+            "INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base) VALUES('N-1','0',1,'R-1');");
+        var second = 제출본("담당자B", 계약("C-1", "계약", "2026-08-21"),
+            "UPDATE contract SET ref_notice_base='N-1' WHERE contract_base='C-1';");
+        new Merger().Merge([first, second], Out);
+        Assert.Equal(["R-1|N-1"], Read(Out, "SELECT request_base, notice_group FROM request_link;"));
+        Assert.Equal(["C-1|N-1"], Read(Out, "SELECT contract_base, notice_group FROM project_link;"));
     }
 
     // ── 판 ──────────────────────────────────────────────────────────
@@ -448,21 +425,14 @@ public class MergeTests : IDisposable
             계약("C-1", "계약", "2026-08-20T09:00:00.0000000Z"),
             계약품목("C-1", 1, "품목"),
             """
-            INSERT INTO request_link (request_base, notice_group, confidence, confirmed_at)
-            VALUES ('R-1', 'N-1', 1.0, '2026-08-22T09:00:00.0000000Z');
-            INSERT INTO project_link (contract_base, notice_group, confidence, confirmed_at)
-            VALUES ('C-1', 'N-1', 1.0, '2026-08-22T09:00:00.0000000Z');
+            INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base) VALUES('N-1','0',1,'R-1');
+            UPDATE contract SET ref_notice_base='N-1' WHERE contract_base='C-1';
             INSERT INTO contract_user_field (contract_base, field_name, value, updated_at)
             VALUES ('C-1', '메모', '지어낸 메모', '2026-08-22T09:00:00.0000000Z');
             """);
 
         var 김 = 제출본("김철수",
-            공고("N-2", "다른 공고", "2026-08-20T09:00:00.0000000Z"),
-            """
-            INSERT INTO link_rejection (contract_base, notice_group, rejected_at)
-            SELECT 'C-9', 'N-2', '2026-08-22T09:00:00.0000000Z'
-            WHERE 0;
-            """);
+            공고("N-2", "다른 공고", "2026-08-20T09:00:00.0000000Z"));
 
         var report = new Merger().Merge([홍, 김], Out);
 
@@ -518,6 +488,32 @@ public class MergeTests : IDisposable
         Assert.Equal(3, report.제출본);
         Assert.Equal(["C-1", "C-2", "C-3"], Read(Out, "SELECT contract_base FROM contract ORDER BY 1;"));
         Assert.Contains("지난것.pclm — 취합본", MergeReportText.Render(report, Out));
+    }
+
+    /// <summary>
+    /// 받아들인 제출본이 없으면 짓지 않는다. 폴더에 백업·지난 취합본만 있으면 모두 거절되는데, 그대로 지으면
+    /// 같은 날짜의 취합본을 빈 것으로 덮고 성공처럼 알린다 — 대상 파일에 닿기 전에 까닭을 들어 멈춘다.
+    /// </summary>
+    [Fact]
+    public void 받아들인_제출본이_없으면_멈추고_있던_취합본을_건드리지_않는다()
+    {
+        var 홍 = 제출본("홍길동", 계약("C-1", "홍길동의 것", "2026-08-22T09:00:00.0000000Z"));
+        new Merger().Merge([홍], Out);
+        var work = PclmFile.Create(Path.Combine(_root, "작업", "내것.pclm"), PclmRole.Work);
+        var 백업 = PclmFile.Snapshot(work, In("백업_내것.pclm"), PclmRole.Backup, overwrite: false);
+        File.Delete(홍);
+
+        SqliteConnection.ClearAllPools();
+        var before = File.ReadAllBytes(Out);
+
+        var refused = Assert.Throws<InvalidOperationException>(() => new Merger().Merge(Merger.FindSubmissions(_root), Out));
+
+        Assert.StartsWith("합칠 수 있는 제출본이 없습니다", refused.Message);
+        Assert.Contains("백업_내것.pclm(백업)", refused.Message);
+        SqliteConnection.ClearAllPools();
+        Assert.Equal(before, File.ReadAllBytes(Out));
+        Assert.Equal(["C-1"], Read(Out, "SELECT contract_base FROM contract;"));
+        Assert.True(File.Exists(백업));
     }
 
     /// <summary>

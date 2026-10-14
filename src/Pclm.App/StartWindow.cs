@@ -29,6 +29,7 @@ internal sealed class StartWindow : Window
         _home = home;
 
         Title = "계약 목록";
+        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/app.ico"));
         Width = 560;
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;

@@ -20,6 +20,7 @@ internal static class SchemaDump
     [
         ("pclm_file", "dataset_id"),
         ("pclm_file", "created_at"),
+        ("user_view", "id"),
     ];
 
     public static string Of(SqliteConnection connection)

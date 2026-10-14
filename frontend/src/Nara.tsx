@@ -16,14 +16,12 @@ import type { CaptureDay, CaptureEntry, ExtensionContact, ExtensionLive, Extensi
 export type Kind = "접수" | "공고" | "계약";
 export const KINDS: Kind[] = ["접수", "공고", "계약"];
 
-/** 갈래까지의 거리에 맞춘 흐름 시간. 같은 속도로 흐르도록 먼 갈래일수록 길다. */
-const FLOW_MS: Record<Kind, number> = { 접수: 700, 공고: 850, 계약: 1000 };
 /** 통로를 한 번 지나는 시간. 두 마디라 반씩 나눠 미끄러진다. */
 const CONDUIT_MS = 1300;
 
 const isKind = (k: string): k is Kind => (KINDS as string[]).includes(k);
 
-/** 움직임을 줄여 달라고 했는가. 그러면 흐름·마디·펼침 없이 +N 만 선다. */
+/** 움직임을 줄여 달라고 했는가. 그러면 수집 목록의 움직임 없이 +N 만 선다. */
 const 움직임줄임 = () =>
   typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -143,10 +141,6 @@ const 결 = (kind: SourceKind) =>
 export type Arrivals = {
   /** 창이 떠 있는 동안 들어온 것 중 그 갈래를 아직 열어 보지 않은 수. */
   counts: Record<Kind, number>;
-  /** 원천에서 갈래로 미끄러지는 흐름. <code>n</code> 은 같은 갈래로 다시 흐를 때 그림을 새로 세우는 열쇠다. */
-  flow: { kind: Kind; n: number } | null;
-  /** 마디가 차오른 갈래. */
-  flash: Kind | null;
   /** 막 들어와 펼쳐지는 줄. */
   fresh: ReadonlySet<string>;
   /** 통로를 지나는 차례. 0 이면 지나는 것이 없다. */
@@ -166,14 +160,10 @@ export function use들어옴(captures: CaptureDay | null, viewing: Kind | null):
   const viewingNow = useRef(viewing);
   viewingNow.current = viewing;
   const [counts, setCounts] = useState<Record<Kind, number>>({ 접수: 0, 공고: 0, 계약: 0 });
-  const [flow, setFlow] = useState<Arrivals["flow"]>(null);
-  const [flash, setFlash] = useState<Kind | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
   const [pulse, setPulse] = useState(0);
   const motion = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const bumps = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  useEffect(() => () => { [...motion.current, ...bumps.current].forEach(clearTimeout); }, []);
+  useEffect(() => () => { motion.current.forEach(clearTimeout); }, []);
 
   useEffect(() => {
     if (viewing) setCounts((c) => (c[viewing] === 0 ? c : { ...c, [viewing]: 0 }));
@@ -196,119 +186,85 @@ export function use들어옴(captures: CaptureDay | null, viewing: Kind | null):
       return next;
     });
 
-    if (움직임줄임()) { bump(); return; }
+    bump();
+    if (움직임줄임()) return;
 
-    // 가장 늦은 것의 갈래로 흐른다. 새 수집이 오면 움직임은 처음부터 다시 그린다.
-    const kind = arrived[0].kind;
-    const dur = FLOW_MS[kind];
+    // 수는 즉시 보이고 나라장터 수집 목록만 새로 들어온 줄을 알린다.
     motion.current.forEach(clearTimeout);
-    const later = (fn: () => void, ms: number, into = motion.current) => { into.push(setTimeout(fn, ms)); };
+    motion.current = [];
+    const later = (fn: () => void, ms: number) => { motion.current.push(setTimeout(fn, ms)); };
     setFresh(new Set(arrived.map((e) => e.captureId)));
-    setFlow({ kind, n: Date.now() });
-    setFlash(null);
     setPulse((p) => p + 1);
-    // 흐름이 마디에 스며들 무렵 마디가 차오르고 수가 오른다.
-    later(() => setFlash(kind), Math.round(dur * 0.82));
-    later(bump, Math.round(dur * 0.82), bumps.current);
-    later(() => setFlow(null), dur + 60);
     later(() => setPulse(0), CONDUIT_MS);
     // 천천히 제자리로.
-    later(() => { setFlash(null); setFresh(new Set()); }, dur + 2000);
+    later(() => setFresh(new Set()), CONDUIT_MS + 2000);
   }, [captures]);
 
-  return { counts, flow, flash, fresh, pulse };
+  return { counts, fresh, pulse };
 }
 
-// ── 사이드바의 가지 ────────────────────────────────────
+// ── 사이드바 탐색 ──────────────────────────────────────
 
-const ROOT_H = 56, KID_H = 40, TRUNK = 10, NODE_X = 27, BEND = 7;
-
-type TreeProps = {
-  /** 고른 탭. 공고 연결을 보고 있으면 null. */
+type ChainProps = {
+  /** 고른 탭. 다른 작업 화면을 보고 있으면 null. */
   selected: string | null;
   /** 키보드로 서 있는 탭(tabIndex 0). */
   focusable: string;
-  onSelect: (tab: "나라장터" | Kind) => void;
+  onSelect: (tab: "나라장터" | "통합" | Kind) => void;
   source: SourceState;
-  /** 갈래마다 전체 건수. 아직 모르면 null. */
+  /** 칸마다 전체 건수. 아직 모르면 null. */
   totals: Record<Kind, number> | null;
   arrivals: Arrivals;
-  /** Chrome 에서 보고 있는 수집할 수 있는 화면 — 그 종류의 갈래 옆에 눈을 세운다. */
+  /** Chrome 에서 보고 있는 수집할 수 있는 화면 — 그 종류의 칸 옆에 눈을 세운다. */
   seeing?: { kind: Kind; label: string } | null;
   onSee?: () => void;
 };
 
-/**
- * 나라장터 한 원천에서 줄기가 내려와 갈래마다 꺾여 마디에 닿는다. 줄기·꺾임·마디는 꾸밈이라 읽히지 않는다.
- *
- * <p>탭 목록 안에 선다 — 방향키 차례는 App 이 쥔다. 들어오는 흐름은 경로 하나를 따라 처음부터 끝까지 미끄러진다:
- * 칸마다 켜고 끄지 않는다.</p>
- */
-export function SourceTree({ selected, focusable, onSelect, source, totals, arrivals, seeing, onSee }: TreeProps) {
-  const tone = 결(source.kind);
-  const { flow, flash, counts } = arrivals;
-  const treeH = ROOT_H + KID_H * KINDS.length;
-  const idx = flow ? KINDS.indexOf(flow.kind) : -1;
-  const cy = ROOT_H + KID_H * Math.max(idx, 0) + KID_H / 2;
-  const d = `M${TRUNK} ${ROOT_H / 2 + 10} L${TRUNK} ${cy - BEND} Q${TRUNK} ${cy} ${TRUNK + BEND} ${cy} L${NODE_X} ${cy}`;
-
+/** 수집 상태와 자료 보기를 분리한다. 선택은 하나의 행에만 남는다. */
+export function SourceChain({ selected, focusable, onSelect, source, totals, arrivals, seeing, onSee }: ChainProps) {
   return (
-    <div className={`source-tree${source.kind === "readonly" ? " readonly" : 붙음(source.kind) ? " connected" : ""}`}>
-      {flow && (
-        <svg key={flow.n} className="source-flow" aria-hidden="true" viewBox={`0 0 40 ${treeH}`} style={{ height: treeH }}>
-          <path d={d} pathLength={100} style={{ animationDuration: `${FLOW_MS[flow.kind]}ms` }} />
-        </svg>
-      )}
-
-      <div className="source-root">
-        <span className="tree-deco" aria-hidden="true">
-          <span className="tree-line root-down" />
-          <span className={`source-icon ${tone}`}>
-            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>
-          </span>
+    <div className="source-navigation">
+      <h2 className="sidebar-section-title">수집</h2>
+      <button id="tab-나라장터" role="tab" className="tab intake-tab"
+        aria-selected={selected === "나라장터"} aria-controls="workspace"
+        tabIndex={focusable === "나라장터" ? 0 : -1}
+        onClick={() => onSelect("나라장터")}>
+        <span className="intake-name">나라장터
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
         </span>
-        <button id="tab-나라장터" role="tab" className="tab source-tab"
-          aria-selected={selected === "나라장터"} aria-controls="workspace"
-          tabIndex={focusable === "나라장터" ? 0 : -1}
-          onClick={() => onSelect("나라장터")}>
-          <span className="source-name"><b>나라장터</b>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
-          </span>
-          <span className="source-status" role="status">{source.text}</span>
-        </button>
-      </div>
-
-      {KINDS.map((k, i) => {
-        const n = counts[k];
-        const total = totals?.[k];
-        const label = total === undefined ? k : `${k} ${total.toLocaleString("ko-KR")}건`;
-        return (
-          <div className="source-branch" key={k}>
-            <span className="tree-deco" aria-hidden="true">
-              <span className="tree-line up" />
-              {i < KINDS.length - 1 && <span className="tree-line down" />}
-              <span className="tree-elbow" />
-              <span className={`tree-node${flash === k ? " flash" : selected === k ? " current" : ""}`} />
-            </span>
-            <button id={`tab-${k}`} role="tab" className="tab branch-tab"
-              aria-selected={selected === k} aria-controls="workspace"
-              aria-label={n > 0 ? `${label}, 새로 들어온 ${n}건` : label}
-              tabIndex={focusable === k ? 0 : -1}
-              onClick={() => onSelect(k)}>
-              <span>{k}</span>
-              <span className="branch-meta">
-                {n > 0 && <span className="branch-new" aria-hidden="true">+{n}</span>}
-                {total !== undefined && <span className="branch-count" aria-hidden="true">{total.toLocaleString("ko-KR")}</span>}
-              </span>
-            </button>
-            {seeing?.kind === k && (
-              <button type="button" className="branch-see" aria-label={seeing.label} title={seeing.label} onClick={onSee}>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></svg>
+        <span className="intake-status" role="status">
+          <span className={`intake-dot ${결(source.kind)}`} aria-hidden="true" />
+          {source.text || "연결 확인 중…"}
+        </span>
+      </button>
+      <div className="source-views">
+        <h2 className="sidebar-section-title">자료</h2>
+        {KINDS.map((k) => {
+          const n = arrivals.counts[k];
+          const total = totals?.[k];
+          const label = total === undefined ? k : `${k} ${total.toLocaleString("ko-KR")}건`;
+          return (
+            <div className="source-branch" key={k}>
+              <button id={`tab-${k}`} role="tab" className="tab record-tab"
+                aria-selected={selected === k} aria-controls="workspace"
+                aria-label={n > 0 ? `${label}, 새로 들어온 ${n}건` : label}
+                tabIndex={focusable === k ? 0 : -1}
+                onClick={() => onSelect(k)}>
+                <span>{k}</span>
+                <span className="record-counts">
+                  {n > 0 && <span className="record-new" aria-hidden="true" title="아직 열어 보지 않은 새 수집">+{n.toLocaleString("ko-KR")}</span>}
+                  {total !== undefined && <span className="record-total" aria-hidden="true" title="전체 자료 수">{total.toLocaleString("ko-KR")}</span>}
+                </span>
               </button>
-            )}
-          </div>
-        );
-      })}
+              {seeing?.kind === k && (
+                <button type="button" className="branch-see" aria-label={seeing.label} title={seeing.label} onClick={onSee}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></svg>
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -338,12 +294,14 @@ type Props = {
   mirror: MirrorState | null;
   /** 그 탭을 지금 보는 화면에 비춘다. */
   onShowTab: (id: string) => void;
+  /** 바뀌면 「들어온 자료」 보기로 돌아온다 — 「확장 상태」 를 보던 중에 바깥에서 「들어온 자료에서 보기」 를 눌렀을 때. */
+  arrivalsRequest?: number;
 };
 
 type View = "들어온 자료" | "확장 상태";
 
-const 열기대상 = (browser: string | undefined) => (browser === "Edge" ? "edge" : "chrome");
-const 관리이름 = (browser: string | undefined) => (browser === "Edge" ? "Edge 확장 관리 열기" : "Chrome 확장 관리 열기");
+export const 열기대상 = (browser: string | undefined) => (browser === "Edge" ? "edge" : "chrome");
+export const 관리이름 = (browser: string | undefined) => (browser === "Edge" ? "Edge 확장 관리 열기" : "Chrome 확장 관리 열기");
 
 /**
  * 나라장터 화면. 「들어온 자료」 와 「Chrome 확장 상태」 를 낮은 위계의 전환으로 오간다 — 같은 문을 두 눈으로 본다.
@@ -356,6 +314,7 @@ export function NaraPanel(props: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [focusJson, setFocusJson] = useState(0);
   const [preparedNow, setPreparedNow] = useState<{ folder: string; version: string }>();
+  useEffect(() => { if (props.arrivalsRequest) setView("들어온 자료"); }, [props.arrivalsRequest]);
 
   const setupShown = !readOnly && (source.kind === "setup" || source.kind === "waiting");
 
@@ -395,28 +354,29 @@ export function NaraPanel(props: Props) {
       </div>
 
       <div className="nara">
-        {view === "들어온 자료" ? (
-          <>
-            {readOnly && <ReadOnlyNote />}
-            {!readOnly && (붙음(source.kind) || source.kind === "offline") && status && (
-              <Conduit status={status} source={source} pulse={arrivals.pulse} workfileName={workfileName}
-                onManage={openManager} />
+        {/* 「확장 상태」 를 보는 동안에도 들어온 자료 쪽은 숨겨 둘 뿐 걷지 않는다 — 고급의 JSON 검토(고른 파일·미리보기·
+            충돌 선택·저장 안 한 매핑 편집)가 그 안에 산다. 걷으면 돌아왔을 때 말없이 처음부터다. */}
+        <div hidden={view !== "들어온 자료"}>
+          {readOnly && <ReadOnlyNote />}
+          {!readOnly && (붙음(source.kind) || source.kind === "offline") && status && (
+            <Conduit status={status} source={source} pulse={arrivals.pulse} workfileName={workfileName}
+              onManage={openManager} />
+          )}
+          {setupShown && (
+            <Setup status={status} source={source} prepared={preparedNow}
+              onPrepared={(p) => { setPreparedNow(p); onStatusReload(); }} onJson={openJson} />
+          )}
+          {setupShown && !(captures && captures.entries.length > 0)
+            ? <div className="nara-body">{advancedBlock}</div>
+            : (
+              <div className="nara-body">
+                <CaptureList readOnly={readOnly} captures={captures} fresh={arrivals.fresh} onOpen={props.onOpen}>
+                  {advancedBlock}
+                </CaptureList>
+              </div>
             )}
-            {setupShown && (
-              <Setup status={status} source={source} prepared={preparedNow}
-                onPrepared={(p) => { setPreparedNow(p); onStatusReload(); }} onJson={openJson} />
-            )}
-            {setupShown && !(captures && captures.entries.length > 0)
-              ? <div className="nara-body">{advancedBlock}</div>
-              : (
-                <div className="nara-body">
-                  <CaptureList readOnly={readOnly} captures={captures} fresh={arrivals.fresh} onOpen={props.onOpen}>
-                    {advancedBlock}
-                  </CaptureList>
-                </div>
-              )}
-          </>
-        ) : (
+        </div>
+        {view === "확장 상태" && (
           <Board {...props} onManage={openManager} onShowList={() => setView("들어온 자료")} />
         )}
       </div>
@@ -427,14 +387,17 @@ export function NaraPanel(props: Props) {
 function Advanced({ open, onToggle, readOnly, focusRequest, onErpChanged }: {
   open: boolean; onToggle: () => void; readOnly: boolean; focusRequest: number; onErpChanged: () => Promise<void>;
 }) {
+  // 한 번 편 뒤로는 접어도 숨길 뿐 걷지 않는다 — 접었다 펴면 검토하던 것이 말없이 사라졌다.
+  const opened = useRef(false);
+  if (open) opened.current = true;
   return (
     <div className="nara-advanced">
       <button type="button" className="nara-disclosure" aria-expanded={open} aria-controls="nara-advanced" onClick={onToggle}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
         고급 · 수집 규칙과 지난 수집 다시 보기
       </button>
-      {open && (
-        <div id="nara-advanced" className="nara-advanced-body">
+      {opened.current && (
+        <div id="nara-advanced" className="nara-advanced-body" hidden={!open}>
           {/* 수집은 작업자료에만 쌓인다. 열람 창은 매핑도 JSON 검토도 건드리지 않는다. */}
           {readOnly
             ? <p className="hint">열람 중에는 수집 도구를 쓰지 않습니다. 작업자료 창에서 하세요.</p>
@@ -451,7 +414,7 @@ function ReadOnlyNote() {
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
       <p>
         <b>이 창에는 수집한 자료가 저장되지 않습니다.</b>{" "}
-        <span className="soft">브라우저 확장은 작업자료 창에만 저장합니다. 아래는 이 파일에 남은 수집 기록입니다.</span>
+        <span className="soft">가져오기는 작업자료 창에서만 합니다. 아래는 이 파일에 남은 수집 기록입니다.</span>
       </p>
     </section>
   );
@@ -506,7 +469,7 @@ function Conduit({ status, source, pulse, workfileName, onManage }: {
             <div className="conduit-title">확장 {version}</div>
             {stale
               ? <div className="warn-strong">옛 판 · 새 판은 {status.embeddedVersion}</div>
-              : <div className="soft">단축키 Alt+Shift+S</div>}
+              : <div className="soft">나라장터 연결</div>}
           </div>
         </div>
         {line(true)}
@@ -525,10 +488,10 @@ function Conduit({ status, source, pulse, workfileName, onManage }: {
           {live ? `연결됨 · ${since}부터` : stale ? "연결됨 · 확장이 옛 판" : "연결 안 됨"}
         </span>
         <span className="soft">{live
-          ? "나라장터에서 저장하면 아래 목록과 왼쪽 메뉴에 바로 나타납니다."
+          ? "지금 보는 화면에서 가져오면 아래 목록과 왼쪽 메뉴에 바로 나타납니다."
           : stale
-            ? "옛 판으로도 저장은 되지만, 새 수집 규칙이 적용되지 않을 수 있습니다."
-            : `${이가(name)} 꺼져 있거나 확장이 꺼져 있습니다. ${을를(name)} 켜면 자동으로 다시 연결됩니다.`}</span>
+            ? "옛 판으로도 연결은 되지만, 화면을 읽는 새 규칙이 적용되지 않을 수 있습니다."
+            : `${이가(name)} 꺼져 있거나 확장이 꺼져 있습니다. ${을를(name)} 켜면 자동으로 다시 연결됩니다. 확장 설정의 「개발 DB 사용」 이 켜져 있어도 이어지지 않습니다.`}</span>
       </div>
 
       {stale && (
@@ -685,7 +648,7 @@ function CaptureList({ readOnly, captures, fresh, onOpen, children }: {
       </div>
       <p className="nara-foot">{readOnly
         ? "열람 중이라 기록을 보기만 합니다."
-        : "저장된 자료만 보입니다. 검토 중이거나 저장 결과를 확인하지 못한 자료는 브라우저에 남아 있습니다."}</p>
+        : "저장된 자료만 보입니다. 아직 가져오지 않은 화면은 「지금 보는 화면」 에 있습니다."}</p>
       {children}
     </section>
   );
@@ -709,19 +672,6 @@ function CaptureRow({ entry, fresh, onOpen }: { entry: CaptureEntry; fresh: bool
     </div>
   );
 }
-
-/**
- * 확장이 알린 오류 코드의 뜻. <b>표는 여기 하나다</b> — 확장은 코드만 보내고(자료는 싣지 않는다) 뜻은 앱이 안다.
- * 모르는 코드(새 확장)는 코드를 그대로 보인다.
- */
-export const 오류뜻: Record<string, string> = {
-  unconfirmed: "저장 결과를 확인하지 못했습니다",
-  connection: "저장 대상에 연결하지 못했습니다",
-  setup: "저장 대상 준비가 필요했습니다",
-  rejected: "저장 대상이 요청을 받지 않았습니다",
-  response: "저장 대상의 응답을 확인하지 못했습니다",
-};
-export const 오류말 = (code: string) => 오류뜻[code] ?? `확장이 알린 오류(${code})`;
 
 /** 연결 기록 한 줄의 말. 끊긴 까닭은 붙이지 않는다 — 앱은 모른다. */
 function 기록말(e: ExtensionLogEntry, embedded: string, named: boolean) {
@@ -779,33 +729,8 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
   const goTab = (t: MirrorTab) =>
     void call("mirrorCommand", String(t.pid), String(t.tabId), "focusTab").catch((e: Error) => onError(e.message));
 
-  // 오류와 재시도. 오늘 것은 기록이 말하고, 지금 상태는 붙어 있을 때만 안다.
-  const errors = status?.errors ?? [];
-  const lastToday = errors.length > 0 ? errors[errors.length - 1] : null;
-  const errorNow = !connected ? `${이가(name)} 연결되어 있지 않아 지금 상태는 알 수 없습니다.`
-    : lastToday ? `오늘 오류 ${errors.length}건 · 마지막 ${lastToday.at.slice(11, 16)} ${오류말(lastToday.code)}`
-    : "오늘은 오류가 없습니다.";
-  // 그 아래 한 줄 — 붙어 있으면 오늘 전의 마지막 오류, 끊겼으면 알고 있는 마지막 오류.
-  const past = connected ? status?.pastError ?? null : lastToday ?? status?.pastError ?? null;
-  const errorPast = past
-    ? `마지막 오류: ${긴때(past.at)} ${오류말(past.code)}${past.recovered ? " — 같은 요청을 다시 보내 해결했습니다" : ""}`
-    : connected ? "그 전 7일 동안은 오류가 없었습니다." : "";
-
-  // 확장 설정. 붙어 있고 확장이 알렸을 때만 바꿀 수 있다 — 브라우저가 여럿이면 앞 탭의 브라우저(없으면 처음 붙은 것).
+  // 사이트 접근. 붙어 있고 확장이 알렸을 때만 안다 — 브라우저가 여럿이면 앞 탭의 브라우저(없으면 처음 붙은 것).
   const settings = connected && !readOnly ? mirror?.settings ?? null : null;
-  const [modeSent, setModeSent] = useState<"always" | "button" | null>(null);
-  useEffect(() => { setModeSent(null); }, [settings?.panelMode]);
-  const mode = settings ? modeSent ?? settings.panelMode : null;
-  const setting = (command: "setPanelMode" | "openShortcuts", value?: "always" | "button") => {
-    if (!settings) return;
-    if (value) setModeSent(value);
-    void call("extensionCommand", String(settings.pid), command, ...(value ? [value] : []))
-      .catch((e: Error) => { setModeSent(null); onError(e.message); });
-  };
-  const settingsName = settings ? 브라우저이름(settings.browser) : name;
-  const settingsFoot = !connected ? `${이가(name)} 연결되어 있을 때 바꿀 수 있습니다.`
-    : !settings ? "확장이 아직 설정을 보내지 않았습니다. 잠시 뒤 다시 확인하세요."
-    : `바꾸면 ${settingsName}의 확장에 바로 적용됩니다.`;
 
   return (
     <div className="nara-board">
@@ -821,7 +746,6 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
           <div><dt>확장 판</dt><dd className={stale ? "warn-strong" : ""}>{shownVersion ?? "—"}</dd></div>
           <div><dt>오늘 저장</dt><dd>{captures?.saved ?? 0}</dd></div>
           <div><dt>검토 대기</dt><dd className={waiting ? "warn-strong" : ""}>{waiting ?? "—"}</dd></div>
-          <div><dt>오늘 오류</dt><dd className={errors.length ? "warn-strong" : ""}>{errors.length}</dd></div>
         </dl>
         <button className="action" onClick={() => onManage(browser)} disabled={readOnly}>{관리이름(browser)}</button>
       </section>
@@ -834,7 +758,13 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
               ? <p className="soft">{readOnly ? "열람 창에서는 열린 탭을 보지 않습니다."
                 : connected ? "확장이 아직 열린 탭을 보내지 않았습니다."
                 : `${이가(name)} 연결되어 있지 않아 열린 탭을 알 수 없습니다.`}</p>
-              : tabs.length === 0 ? <p className="soft">{name}에 열린 나라장터 탭이 없습니다.</p>
+              : tabs.length === 0 ? settings?.siteAccess === false
+                ? <div>
+                  <p className="warn-strong">{이가(name)} 나라장터 사이트 접근을 허용하지 않아 탭을 볼 수 없습니다.</p>
+                  <p className="soft">확장 관리에서 www.g2b.go.kr 사이트 접근을 허용하면 열린 탭이 여기에 나타납니다.</p>
+                  <button type="button" className="action" onClick={() => onManage(browser)}>{관리이름(browser)}</button>
+                </div>
+                : <p className="soft">{name}에 열린 나라장터 탭이 없습니다.</p>
               : (
                 <div role="table" aria-label="열린 나라장터 탭" className="tab-table">
                   {tabs.map((t) => {
@@ -878,12 +808,6 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
               )}
           </section>
 
-          <section className="board-card" aria-label="오류와 재시도">
-            <h2>오류와 재시도</h2>
-            <p className="clip">{errorNow}</p>
-            {errorPast && <p className="soft small clip num board-past">{errorPast}</p>}
-          </section>
-
           <section className="board-card" aria-label="최근 연결">
             <h2>최근 연결</h2>
             {contacts.length === 0
@@ -916,27 +840,9 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
               {updated && <><dt>판 바뀐 때</dt><dd>{긴때(updated.at)}{updated.version === embedded ? " · 자동" : ""}</dd></>}
               <dt>확장 폴더</dt><dd title={status?.folder}>{status?.folder || "—"}</dd>
               <dt>저장 대상</dt><dd>{readOnly ? "작업자료 창의 작업자료" : `${workfileName} · ${roleName}`}</dd>
+              <dt>사이트 접근</dt><dd className={settings && !settings.siteAccess ? "warn-strong" : ""}>{settings
+                ? settings.siteAccess ? "www.g2b.go.kr 허용됨" : "www.g2b.go.kr 허용 안 됨" : "—"}</dd>
             </dl>
-          </section>
-
-          <section className="board-card" aria-label="설정">
-            <h2>설정</h2>
-            <fieldset className="board-settings" disabled={!settings}>
-              <div>
-                <div id="board-mode-label" className="soft tiny">나라장터 화면의 수집기</div>
-                <div role="group" aria-labelledby="board-mode-label" className="board-seg">
-                  <button type="button" aria-pressed={mode === "always"} onClick={() => setting("setPanelMode", "always")}>항상 띄우기</button>
-                  <button type="button" aria-pressed={mode === "button"} onClick={() => setting("setPanelMode", "button")}>툴바 버튼으로만</button>
-                </div>
-              </div>
-              <div className="board-setting-row">
-                <div><div className="soft tiny">현재 화면 바로 저장</div><kbd>{settings ? settings.shortcut || "단축키 없음" : "—"}</kbd></div>
-                <button type="button" className="action quiet" onClick={() => setting("openShortcuts")}>단축키 바꾸기…</button>
-              </div>
-              <div className="clip"><span className="soft tiny">사이트 접근</span> · {settings
-                ? settings.siteAccess ? "www.g2b.go.kr 허용됨" : "www.g2b.go.kr 허용 안 됨" : "알 수 없음"}</div>
-            </fieldset>
-            <p className="soft tiny board-foot">{settingsFoot}</p>
           </section>
 
           <section className="board-card">

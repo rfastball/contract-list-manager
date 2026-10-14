@@ -11,6 +11,7 @@
     <AssemblyName>계약목록</AssemblyName>
     <RootNamespace>Pclm.App</RootNamespace>
     <StartupObject>Pclm.App.Program</StartupObject>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- 프론트 빌드 산출물을 exe 안에 넣는다. 폴더 매핑
@@ -45,6 +46,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Resource Include="Assets\app.ico" />
     <ProjectReference Include="..\Pclm.Core\Pclm.Core.csproj" />
   </ItemGroup>
 

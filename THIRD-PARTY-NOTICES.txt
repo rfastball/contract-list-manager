@@ -1541,6 +1541,62 @@ SQLitePCLRaw.lib.e_sqlite3 2.1.12 에 포함된 e_sqlite3.dll. SQLite 는 퍼블
 npm 패키지
 ==============================================================================
 
+== npm @codemirror/autocomplete 6.20.3 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/commands 6.11.1 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/language 6.13.1 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/lint 6.9.7 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/state 6.7.6 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/streamparser 6.0.0 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @codemirror/view 6.43.14 — MIT
+Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @lezer/common 1.5.3 — MIT
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @lezer/highlight 1.2.5 — MIT
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @lezer/lr 1.4.11 — MIT
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm @marijn/find-cluster-break 1.0.4 — MIT
+Copyright (C) 2024 by Marijn Haverbeke <marijn@haverbeke.berlin>
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm crelt 1.0.7 — MIT
+Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm style-mod 4.1.4 — MIT
+Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
+== npm w3c-keyname 2.2.8 — MIT
+Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
+라이선스 전문: 문서 끝 [MIT] 참조
+
 == npm react 19.2.8 — MIT
 Copyright (c) Meta Platforms, Inc. and affiliates.
 라이선스 전문: 문서 끝 [MIT] 참조

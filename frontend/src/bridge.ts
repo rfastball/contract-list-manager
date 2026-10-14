@@ -24,7 +24,28 @@ declare global {
 
 const webview = window.chrome?.webview;
 
+/** 앱이 먼저 건네는 알림의 받는 이. 답과 달리 번호가 없어 이름으로 찾는다. */
+const listeners = new Map<string, Set<() => void>>();
+
+/**
+ * 앱이 묻지 않은 것을 먼저 알린다 — 지금은 창을 닫으려 한다는 것 하나다(<code>closeRequested</code>).
+ * 받는 이가 없으면 그냥 지나간다. 풀 함수를 돌려준다.
+ */
+export function onNotice(name: string, handler: () => void): () => void {
+  const set = listeners.get(name) ?? new Set();
+  set.add(handler);
+  listeners.set(name, set);
+  return () => { set.delete(handler); };
+}
+
+/** 알림 하나를 받는 이들에게 넘긴다. 진짜 다리의 메시지가 이리로 오고, 시험은 이것을 직접 부른다. */
+export function receiveNotice(name: string) {
+  for (const handler of [...(listeners.get(name) ?? [])]) handler();
+}
+
 webview?.addEventListener("message", (event) => {
+  const data = event.data as { notice?: string };
+  if (typeof data.notice === "string") { receiveNotice(data.notice); return; }
   const reply = event.data as { id: number; ok: boolean; result?: unknown; error?: string };
   const waiting = pending.get(reply.id);
   if (!waiting) return;

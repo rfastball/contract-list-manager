@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup><EmbeddedResource Include="Erp/mapping.json" /></ItemGroup>
+  <!-- 기본 서식 보기 — exe 안에 실려 「보기 구성」 에서 고를 때만 들어간다. 파일 이름은 ASCII 로 둔다. -->
+  <ItemGroup><EmbeddedResource Include="Storage/Presets/builtin-views.json" LogicalName="presets/builtin-views.json" /></ItemGroup>
+  <!-- 스키마 26 이 심은 예시 보기를 얼려 둔 사본 — v27 판올림이 「손대지 않았는가」 를 이것과 견준다. 고치지 않는다. -->
+  <ItemGroup><EmbeddedResource Include="Storage/Presets/example-view-v26.json" LogicalName="presets/example-view-v26.json" /></ItemGroup>
   <!-- Store 의 업서트는 프로덕션 호출자가 없고 시험 픽스처만 쓴다(ADR-028). -->
   <ItemGroup><InternalsVisibleTo Include="Pclm.Core.Tests" /></ItemGroup>
   <ItemGroup>

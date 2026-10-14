@@ -40,6 +40,47 @@ function pclmExportPage() {
     }
     return result;
   };
+  // 표의 칸은 HTML 조각일 수 있다(<br>·단추·숨긴 풍선 도움말). 떠 있는 문서에 넣지 않고 DOMParser 로만 읽는다 —
+  // 스크립트가 돌지 않고 그림도 불러오지 않는다. 줄바꿈은 셀 안의 줄로 남긴다.
+  const text = value => {
+    let s = String(value ?? "");
+    if (/[<&]/.test(s)) {
+      const body = new DOMParser().parseFromString(s.replace(/<br\s*\/?>/gi, "\n"), "text/html").body;
+      body.querySelectorAll('button, script, style, img, input, select, textarea, [hidden], [style*="display:none"], [style*="display: none"]').forEach(n => n.remove());
+      s = body.textContent;
+    }
+    return s.split(/\r?\n/).map(line => line.trim()).join("\n").trim();
+  };
+  // 사람이 보는 표 그대로 — 보이는 열을 화면 순서로, 화면 머리글과 표시값으로 읽는다. DataList 에는 표가 숨긴
+  // 필드와 영문 원천 키가 함께 있어 그대로 내면 보던 표와 다른 것이 나간다. 단추·선택·행 번호 열은 자료가 아니다.
+  const gridRows = grid => {
+    const count = Number(grid.getColumnCount()) || 0, length = Number(grid.getDataLength()) || 0;
+    const order = [...Array(count).keys()];
+    if (typeof grid.getDisplayColumnIndex === "function") {
+      const at = order.map(i => grid.getDisplayColumnIndex(i));
+      if (at.every(n => typeof n === "number" && Number.isFinite(n))) order.sort((a, b) => at[a] - at[b] || a - b);
+    }
+    const columns = [], names = new Set();
+    for (const i of order) {
+      const id = clean(grid.getColumnID(i));
+      if (typeof grid.getColumnVisible === "function" && String(grid.getColumnVisible(i)) === "false") continue;
+      const type = typeof grid.getColumnType === "function" ? clean(grid.getColumnType(i)) : "";
+      if (/^(button|checkbox|radio|image)$/i.test(type) || /^(rowNum|rowNo|rnum|chk)$/i.test(id)) continue;
+      let header = "";
+      try { header = text(grid.getHeaderValue(grid.getHeaderID(i))).replace(/\s+/g, " ").trim(); } catch { /* 열 ID 로 대신한다. */ }
+      header ||= id;
+      if (internal.test(id + " " + header)) continue;
+      const values = [];
+      for (let r = 0; r < length; r++) values.push(text(grid.getCellDisplayData(r, i)));
+      if (!values.some(v => v !== "")) continue;
+      let name = header;
+      for (let n = 2; names.has(name); n++) name = header + " " + n;
+      names.add(name);
+      columns.push({ name, values });
+    }
+    return columns.length ? [columns.map(c => c.name), ...Array.from({ length }, (_, r) => columns.map(c => c.values[r]))] : null;
+  };
+  const viewable = grid => ["getColumnCount", "getColumnID", "getDataLength", "getCellDisplayData"].every(m => typeof grid[m] === "function");
   for (const e of document.querySelectorAll("[id]")) {
     if (!visible(e)) continue;
     const grid = component(e.id);
@@ -48,9 +89,17 @@ function pclmExportPage() {
     try {
       let list = grid.getDataList();
       if (typeof list === "string") list = component(list);
+      if (list && typeof list === "object") {
+        if (lists.has(list)) continue;
+        lists.add(list);
+      }
+      if (viewable(grid)) {
+        let rows = null;
+        try { rows = gridRows(grid); } catch { /* 원천 자료로 대신한다. */ }
+        if (rows) { add(label(e) || e.id, e.id, rows); continue; }
+      }
+      // 표 API 가 없거나 읽지 못한 표는 DataList 의 원천 필드로 대신한다.
       if (!list?.getAllJSON) throw new Error("DataList 없음");
-      if (lists.has(list)) continue;
-      lists.add(list);
       const raw = list.getAllJSON();
       if (!Array.isArray(raw)) throw new Error("행 목록 없음");
       const rows = raw.map(row => flatten(row));
@@ -95,7 +144,8 @@ function pclmExportPage() {
   return { title, sheets, warnings };
 }
 
-// 의존성 없이 문자열 셀만 쓰는 OOXML 통합 문서. 번호의 선행 0과 수식처럼 보이는 원문을 보존한다.
+// 의존성 없이 쓰는 OOXML 통합 문서. 열의 모든 값이 자릿점 숫자이거나 날짜일 때만 엑셀 숫자·날짜로 쓰고,
+// 나머지는 문자열로 두어 번호의 선행 0·긴 번호·수식처럼 보이는 원문을 보존한다.
 function pclmWorkbook(sheets) {
   const xml = value => String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, "")
     .replace(/_x[0-9a-f]{4}_/gi, value => "_x005F_" + value.slice(1))
@@ -103,6 +153,41 @@ function pclmWorkbook(sheets) {
   const ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
   const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
   const column = n => { let s = ""; for (n++; n; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s; };
+  // 네 자리 이상은 자릿점이 있어야 숫자다 — 번호·사업자번호·20260921 꼴 날짜·선행 0 코드는 문자열로 남는다.
+  const numeric = /^-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.(\d+))?(원)?$/;
+  const dated = /^(\d{4})([-/.])(\d{2})\2(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+  // 1900-03-01 앞은 엑셀의 1900년 윤일 착오로 일련번호가 하루 어긋나 날짜로 쓰지 않는다.
+  const serial = ([, y, , mo, d, h = "0", mi = "0", s = "0"]) => {
+    const at = Date.UTC(+y, mo - 1, +d, +h, +mi, +s), day = new Date(at);
+    const real = +y >= 1900 && day.getUTCFullYear() === +y && day.getUTCMonth() === mo - 1 && day.getUTCDate() === +d && +h < 24 && +mi < 60 && +s < 60;
+    return real && at >= Date.UTC(1900, 2, 1) ? (at - Date.UTC(1899, 11, 30)) / 864e5 : null;
+  };
+  const formats = new Map(); // 서식 문자열 → cellXfs 번호. 0·1 은 본문·머리글 문자열이다.
+  const style = code => { if (!formats.has(code)) formats.set(code, formats.size + 2); return formats.get(code); };
+  // 열 하나의 모든 값이 같은 꼴일 때만 숫자·날짜로 쓴다. 하나라도 어긋나면 그 열은 화면에 적힌 문자열 그대로다.
+  const typeOf = values => {
+    const filled = values.filter(v => v !== "");
+    if (!filled.length) return null;
+    const numbers = filled.map(v => v.match(numeric));
+    if (numbers.every(m => m && m[0].replace(/\D/g, "").replace(/^0+/, "").length <= 15) && new Set(numbers.map(m => !!m[2])).size === 1) {
+      const decimals = Math.max(0, ...numbers.map(m => m[1]?.length ?? 0)), won = !!numbers[0][2];
+      return { style: style("#,##0" + (decimals ? "." + "0".repeat(decimals) : "") + (won ? '"원"' : "")),
+        value: v => String(Number(v.replace(/[,원]/g, ""))),
+        shown: v => { const [whole, part = ""] = v.replace("원", "").split("."); return whole + (decimals ? "." + part.padEnd(decimals, "0") : "") + (won ? "원" : ""); } };
+    }
+    const dates = filled.map(v => v.match(dated));
+    if (dates.every(m => m && serial(m) !== null) && new Set(dates.map(m => m[2])).size === 1) {
+      // 구분자는 글자 그대로 찍는다 — 맨 '/' 는 엑셀이 지역 날짜 구분자로 바꿔 보인다.
+      const time = dates.some(m => m[5]), seconds = dates.some(m => m[7]), sep = "\\" + dates[0][2];
+      const clock = seconds ? " hh:mm:ss" : time ? " hh:mm" : "";
+      return { style: style(`yyyy${sep}mm${sep}dd${clock}`),
+        value: v => String(serial(v.match(dated))), shown: () => "0000/00/00" + clock.replace(/[hms]/g, "0") };
+    }
+    return null;
+  };
+  // 열 너비는 가장 긴 줄의 표시 폭 — 한글·한자·전각은 두 칸으로 센다.
+  const wide = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{20000}-\u{3fffd}]/u;
+  const span = value => Math.max(...String(value ?? "").split("\n").map(line => [...line].reduce((n, ch) => n + (wide.test(ch) ? 2 : 1), 0)));
   if (!Array.isArray(sheets) || !sheets.length || sheets.length > 200) throw new Error("내보낼 시트 수를 확인하세요. 최대 200개입니다.");
   const files = {}, names = new Set(); let cells = 0;
   const entries = sheets.map((sheet, index) => {
@@ -112,15 +197,28 @@ function pclmWorkbook(sheets) {
     names.add(name.toLowerCase());
     const width = sheet.rows.reduce((max, row) => Math.max(max, row.length), 0);
     if (!width || width > 16384 || sheet.rows.length > 1048576) throw new Error("엑셀의 행·열 한도를 초과했습니다.");
+    const body = sheet.rows.slice(1);
+    const kinds = Array.from({ length: width }, (_, c) => typeOf(body.map(row => String(row[c] ?? ""))));
+    const cols = kinds.map((kind, c) => {
+      const sample = [sheet.rows[0][c], ...body.slice(0, 500).map(row => String(row[c] ?? "")).filter(v => v !== "").map(v => kind ? kind.shown(v) : v)];
+      return `<col min="${c + 1}" max="${c + 1}" width="${Math.min(60, Math.max(8, Math.max(...sample.map(span)) + 2))}" customWidth="1"/>`;
+    }).join("");
     const rows = sheet.rows.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => {
-      if (++cells > 500000 || String(value ?? "").length > 32767) throw new Error("자료가 너무 큽니다. 범위를 줄여 다시 내보내세요.");
+      const text = String(value ?? "");
+      if (++cells > 500000 || text.length > 32767) throw new Error("자료가 너무 큽니다. 범위를 줄여 다시 내보내세요.");
+      if (r && text === "") return ""; // 빈 칸은 쓰지 않는다 — 숫자 열에 빈 문자열 셀이 섞이지 않는다.
+      if (r && kinds[c]) return `<c r="${column(c)}${r + 1}" s="${kinds[c].style}"><v>${kinds[c].value(text)}</v></c>`;
       return `<c r="${column(c)}${r + 1}" t="inlineStr" s="${r === 0 ? 1 : 0}"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
     }).join("")}</row>`).join("");
-    files[`xl/worksheets/sheet${index + 1}.xml`] = `<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="${width}" width="28" customWidth="1"/></cols><sheetData>${rows}</sheetData><autoFilter ref="A1:${column(width - 1)}${sheet.rows.length}"/></worksheet>`;
+    files[`xl/worksheets/sheet${index + 1}.xml`] = `<worksheet xmlns="${ns}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${cols}</cols><sheetData>${rows}</sheetData><autoFilter ref="A1:${column(width - 1)}${sheet.rows.length}"/></worksheet>`;
     return `<sheet name="${xml(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`;
   });
   files["xl/workbook.xml"] = `<workbook xmlns="${ns}" xmlns:r="${rel}"><sheets>${entries.join("")}</sheets></workbook>`;
-  files["xl/styles.xml"] = `<styleSheet xmlns="${ns}"><fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF1F4"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="1" fillId="2" borderId="0" xfId="0" applyNumberFormat="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  // 숫자·날짜 서식은 쓰인 것만 164번부터 단다. 스키마 순서상 numFmts 는 fonts 앞이다.
+  const custom = [...formats.keys()];
+  const numFmts = custom.length ? `<numFmts count="${custom.length}">${custom.map((code, i) => `<numFmt numFmtId="${164 + i}" formatCode="${xml(code)}"/>`).join("")}</numFmts>` : "";
+  const typed = custom.map((_, i) => `<xf numFmtId="${164 + i}" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment vertical="top"/></xf>`).join("");
+  files["xl/styles.xml"] = `<styleSheet xmlns="${ns}">${numFmts}<fonts count="2"><font><sz val="11"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF1F4"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${2 + custom.length}"><xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="1" fillId="2" borderId="0" xfId="0" applyNumberFormat="1"><alignment vertical="top" wrapText="1"/></xf>${typed}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   const relationships = body => `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${body}</Relationships>`;
   files["_rels/.rels"] = relationships(`<Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/>`);
   files["xl/_rels/workbook.xml.rels"] = relationships(sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="styles" Type="${rel}/styles" Target="styles.xml"/>`);

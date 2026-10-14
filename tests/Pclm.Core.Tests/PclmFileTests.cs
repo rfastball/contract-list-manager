@@ -52,10 +52,8 @@ public sealed class PclmFileTests : IDisposable
         INSERT INTO contract_item (contract_base, seq, line_no, item_name, quantity)
         VALUES ('C-1', '0', 1, '지어낸 품목', 10);
 
-        INSERT INTO request_link (request_base, notice_group, confidence, confirmed_at)
-        VALUES ('R-1', 'N-1', 1.0, '2026-09-04T09:00:00.0000000Z');
-        INSERT INTO project_link (contract_base, notice_group, confidence, confirmed_at)
-        VALUES ('C-1', 'N-1', 1.0, '2026-09-04T09:00:00.0000000Z');
+        INSERT INTO request_link (request_base, notice_group) VALUES ('R-1', 'N-1');
+        INSERT INTO project_link (contract_base, notice_group) VALUES ('C-1', 'N-1');
 
         INSERT INTO contract_user_field (contract_base, field_name, value, updated_at)
         VALUES ('C-1', '메모', '지어낸 메모', '2026-09-05T09:00:00.0000000Z');
@@ -133,7 +131,15 @@ public sealed class PclmFileTests : IDisposable
     {
         using var connection = new SqliteConnection($"Data Source={path};Mode=ReadOnly;Pooling=False");
         connection.Open();
-        return Views.Names.ToDictionary(v => v, v => Rows(connection, v));
+        // 옛 판에 아직 없던 뷰(v24 의 v_맞춤뷰)는 건너뛴다 — 견주는 것은 양쪽에 다 있는 뷰다.
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'view';";
+            using var reader = command.ExecuteReader();
+            while (reader.Read()) present.Add(reader.GetString(0));
+        }
+        return Views.Names.Where(present.Contains).ToDictionary(v => v, v => Rows(connection, v));
     }
 
     /// <summary>SQLite 가 <b>읽기 전용이라서</b> 거절했는가(SQLITE_READONLY = 8). 다른 까닭의 실패는 지나가지 않는다.</summary>
@@ -307,10 +313,10 @@ public sealed class PclmFileTests : IDisposable
 
     /// <summary>
     /// 지금 쓰는 사람의 v19 자료가 그대로 열려 v20 으로 올라간다. 신원이 이어져야 확장의 검토 화면이
-    /// 끊기지 않고, 계약면의 줄은 한 칸도 달라지면 안 된다.
+    /// 끊기지 않고, 원본 자료는 보존하고 명시 참조 없는 옛 연결은 폐기한다.
     /// </summary>
     [Fact]
-    public void v19_작업자료는_신원과_계약면을_지닌_채_v20_이_된다()
+    public void 판올림은_원본과_신원을_보존하고_근거_없는_링크를_버린다()
     {
         var path = In("옛 계약자료.db");
         LegacyV19(path, 채움);
@@ -325,8 +331,13 @@ public sealed class PclmFileTests : IDisposable
         Assert.Equal(new PclmInfo(PclmKind.Ok, PclmRole.Work, legacy.DatasetId, Schema.Version), after);
         Assert.Equal(PclmFile.ApplicationId, Pragma(path, "application_id"));
 
-        foreach (var view in Views.Names)
-            Assert.True(before[view].SequenceEqual(AllViews(path)[view]), $"{view} 의 줄이 판올림 뒤 달라졌습니다");
+        var migrated = AllViews(path);
+        Assert.Equal(Views.Names.Order(), migrated.Keys.Order());
+        using var c = PclmFile.OpenWork(path).Open();
+        Assert.Empty(Rows(c, "project_link"));
+        Assert.Empty(Rows(c, "request_link"));
+        foreach (var view in before.Keys.Where(view => !view.StartsWith("v_통합", StringComparison.Ordinal)))
+            Assert.True(before[view].SequenceEqual(migrated[view]), $"{view} 의 줄이 판올림 뒤 달라졌습니다");
     }
 
     // ── 읽기 전용 ───────────────────────────────────────────────────
@@ -357,7 +368,7 @@ public sealed class PclmFileTests : IDisposable
             Assert.Single(Rows(connection, "v_계약"));
 
         // 지금 판이면 아무것도 하지 않는다 — 뷰를 다시 짓는 것도 쓰기다.
-        Assert.Null(database.Migrate());
+        database.Migrate();
 
         AssertUntouched(path, before);
     }

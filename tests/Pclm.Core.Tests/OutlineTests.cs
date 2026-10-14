@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
 using Pclm.Core.Storage;
 using Xunit;
@@ -265,9 +265,9 @@ public class OutlineTests : IDisposable
     [Fact]
     public void 빈_DB에서도_돈다() => Assert.Empty(new Outline(_database).Build().Chains);
 
-    private void LinkRequest() => new RequestLinker(_database).Confirm(
+    private void LinkRequest() => ReferenceFixture.Request(_database,
         new EntityRef("request", "MPKPLA26910286", "000"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
     private static RequestRecord Request(string seq) => new()
     {
@@ -282,9 +282,9 @@ public class OutlineTests : IDisposable
         ],
     };
 
-    private void Link() => new Linker(_database).Confirm(
+    private void Link() => ReferenceFixture.Contract(_database,
         new EntityRef("contract", "R26TA09110507", "00"),
-        new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+        new EntityRef("notice", "R26BK09017075", "000"));
 
     private static NoticeRecord Notice(string seq) => new()
     {

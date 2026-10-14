@@ -17,8 +17,14 @@ namespace Pclm.App;
 /// </summary>
 public sealed record FolderPrompt(string Title, string? Initial);
 
-/// <summary>저장 자리 고르기 요청. 제목·거르개·확장자·지어 둔 이름을 부르는 쪽이 정한다.</summary>
-public sealed record SavePrompt(string Title, string Filter, string DefaultExt, string FileName);
+/// <summary>
+/// 저장 자리 고르기 요청. 제목·거르개·확장자·지어 둔 이름을 부르는 쪽이 정한다.
+///
+/// <para><paramref name="AllowOverwrite"/> 가 거짓이면 대화상자가 덮어쓰기를 묻지 않는다. 작업자료를 새로 세우는 자리는
+/// 무엇이 있든 덮지 않으므로(<see cref="Home.CheckNewTarget"/>), 「바꾸시겠습니까?」 에 「예」 를 받은 뒤 거절하게 두지 않는다.
+/// 엑셀·제출본·백업 같은 결과물은 덮는 것이 맞아 그대로 묻는다.</para>
+/// </summary>
+public sealed record SavePrompt(string Title, string Filter, string DefaultExt, string FileName, bool AllowOverwrite = true);
 
 /// <summary>
 /// 화면이 앱에 일을 시키는 유일한 통로.
@@ -43,15 +49,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     /// </summary>
     public static IReadOnlySet<string> Writes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        "addColumn", "updateColumn", "removeColumn", "moveColumn",
-        "setField", "setOverride", "clearOverride", "deleteEntity",
-        "saveSettings", "relinkExplicit",
-        "confirmLink", "rejectLink", "unlink",
-        "confirmRequestLink", "rejectRequestLink", "unlinkRequest",
+        "addColumn", "updateColumn", "removeColumn", "moveColumn", "saveComputedColumn", "freezeColumn",
+        "saveUserView", "deleteUserView", "pickViewPackage", "builtinViewPackage", "previewViewPackage", "importViewPackage",
+        "setField", "setOverride", "clearOverride", "deleteEntity", "batchEdit", "batchDeletionPlan", "batchDelete",
+        "saveSettings",
         "pickPlanExcel", "importPlan", "submit", "merge",
         "prepareExtension", "openExtensionSetup", "erpTools",
         // 지금 보는 화면(ADR-036). 가져오기는 쓰고, 명령은 열람 창에 비추는 탭이 없어 보낼 까닭이 없다.
-        "importShot", "mirrorCommand", "extensionCommand",
+        "importShot", "mirrorCommand",
         // 작업자료를 바꾸는 일은 본 창에서만 한다. 열람 창은 따로 뜬 프로세스라 거기서 바꾸면 본 창이 옛 자료를
         // 쥔 채 계속 고친다. 백업은 바꾸는 일이 아니지만 지금 작업자료의 사진이라 열람 창의 일이 아니다.
         "pickWorkfile", "moveWorkfile", "switchWorkfile", "newWorkfile", "backupWorkfile",
@@ -62,10 +67,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     /// <summary>열람 중에도 받는 요청. 읽기와, 밖으로 사진을 뜨는 것(<c>export</c>)과, 창 바깥의 일뿐이다.</summary>
     public static IReadOnlySet<string> ViewerAllowed { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
-        "session", "status", "dataVersion", "현황", "sheet", "outline", "userColumns",
-        "deletionPlan", "settings", "linkCandidates", "requestLinkCandidates",
-        "compareLink", "compareRequestLink", "extensionStatus", "captures", "mirror",
-        "export", "dataLocation", "revealDataFolder", "about", "openOther",
+        "session", "status", "dashboard", "dataVersion", "현황", "sheet", "outline", "userColumns", "columnContext",
+        "traceComputedColumn", "compileComputedColumn", "validateComputedSql", "planFreezeColumn",
+        "userViews", "userViewContext", "traceUserViewColumn", "userViewSamples", "previewUserView", "exportViewPackage",
+        "deletionPlan", "settings",
+        "extensionStatus", "captures", "mirror",
+        "export", "exportSheet", "dataLocation", "revealDataFolder", "about", "openOther",
+        // 창을 닫을 때 물을지와 정말 닫기. 자료가 아니라 창의 일이다.
+        "setUnsaved", "closeWindow",
     };
 
     /// <summary>열어 본 파일. 작업자료를 연 창이면 <c>null</c> 이다.</summary>
@@ -120,6 +129,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
 
     /// <summary><c>.pclm</c> 고르기 창을 연다. 제목은 부르는 쪽이 정한다. 그만두면 <c>null</c>.</summary>
     public Func<string, string?>? PickOpenFile { get; set; }
+    public Func<string, string?>? PickOpenJson { get; set; }
 
     /// <summary>
     /// 이 창을 다시 띄운다(ADR-032 의 5). 작업자료를 바꾼 뒤 답을 보낸 다음에 부른다 — 창이 먼저 내려가면
@@ -135,6 +145,38 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
 
     /// <summary>답을 보낸 뒤 다시 띄울 것인가. 다리의 일은 다른 실마리에서 돌므로 한 번만 넘기게 바꿔 쥔다.</summary>
     private int _restart;
+
+    /// <summary>
+    /// 화면에 저장하지 않은 편집(열 관리·내 보기)이 있는가. 화면이 바뀔 때마다 알린다. 서 있으면 창(WPF)은 닫기·끝내기를
+    /// 멈추고 <see cref="Notify"/> 로 「닫기 요청」 을 보낸다 — 묻지 않고 닫으면 그 편집이 말없이 사라진다.
+    /// </summary>
+    public bool Unsaved => _unsaved;
+    private volatile bool _unsaved;
+
+    /// <summary>화면이 확인을 받은 뒤의 「정말 닫기」. 답을 보낸 다음에 부른다. 창(WPF)이 단다.</summary>
+    public Action? CloseWindow { get; set; }
+
+    /// <summary>답을 보낸 뒤 창을 닫을 것인가. <see cref="_restart"/> 와 같은 까닭으로 바꿔 쥔다.</summary>
+    private int _close;
+
+    /// <summary>먼저 알릴 화면. 창이 WebView2 를 세운 뒤 단다.</summary>
+    private CoreWebView2? _core;
+
+    /// <summary>화면에 먼저 알릴 자리를 단다. 창(WPF)이 WebView2 를 세운 뒤 부른다.</summary>
+    public void Attach(CoreWebView2 core)
+    {
+        _core = core;
+        // 화면이 죽으면 「닫기 요청」 에 답할 쪽이 없다. 깃발이 선 채 남으면 X 를 눌러도 창이 영영 닫히지 않으므로 내린다 —
+        // 지킬 편집도 화면과 함께 이미 사라졌다. 다시 읽힌 화면은 처음 설 때 제 상태를 다시 알린다.
+        core.ProcessFailed += (_, _) => _unsaved = false;
+    }
+
+    /// <summary>
+    /// 화면에 번호 없는 알림을 보낸다(<c>{notice}</c>). 답과 같은 통로라 UI 실마리에서 부른다. 화면이 아직 서지 않았으면
+    /// 아무것도 하지 않는다.
+    /// </summary>
+    public void Notify(string notice) =>
+        _core?.PostWebMessageAsJson(JsonSerializer.Serialize(new { notice }, Json));
 
     /// <summary>
     /// 화면을 딴 데서 열고 있으면 그 자리(<c>--ui</c>). 열람 창도 같은 자리를 짚어야 개발 중에
@@ -153,8 +195,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
 
             id = root.GetProperty("id").GetInt32();
             var method = root.GetProperty("method").GetString() ?? "";
+            // 글이 아닌 값(맞춤 뷰 보표의 표본 열쇠 목록)은 JSON 원문으로 넘긴다 — 받는 쪽이 읽는다.
             var args = root.TryGetProperty("args", out var a)
-                ? a.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Null ? null : x.GetString()).ToArray()
+                ? a.EnumerateArray().Select(x => x.ValueKind switch
+                {
+                    JsonValueKind.Null or JsonValueKind.Undefined => null,
+                    JsonValueKind.String => x.GetString(),
+                    _ => x.GetRawText(),
+                }).ToArray()
                 : [];
 
             var result = await Task.Run(() => Invoke(method, args));
@@ -166,6 +214,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         }
 
         if (Interlocked.Exchange(ref _restart, 0) == 1) Restart?.Invoke();
+        if (Interlocked.Exchange(ref _close, 0) == 1) CloseWindow?.Invoke();
     }
 
     private object? Invoke(string method, string?[] args)
@@ -188,17 +237,37 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         // 오늘 들어온 수집과 마지막 하나. 읽기만 하므로 열람 창(읽기 전용 사본)에서도 같은 길이다.
         "captures" => CaptureLog.Read(_database, DateTime.Now),
         "openExtensionSetup" => OpenExtensionSetup(Require(args, 0)),
-        "erpTools" => ErpTools.Invoke(_database, Require(args, 0), Require(args, 1)),
+        "erpTools" => ErpTools.Invoke(_database, Require(args, 0), Require(args, 1), _home),
         "mirror" => ReadMirror(),
         "mirrorCommand" => MirrorCommand(Require(args, 0), Require(args, 1), Require(args, 2)),
-        "extensionCommand" => ExtensionCommand(Require(args, 0), Require(args, 1), args.ElementAtOrDefault(2)),
         "importShot" => ImportShot(Require(args, 0), Require(args, 1), Require(args, 2), Require(args, 3), Require(args, 4)),
         "status" => new Reports(_database).Summary(),
+        "dashboard" => new Reports(_database).Dashboard(),
         "dataVersion" => DataVersion(),
         "현황" => new Pclm.Core.Storage.Status(_database).Report(),
         "sheet" => ReadSheet(Require(args, 0)),
         "outline" => ReadOutline(),
         "userColumns" => UserColumns(args.ElementAtOrDefault(0)),
+        "columnContext" => _store.ColumnContext(Require(args, 0)),
+        "traceComputedColumn" => _store.TraceComputedColumn(Require(args, 0), Require(args, 1)),
+        "compileComputedColumn" => _store.CompileComputedColumn(Require(args, 0), Require(args, 1)),
+        "validateComputedSql" => _store.ValidateComputedSql(Require(args, 0), Require(args, 1)),
+        "planFreezeColumn" => _store.PlanFreezeColumn(Require(args, 0), Require(args, 1)),
+        "freezeColumn" => FreezeColumn(Require(args, 0), Require(args, 1), args.ElementAtOrDefault(2)),
+        // 맞춤 뷰(docs/user-views.md §8). 화면의 types.ts 「맞춤 뷰 다리 약속」 과 이름·자리·꼴이 같다. 기준 인자는 없다 — 줄은 조달 건이다.
+        "userViews" => _store.UserViews(),
+        "userViewContext" => _store.UserViewContext(),
+        "traceUserViewColumn" => _store.TraceUserViewColumn(Require(args, 0), SampleKeys(args.ElementAtOrDefault(1))),
+        "userViewSamples" => _store.UserViewSamples(Require(args, 0), args.ElementAtOrDefault(1), args.ElementAtOrDefault(2)),
+        "previewUserView" => _store.PreviewUserView(Require(args, 0), args.ElementAtOrDefault(1)),
+        "saveUserView" => _store.SaveUserView(Require(args, 0), args.ElementAtOrDefault(1)),
+        "exportViewPackage" => ExportViewPackage(Require(args, 0)),
+        "pickViewPackage" => PickViewPackage(),
+        "builtinViewPackage" => BuiltinViewPackage(),
+        "previewViewPackage" => _store.PreviewViewPackage(Require(args, 0)),
+        "importViewPackage" => _store.ImportViewPackage(Require(args, 0), Require(args, 1)),
+        "deleteUserView" => _store.DeleteUserView(Require(args, 0)),
+        "saveComputedColumn" => SaveComputedColumn(Require(args, 0), Require(args, 1), Require(args, 2), args.ElementAtOrDefault(3)),
         "addColumn" => AddColumn(Require(args, 0), Require(args, 1), Require(args, 2), args.ElementAtOrDefault(3)),
         "updateColumn" => UpdateColumn(Require(args, 0), Require(args, 1), Require(args, 2), Require(args, 3), args.ElementAtOrDefault(4)),
         "removeColumn" => RemoveColumn(Require(args, 0), Require(args, 1)),
@@ -208,20 +277,13 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "clearOverride" => ClearOverride(Require(args, 0), Require(args, 1)),
         "deletionPlan" => Plan(Require(args, 0), Require(args, 1)),
         "deleteEntity" => Delete(Require(args, 0), Require(args, 1)),
+        "batchEdit" => new { changed = _store.BatchEdit(Require(args, 0), ReadBatch<CellChange[]>(Require(args, 1))) },
+        "batchDeletionPlan" => _store.PlanBatchDeletion(ReadBatch<string[]>(Require(args, 0)), Whole(Require(args, 1))),
+        "batchDelete" => _store.BatchDelete(ReadBatch<string[]>(Require(args, 0)), Whole(Require(args, 1)), Require(args, 2)),
         "settings" => ReadSettings(),
         "saveSettings" => SaveSettings(args.ElementAtOrDefault(0)),
-        "linkCandidates" => LinkCandidates(),
-        "relinkExplicit" => RelinkExplicit(),
-        "requestLinkCandidates" => RequestLinkCandidates(),
-        "compareRequestLink" => CompareRequestLink(Require(args, 0), Require(args, 1)),
-        "confirmRequestLink" => ConfirmRequestLink(Require(args, 0), Require(args, 1)),
-        "rejectRequestLink" => RejectRequestLink(Require(args, 0), Require(args, 1)),
-        "unlinkRequest" => UnlinkRequest(Require(args, 0)),
-        "compareLink" => CompareLink(Require(args, 0), Require(args, 1)),
-        "confirmLink" => ConfirmLink(Require(args, 0), Require(args, 1)),
-        "rejectLink" => RejectLink(Require(args, 0), Require(args, 1)),
-        "unlink" => Unlink(Require(args, 0)),
         "export" => Export(),
+        "exportSheet" => ExportSheet(Require(args, 0), ReadBatch<SheetSnapshot>(Require(args, 1))),
         "submit" => Submit(),
         "merge" => MergeSubmissions(),
         "pickPlanExcel" => PickPlanFile(),
@@ -238,6 +300,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "about" => About(),
         "windowPrefs" => ReadWindowPrefs(),
         "saveWindowPrefs" => SaveWindowPrefs(Flag(Require(args, 0)), Flag(Require(args, 1))),
+        "setUnsaved" => _unsaved = Flag(Require(args, 0)),
+        "closeWindow" => CloseAfterReply(),
         _ => throw new InvalidOperationException($"모르는 요청입니다: {method}"),
     };
 
@@ -346,6 +410,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         if (_viewing is null && string.Equals(full, _database.Path, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"지금 이 창에서 쓰고 있는 작업자료입니다: {full}");
 
+        // 열람 창에서 내 작업자료를 골랐으면 새 창이 서지 않는다 — 새 프로세스는 그것을 열람이 아니라 보통으로 열려다
+        // 홈 잠금에 막혀 본 창만 앞으로 부르고 끝난다. 「새 창에서 열어 봅니다」 라고 말하지 않게 여기서 거절하고 본 창을 부른다.
+        // 열람 창의 손잡이는 임시 사본이라 그것과 견주지 않고 쪽지가 가리키는 파일과 견준다.
+        if (_viewing is not null && _home.IsActiveWorkfile(full))
+            throw new InvalidOperationException(Activation.Signal(_home)
+                ? $"지금 작업자료입니다 — 본 창을 앞으로 불렀습니다. 본 창에서 보세요: {full}"
+                : $"지금 작업자료입니다 — 본 창에서 보세요: {full}");
+
         var start = new System.Diagnostics.ProcessStartInfo(
             Environment.ProcessPath ?? throw new InvalidOperationException("이 프로그램의 자리를 알 수 없습니다."))
         {
@@ -382,7 +454,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     private object? PickWorkfile(string kind)
     {
         string? Save(string title, string fileName) =>
-            PickSavePath?.Invoke(new SavePrompt(title, WorkfileFilter, ".pclm", fileName));
+            PickSavePath?.Invoke(new SavePrompt(title, WorkfileFilter, ".pclm", fileName, AllowOverwrite: false));
 
         object Plan(string action, string target, string? source, string? sourceRoleName) => new
         {
@@ -465,7 +537,24 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
             "백업 만들기", "백업 (*.pclm)|*.pclm", ".pclm", $"계약자료_백업_{stamp}.pclm"));
         if (string.IsNullOrEmpty(target)) return null;
 
-        return new { path = Home.BackupTo(_database, target) };
+        return new { path = Writing(target, () => Home.BackupTo(_database, target)) };
+    }
+
+    /// <summary>
+    /// 사람이 고른 자리에 파일을 쓴다. 쓰지 못하면 .NET 의 영어 원문 대신 할 일을 말한다 — 엑셀 내보내기와 같은 자세다.
+    /// 앱이 스스로 거절한 것(작업자료를 덮지 않는다 따위)은 이미 사람 말이라 그대로 지나간다.
+    /// </summary>
+    private static T Writing<T>(string target, Func<T> write)
+    {
+        try { return write(); }
+        catch (UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException($"그 자리에 쓸 권한이 없습니다 — 다른 폴더를 골라 다시 해 주세요.  {target}");
+        }
+        catch (IOException)
+        {
+            throw new InvalidOperationException($"파일을 쓰지 못했습니다 — 다른 프로그램에서 열려 있다면 닫고 다시 하거나, 다른 자리를 골라 주세요.  {target}");
+        }
     }
 
     private object RevealDataFolder()
@@ -550,6 +639,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                     front = t.Id == front, shot, error,
                     // 화면 그대로 — 이름표와 보이는 글. 펼친 보기의 왼쪽이 그린다.
                     screenRows = Pclm.Core.Erp.Mirror.ScreenRows(t.Tab),
+                    // 앱이 부른 내보내기의 마지막 결과. 옛 확장은 싣지 않아 null 이다.
+                    export = Pclm.Core.Erp.Mirror.Export(t.Tab),
                 };
             }).ToList();
             _shots = next;
@@ -559,7 +650,6 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                 settings = new
                 {
                     pid = o.Pid, browser = o.Browser,
-                    panelMode = Text(given, "panelMode"), shortcut = Text(given, "shortcut"),
                     siteAccess = given.TryGetProperty("siteAccess", out var access) && access.ValueKind == JsonValueKind.True,
                 };
             // screens: 수집하는 화면(ADR-037) — 「수집 안 함」 의 안내가 매핑에서 그대로 읽는다.
@@ -609,33 +699,13 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     }
 
     /// <summary>
-    /// 확장의 설정을 창에서 바꾼다 — 수집기 띄우는 방식(<c>setPanelMode</c>, <paramref name="mode"/>)·단축키 화면 열기
-    /// (<c>openShortcuts</c>). 확장이 옵션 창과 같은 저장 자리에 쓰고 바뀐 설정을 다시 보고한다.
+    /// 창에서 가져오기. 수집의 저장(<see cref="ErpCapture.Save"/>)과 <b>같은 절차</b>를 탄다(ADR-032·036) — 쓰기 잠금 안에서 역할 work·쪽지가 이 파일을
+    /// 가리키는지·baseToken 을 다시 보고 쓴다. 더하고 바꾸는 것은 기본, 지우는 것은 사람이 고를 때만이다
+    /// (<see cref="Pclm.Core.Erp.Mirror.DefaultChoices"/>). 짝 없는 화면의 줄은 새 줄로 둔다 — 투영과 같은 입력을 지어야
+    /// baseToken 이 맞는다(<see cref="Pclm.Core.Erp.Mirror.Prepare"/>). baseToken 이 낡았으면 쓰지 않고 그 탭을 다시 읽게 한다.
     /// </summary>
-    private object ExtensionCommand(string pid, string command, string? mode)
-    {
-        if (command is not ("setPanelMode" or "openShortcuts")) throw new InvalidOperationException($"모르는 명령입니다: {command}");
-        var number = int.Parse(pid, System.Globalization.CultureInfo.InvariantCulture);
-        if (command == "openShortcuts")
-        {
-            // 확장 관리 열기와 같은 길 — 새 창이 서지 않으면 주소창에 적어 넣는다.
-            var browser = ExtensionPresence.LiveProcesses(_home.Directory).FirstOrDefault(p => p.Pid == number).Contact?.Browser;
-            var target = browser == "Edge" ? "edge" : "chrome";
-            if (!OpenThroughExtension(number, target, command)) ExtensionSetup.Open(target, "extensions/shortcuts");
-            return new { sent = true };
-        }
-        if (!ExtensionRelay.SendSetting(_home.Directory, number, command, mode))
-            throw new InvalidOperationException("브라우저와의 연결이 끊겨 확장에 닿지 못했습니다.");
-        return new { sent = true };
-    }
-
-    /// <summary>
-    /// 창에서 가져오기. 확장의 저장과 <b>같은 절차</b>를 탄다(ADR-032·036) — 쓰기 잠금 안에서 역할 work·쪽지가 이 파일을
-    /// 가리키는지·baseToken 을 다시 보고, 덮개는 사람이 고른 칸만 지운다. 나머지 충돌은 확장의 기본 규칙(덮어쓰기는 적용,
-    /// 있던 값이 비게 되는 것은 유지)을 따른다. baseToken 이 낡았으면 쓰지 않고 그 탭을 다시 읽게 한다.
-    /// </summary>
-    /// <param name="restore">수집 원값으로 복원할 덮개 칸의 고를 자리(JSON 문자열 배열).</param>
-    private object ImportShot(string pidText, string tabText, string baseToken, string restore, string captureId)
+    /// <param name="picks">사람이 고른 자리(JSON 문자열 배열) — 수집 원값으로 복원할 덮개, 비울 칸, 지울 행.</param>
+    private object ImportShot(string pidText, string tabText, string baseToken, string picks, string captureId)
     {
         if (!Guid.TryParse(captureId, out _)) throw new InvalidOperationException("올바른 수집 ID가 필요합니다.");
         var pid = int.Parse(pidText, System.Globalization.CultureInfo.InvariantCulture);
@@ -650,13 +720,12 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                     .Where(t => t.TryGetProperty("tabId", out var id) && id.TryGetInt32(out var n) && n == tabId &&
                         t.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.Object)
                     .Select(t => (JsonElement?)t.GetProperty("snapshot")).FirstOrDefault();
-                if (snapshot is null) return Stale(pid, tabId);
-                var input = Pclm.Core.Erp.Mirror.Input(snapshot.Value);
-                var preview = new ErpCapture(_database).Inspect(input);
+                // 보고에 그 탭의 화면이 없다 — 닫혔거나 브라우저가 끊겼다. 다시 읽을 탭이 없으니 읽으라고 보내지도, 다시 읽는다고
+                // 말하지도 않는다.
+                if (snapshot is null) return Gone;
+                var (input, preview) = Pclm.Core.Erp.Mirror.Prepare(_database, Pclm.Core.Erp.Mirror.Input(snapshot.Value));
                 if (preview.BaseToken != baseToken) return Stale(pid, tabId);
-                if (Pclm.Core.Erp.Mirror.BlockedBy(preview) is { } why)
-                    throw new InvalidOperationException(why + " Chrome의 수집기에서 검토하세요.");
-                var picked = JsonSerializer.Deserialize<string[]>(restore) ?? [];
+                var picked = JsonSerializer.Deserialize<string[]>(picks) ?? [];
                 request = (input, baseToken, Pclm.Core.Erp.Mirror.DefaultChoices(preview, picked.ToHashSet(StringComparer.Ordinal)));
                 _imports[captureId] = request;
             }
@@ -675,7 +744,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
             throw;
         }
         lock (_mirrorGate) _imports.Remove(captureId);
-        // 그 탭의 수집기도 새 상태를 보게 다시 읽힌다. 닿지 못해도 저장은 끝났다.
+        // 그 탭을 다시 읽혀 지금 보는 화면이 저장된 뒤의 상태로 비추게 한다. 닿지 못해도 저장은 끝났다.
         try { ExtensionRelay.Send(_home.Directory, pid, "read", tabId); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return new
@@ -687,6 +756,12 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         };
     }
 
+    private static readonly object Gone = new
+    {
+        status = "gone",
+        message = "이 탭이 닫혔거나 브라우저 연결이 끊겨 가져오지 않았습니다. 나라장터에서 화면을 다시 여세요.",
+    };
+
     private object Stale(int pid, int tabId)
     {
         try { ExtensionRelay.Send(_home.Directory, pid, "read", tabId); }
@@ -697,17 +772,27 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     private static string Require(string?[] args, int index) =>
         args.ElementAtOrDefault(index) ?? throw new ArgumentException($"{index + 1}번째 값이 없습니다.");
 
+    /// <summary>보표의 표본 열쇠 — JSON 글 배열. 없으면 <c>null</c>(최신 문서 셋).</summary>
+    private static IReadOnlyList<string>? SampleKeys(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<string[]>(json); }
+        catch (JsonException) { throw new InvalidOperationException("표본 열쇠 형식이 올바르지 않습니다."); }
+    }
+
     /// <summary>
-    /// 뷰 하나를 통째로 읽어 준다. 이름이 계약면 목록에 있는지 먼저 보므로 아무 표나 열 수 없다.
+    /// 계약면 또는 저장한 맞춤 뷰 하나를 통째로 읽어 준다. 등록된 이름만 읽으므로 아무 표나 열 수 없다.
     /// </summary>
     private object ReadSheet(string view)
     {
-        if (!Views.Names.Contains(view))
+        var userView = view.StartsWith(Views.UserViewPrefix, StringComparison.Ordinal)
+            && _store.UserViews().Any(v => Views.UserViewPrefix + v.Name == view);
+        if (!Views.Names.Contains(view) && !userView)
             throw new InvalidOperationException($"내보이지 않는 표입니다: {view}");
 
         // 이름으로 종류를 가리는 규칙은 Views 한 군데에 둔다. 여기서 다시 짜면
         // 접수가 들어오는 순간 v_접수가 계약으로 읽혀 고친 값이 엉뚱한 표에 담긴다.
-        var entityType = Views.EntityTypeOf(view);
+        var entityType = userView ? "contract" : Views.EntityTypeOf(view);
 
         // 고칠 수 없는 표인가. 목록은 Views 한 군데에 둔다 — 여기서 조건을 다시 짜면
         // 목록이 두 벌이 되고, 갈리는 순간 고칠 수 없어야 할 표가 조용히 열린다.
@@ -719,11 +804,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         //
         // 열람 중이면 모든 표가 그렇다. 다리가 이미 거절하지만, 고칠 수 있는 칸으로 그려 두고 넣는 순간
         // 거절하면 사람은 고친 줄 알았다가 되돌려진다 — 처음부터 고칠 수 있어 보이지 않게 한다.
-        var 읽기전용 = Views.ReadOnly.Contains(view) || _viewing is not null;
+        var 읽기전용 = userView || Views.ReadOnly.Contains(view) || _viewing is not null;
 
         var editable = 읽기전용
             ? new HashSet<string>()
-            : _store.UserColumns(entityType).Select(c => c.FieldName).ToHashSet();
+            : _store.UserColumns(entityType).Where(c => c.Kind != "computed").Select(c => c.FieldName).ToHashSet();
+        var computed = 읽기전용
+            ? new HashSet<string>()
+            : _store.UserColumns(entityType).Where(c => c.Kind == "computed").Select(c => c.FieldName).ToHashSet();
 
         // 통합의 공고·접수 열은 이어진 다른 레코드의 것이라 이 줄의 키로는 주소가 잡히지 않는다.
         // 공고·접수 시트에서 고치면 같은 뷰를 타므로 여기에도 그대로 비친다.
@@ -741,7 +829,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
 
         using var connection = _database.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT * FROM \"{view}\";";
+        command.CommandText = $"SELECT * FROM \"{view.Replace("\"", "\"\"")}\";";
 
         using var reader = command.ExecuteReader();
         var columns = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
@@ -765,6 +853,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                 : columns
                     .Where(c => !Views.KeyColumns.Contains(c)
                                 && !editable.Contains(c)
+                                && !computed.Contains(c)
                                 && !elsewhere.Contains(c))
                     .ToList(),
             overrides = 읽기전용 ? [] : Overrides(entityType),
@@ -886,17 +975,54 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     }
 
     /// <summary>종류를 주지 않으면 계약·공고 것을 모두 낸다 — 열 고치는 화면이 둘 다 쓴다.</summary>
-    private object UserColumns(string? entityType) =>
-        _store.UserColumns(entityType).Select(c => new
+    private object UserColumns(string? entityType)
+    {
+        var broken = _store.BrokenColumns();
+        // 그 열을 쓰는 맞춤 뷰 수 — 지우는 확인 문구가 「맞춤 뷰 n곳이 이 열을 씁니다」 로 센다.
+        var readers = new[] { "notice", "contract", "request" }.ToDictionary(e => e, _store.UserViewReaders);
+        return _store.UserColumns(entityType).Select(c =>
         {
-            entityType = c.EntityType,
-            fieldName = c.FieldName,
-            kind = c.Kind,
-            choices = c.Choices,
+            // 가공열의 식, 또는 값으로 굳힌 입력열에 비활성으로 남은 식. 읽지 못하는 식은 깨진 열로 알린다 —
+            // 목록 하나 때문에 열 관리가 통째로 열리지 않으면 고칠 길이 없다.
+            object? formula = null;
+            string? error = broken.GetValueOrDefault((c.EntityType, c.FieldName));
+            if (c.Kind != "choice" && c.Options is { } options && options.TrimStart().StartsWith('{'))
+            {
+                try
+                {
+                    // v2 그대로 — 빈 자리를 null 로 채우면 화면이 「적힌 필드」로 읽는다.
+                    formula = JsonSerializer.SerializeToElement(ComputedColumn.Parse(options), Flow.Json);
+                }
+                catch (InvalidOperationException e) when (c.Kind == "computed") { error ??= e.Message; }
+                catch (InvalidOperationException) { }
+            }
+            return new
+            {
+                entityType = c.EntityType,
+                fieldName = c.FieldName,
+                kind = c.Kind,
+                choices = c.Choices,
+                formula,
+                broken = c.Kind == "computed" ? error : null,
+                viewReaders = readers[c.EntityType].GetValueOrDefault(c.FieldName),
+            };
         }).ToList();
+    }
 
     // ── 열 고치기 ────────────────────────────────────────
+    private object SaveComputedColumn(string entityType, string name, string formula, string? previousName)
+    {
+        _store.SaveComputedColumn(entityType, name, formula, previousName);
+        return UserColumns(null);
+    }
     // 고치고 나면 뷰가 다시 지어지므로, 화면은 표를 다시 읽어야 한다.
+
+    /// <summary>값으로 굳히기. 화면이 센 수를 함께 보내면 그 사이 자료가 바뀐 경우 쓰지 않는다.</summary>
+    private object FreezeColumn(string entityType, string name, string? expected)
+    {
+        _store.FreezeColumn(entityType, name, long.TryParse(expected, out var count) ? count : null);
+        return UserColumns(null);
+    }
 
     private object AddColumn(string entityType, string fieldName, string kind, string? choices)
     {
@@ -969,6 +1095,9 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         return null;
     }
 
+    private static T ReadBatch<T>(string json) => JsonSerializer.Deserialize<T>(json, Json)
+        ?? throw new InvalidOperationException("작업할 자료가 없습니다.");
+
     private EntityRef Target(string key) =>
         _store.Resolve(key) ?? throw new InvalidOperationException($"그런 공고·계약이 없습니다: {key}");
 
@@ -1013,6 +1142,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
             autostart = Autostart.IsEnabled(),
             autostartAvailable = unavailable is null,
             autostartReason = unavailable,
+            // 압축 안에서 켠 창이면 켤 때 exe 를 이 자리에 복사해 두고 그것을 적는다 — 화면이 미리 알린다.
+            autostartCopyTarget = unavailable is null ? Autostart.CopyTarget() : null,
         };
     }
 
@@ -1046,220 +1177,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
             ? []
             : [.. choices.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
-    /// <summary>
-    /// 잇기 화면이 쓸 것을 한 번에 내준다.
-    ///
-    /// <para>후보 목록만 내면 <b>후보가 하나도 없는 미연결 계약이 화면에서 사라진다</b> —
-    /// 물리치고 나면 그런 계약이 생기는데, 그러고도 이어지지 않은 줄을 알 길이 없다.
-    /// 그래서 계약 목록을 함께 낸다.</para>
-    ///
-    /// <para>공고 전부도 여기 실어 보낸다. 화면이 「직접 찾기」로 거르는 자리라 열 때 한 번
-    /// 받으면 되고, <b>다리에 검색 요청을 새로 파지 않는다</b> — 이 저장소의 다른 목록도
-    /// 다 받아 놓고 화면에서 거른다.</para>
-    /// </summary>
-    private object LinkCandidates()
-    {
-        var linker = new Linker(_database);
-        var work = linker.Work();
 
-        return new
-        {
-            contracts = work.Contracts.Select(c => new
-            {
-                key = c.Contract.Display,
-                title = c.Title,
-                candidateCount = c.CandidateCount,
-                noticeKey = c.Notice?.Display,
-                noticeTitle = c.NoticeTitle,
-                decidedBy = c.DecidedBy,
-            }).ToList(),
-
-            notices = linker.Notices().Select(n => new
-            {
-                key = n.Notice.Display,
-                title = n.Title,
-                postedAt = n.PostedAt,
-                linked = n.Linked,
-            }).ToList(),
-
-            candidates = work.Candidates.Select(c => new
-            {
-                contractKey = c.Contract.Display,
-                contractTitle = c.ContractTitle,
-                noticeKey = c.Notice.Display,
-                noticeTitle = c.NoticeTitle,
-                confidence = c.Confidence,
-                reason = c.Reason,
-                noticeContractCount = c.NoticeContractCount,
-                titleMatched = c.TitleMatched,
-                blocker = c.Blocker,
-                facets = Facets(c.Compared),
-            }).ToList(),
-        };
-    }
-
-    /// <summary>
-    /// ERP 명시 참조로 다시 잇는다. 참조를 담은 자료가 나중에 들어왔거나 끊은 링크를 되살릴 때
-    /// 누르는 자리다. <b>있던 링크는 풀지도 바꾸지도 않는다</b> — 참조와 어긋나면 확인 대상으로
-    /// 남을 뿐이다. 기계가 추천만으로 잇는 길은 없다(ADR-029).
-    /// </summary>
-    private object RelinkExplicit()
-    {
-        return new { linked = ExplicitLinks.Resolve(_database) };
-    }
-
-    /// <summary>추천에 오르지 않은 짝을 나란히 견준다. 사람이 손수 고른 공고를 잇기 전에 볼 재료다.</summary>
-    private object CompareLink(string contractKey, string noticeKey)
-    {
-        var (contract, notice) = ResolvePair(contractKey, noticeKey);
-        return Facets(new Linker(_database).Compare(contract, notice));
-    }
-
-    private static object Facets(IReadOnlyList<LinkFacet> facets) =>
-        facets.Select(f => new
-        {
-            name = f.Name,
-            contract = f.Contract,
-            notice = f.Notice,
-            agrees = f.Agrees,
-        }).ToList();
-
-    private object? ConfirmLink(string contractKey, string noticeKey)
-    {
-        var (contract, notice) = ResolvePair(contractKey, noticeKey);
-        new Linker(_database).Confirm(contract, notice, 1.0);
-        return null;
-    }
-
-    /// <summary>이 짝은 아니라고 판정한다. 물리친 후보가 다시 목록에 오르지 않게 남긴다.</summary>
-    private object? RejectLink(string contractKey, string noticeKey)
-    {
-        var (contract, notice) = ResolvePair(contractKey, noticeKey);
-        new Linker(_database).Reject(contract, notice);
-        return null;
-    }
-
-    private object? Unlink(string contractKey)
-    {
-        var contract = _store.Resolve(contractKey);
-        if (contract?.EntityType != "contract")
-            throw new InvalidOperationException($"그런 계약이 없습니다: {contractKey}");
-
-        new Linker(_database).Unlink(contract);
-        return null;
-    }
-
-    // ── 접수 ↔ 공고 잇기 ─────────────────────────────────────
-    // 계약 ↔ 공고와 길이 갈린다. 판정 근거가 다르기 때문이다 — 저쪽은 전파된 건명,
-    // 이쪽은 품목의 수량·단가 다중집합이다(ADR-021).
-
-    /// <summary>
-    /// 접수 잇기 화면이 쓸 것을 한 번에 내준다. <see cref="LinkCandidates"/> 와 같은 모양이라
-    /// 화면이 카드·근거 표·직접 찾기를 그대로 쓴다.
-    /// </summary>
-    private object RequestLinkCandidates()
-    {
-        var linker = new RequestLinker(_database);
-        var work = linker.Work();
-
-        return new
-        {
-            requests = work.Requests.Select(r => new
-            {
-                key = r.Request.Display,
-                title = r.Title,
-                candidateCount = r.CandidateCount,
-                noticeKey = r.Notice?.Display,
-                noticeTitle = r.NoticeTitle,
-                decidedBy = r.DecidedBy,
-            }).ToList(),
-
-            candidates = work.Candidates.Select(c => new
-            {
-                requestKey = c.Request.Display,
-                requestTitle = c.RequestTitle,
-                noticeKey = c.Notice.Display,
-                noticeTitle = c.NoticeTitle,
-                confidence = c.Confidence,
-                reason = c.Reason,
-                noticeLinkedCount = c.NoticeLinkedCount,
-                titleMatched = c.TitleMatched,
-                blocker = c.Blocker,
-                facets = RequestFacets(c.Compared),
-            }).ToList(),
-
-            notices = linker.Notices().Select(n => new
-            {
-                key = n.Notice.Display,
-                title = n.Title,
-                postedAt = n.PostedAt,
-                linked = n.Linked,
-            }).ToList(),
-        };
-    }
-
-    /// <summary>추천에 오르지 않은 짝을 나란히 견준다. 사람이 손수 고른 공고를 잇기 전에 볼 재료다.</summary>
-    private object CompareRequestLink(string requestKey, string noticeKey)
-    {
-        var (request, notice) = ResolveRequestPair(requestKey, noticeKey);
-        return RequestFacets(new RequestLinker(_database).Compare(request, notice));
-    }
-
-    private static object RequestFacets(IReadOnlyList<RequestFacet> facets) =>
-        facets.Select(f => new
-        {
-            name = f.Name,
-            request = f.Request,
-            notice = f.Notice,
-            agrees = f.Agrees,
-        }).ToList();
-
-    private object? ConfirmRequestLink(string requestKey, string noticeKey)
-    {
-        var (request, notice) = ResolveRequestPair(requestKey, noticeKey);
-        new RequestLinker(_database).Confirm(request, notice, 1.0);
-        return null;
-    }
-
-    /// <summary>이 짝은 아니라고 판정한다. 물리친 후보가 다시 목록에 오르지 않게 남긴다.</summary>
-    private object? RejectRequestLink(string requestKey, string noticeKey)
-    {
-        var (request, notice) = ResolveRequestPair(requestKey, noticeKey);
-        new RequestLinker(_database).Reject(request, notice);
-        return null;
-    }
-
-    private object? UnlinkRequest(string requestKey)
-    {
-        var request = _store.Resolve(requestKey);
-        if (request?.EntityType != "request")
-            throw new InvalidOperationException($"그런 접수가 없습니다: {requestKey}");
-
-        new RequestLinker(_database).Unlink(request);
-        return null;
-    }
-
-    private (EntityRef Request, EntityRef Notice) ResolveRequestPair(string requestKey, string noticeKey)
-    {
-        var request = _store.Resolve(requestKey);
-        var notice = _store.Resolve(noticeKey);
-
-        if (request?.EntityType != "request") throw new InvalidOperationException($"그런 접수가 없습니다: {requestKey}");
-        if (notice?.EntityType != "notice") throw new InvalidOperationException($"그런 공고가 없습니다: {noticeKey}");
-
-        return (request, notice);
-    }
-
-    private (EntityRef Contract, EntityRef Notice) ResolvePair(string contractKey, string noticeKey)
-    {
-        var contract = _store.Resolve(contractKey);
-        var notice = _store.Resolve(noticeKey);
-
-        if (contract?.EntityType != "contract") throw new InvalidOperationException($"그런 계약이 없습니다: {contractKey}");
-        if (notice?.EntityType != "notice") throw new InvalidOperationException($"그런 공고가 없습니다: {noticeKey}");
-
-        return (contract, notice);
-    }
 
     /// <summary>
     /// 계획 엑셀을 고르게 하고 <b>그 자리를 설정에 적어 둔다</b>. 그만두면 <c>null</c>.
@@ -1330,6 +1248,44 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         }
     }
 
+    private object? ExportViewPackage(string idsJson)
+    {
+        var json = _store.ExportViewPackage(ReadBatch<string[]>(idsJson));
+        var target = PickSavePath?.Invoke(new SavePrompt("보기 구성 내보내기", "보기 구성 (*.json)|*.json", ".json", $"보기구성_{DateTime.Now:yyyyMMdd}.json"));
+        if (string.IsNullOrEmpty(target)) return null;
+        Writing(target, () => { File.WriteAllText(target, json, new UTF8Encoding(false)); return target; });
+        return new { path = target };
+    }
+
+    private object? PickViewPackage()
+    {
+        var path = PickOpenJson?.Invoke("보기 구성 가져오기");
+        if (string.IsNullOrEmpty(path)) return null;
+        if (new FileInfo(path).Length > 2_000_000) throw new InvalidOperationException("보기 구성 파일은 2MB까지 가져올 수 있습니다.");
+        var json = File.ReadAllText(path, Encoding.UTF8);
+        return new { name = System.IO.Path.GetFileName(path), json, preview = _store.PreviewViewPackage(json) };
+    }
+
+    /// <summary>서식용 예시 보기를 고른 파일처럼 내민다 — 지운 것을 다시 들일 때 같은 미리보기·이름 겹침·가져오기를 탄다.</summary>
+    private object? BuiltinViewPackage()
+    {
+        var json = Store.BuiltinViewPackage();
+        return new { name = "예시 보기", json, preview = _store.PreviewViewPackage(json) };
+    }
+
+    private object? ExportSheet(string title, SheetSnapshot snapshot)
+    {
+        Exporter.ValidateSnapshot(title, snapshot);
+        var target = PickSavePath?.Invoke(new SavePrompt(
+            "현재 표를 엑셀로 내보내기", "엑셀 통합 문서 (*.xlsx)|*.xlsx", ".xlsx", $"{title}_{DateTime.Now:yyyyMMdd}.xlsx"));
+        if (string.IsNullOrEmpty(target)) return null;
+        try { return Exporter.ExportSheet(target, title, snapshot); }
+        catch (IOException)
+        {
+            throw new InvalidOperationException($"파일을 쓰지 못했습니다 — 엑셀에서 열려 있다면 닫고 다시 해 주세요.  {target}");
+        }
+    }
+
     /// <summary>
     /// 내 자료 한 벌을 제출본 파일로 뜬다. <c>pclm submit</c> 과 <b>같은 파일</b>이다.
     ///
@@ -1354,7 +1310,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         // 제출본은 자기 역할과 새 신원을 달고 나간다 — 작업자료와 같은 신원이면 받는 쪽에서 둘을 가리지 못한다.
         return new
         {
-            path = PclmFile.Snapshot(_database, target, PclmRole.Submission, overwrite: true),
+            path = Writing(target, () => PclmFile.Snapshot(_database, target, PclmRole.Submission, overwrite: true)),
             nameMissing = name.Length == 0,
         };
     }
@@ -1398,6 +1354,14 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
             conflicts = report.겹친것.Count,
             rejected = report.거절한제출본.Count,
         };
+    }
+
+    /// <summary>확인을 받았으니 깃발을 내리고, 답을 보낸 뒤 창을 닫는다.</summary>
+    private object? CloseAfterReply()
+    {
+        _unsaved = false;
+        Interlocked.Exchange(ref _close, 1);
+        return null;
     }
 
     private static void Reply(CoreWebView2 core, int id, bool ok, object? result, string? error) =>

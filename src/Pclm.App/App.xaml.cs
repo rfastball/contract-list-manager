@@ -38,6 +38,9 @@ public partial class App : Application
     /// <summary>작업자료 창의 홈. 창의 몸가짐(<c>window.json</c>)이 여기 있다.</summary>
     private Home? _home;
 
+    /// <summary>작업자료 창의 다리. 닫기 전에 화면에 저장하지 않은 편집이 있는지 여기서 본다.</summary>
+    private Bridge? _bridge;
+
     /// <summary>알림 영역의 아이콘. 「알림 영역에 두기」 가 켜져 있는 동안만 선다.</summary>
     private TrayIcon? _tray;
 
@@ -164,8 +167,6 @@ public partial class App : Application
 
         // 건이 합쳐지며 사람이 이어 둔 접수나 링크가 밀렸으면 알린다. 오류를 내지 않는 자리라
         // 여기서 말하지 않으면 이어 둔 사람은 사라진 줄도 모른다.
-        if (ready.NoticeGroupText is { } 건알림)
-            MessageBox.Show(건알림, "계약 목록", MessageBoxButton.OK, MessageBoxImage.Warning);
 
         // 확장 연결은 업무 홈에서만 고친다. 레지스트리의 호스트 연결은 컴퓨터에 하나뿐이다.
         if (home.IsDefault) ExtensionSetup.Refresh();
@@ -187,6 +188,10 @@ public partial class App : Application
             Quit(0);
         });
 
+        // 화면이 저장하지 않은 편집을 버려도 된다고 확인받은 뒤의 닫기. 다시 띄우기와 같은 까닭으로 차례를 미룬다.
+        bridge.CloseWindow = () => Dispatcher.BeginInvoke(() => Quit(0));
+        _bridge = bridge;
+
         // 창의 몸가짐은 바꾸는 그 자리에서 선다 — 다시 띄운 뒤에야 아이콘이 서면 사람은 켠 것이 안 먹은 줄 안다.
         bridge.ApplyCloseToTray = on => Dispatcher.Invoke(() => SetTray(on));
 
@@ -199,6 +204,7 @@ public partial class App : Application
         _main = window;
         _home = home;
         window.Closing += HideToTray;
+        window.Closing += AskBeforeClose;
         window.StateChanged += (_, _) =>
         {
             if (window.WindowState != WindowState.Minimized) _restoreState = window.WindowState;
@@ -241,7 +247,7 @@ public partial class App : Application
             return;
         }
 
-        _tray = new TrayIcon(_main?.Title ?? "계약 목록", ShowMain, () => Quit(0));
+        _tray = new TrayIcon(_main?.Title ?? "계약 목록", ShowMain, () => { if (!AskFirst()) Quit(0); });
     }
 
     /// <summary>
@@ -262,6 +268,29 @@ public partial class App : Application
         try { (prefs with { TrayNoticeShown = true }).Write(_home.WindowPrefsPath); }
         // 적지 못하면 다음에 한 번 더 알릴 뿐이다.
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>
+    /// 닫기(X)가 정말 내리는 길이면 — 알림 영역으로 숨지 않으면 — 저장하지 않은 편집이 있는지 먼저 묻는다.
+    /// 숨기는 것은 화면을 그대로 두므로 묻지 않는다.
+    /// </summary>
+    private void AskBeforeClose(object? sender, CancelEventArgs e)
+    {
+        if (e.Cancel || _exiting) return;
+        if (AskFirst()) e.Cancel = true;
+    }
+
+    /// <summary>
+    /// 화면에 저장하지 않은 편집이 있으면 창을 앞으로 내고 「닫기 요청」 을 보낸다 — 화면이 탭을 옮길 때와 같은 확인을
+    /// 띄우고, 버려도 되면 <c>closeWindow</c> 로 정말 닫는다. 물었으면 참이다. 다시 띄우기·로그오프·뜻밖의 오류는
+    /// 여기를 지나지 않는다(<see cref="Quit"/> 가 곧바로 내린다).
+    /// </summary>
+    private bool AskFirst()
+    {
+        if (_exiting || _bridge is null || !_bridge.Unsaved) return false;
+        ShowMain();
+        _bridge.Notify("closeRequested");
+        return true;
     }
 
     /// <summary>작업자료 창을 띄워 앞으로 낸다 — 숨었으면 보이고, 최소화했으면 풀고.</summary>
@@ -389,6 +418,18 @@ public partial class App : Application
             return dialog.ShowDialog() == true ? dialog.FileName : null;
         });
 
+        bridge.PickOpenJson = title => OnUiThread(() =>
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = title,
+                Filter = "보기 구성 (*.json)|*.json",
+                Multiselect = false,
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            };
+            return dialog.ShowDialog() == true ? dialog.FileName : null;
+        });
+
         // 문서 폴더에서 연다 — 여는 자리를 정해 주지 않으면 프로그램 폴더가 걸릴 수 있고,
         // 거기에는 쓰지 못한다.
         bridge.PickSavePath = prompt => OnUiThread(() =>
@@ -400,6 +441,8 @@ public partial class App : Application
                 FileName = prompt.FileName,
                 DefaultExt = prompt.DefaultExt,
                 AddExtension = true,
+                // 작업자료를 새로 세우는 자리는 덮지 않는다 — 덮어쓰기를 물은 뒤 거절하지 않게 묻지 않는다.
+                OverwritePrompt = prompt.AllowOverwrite,
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             };
 

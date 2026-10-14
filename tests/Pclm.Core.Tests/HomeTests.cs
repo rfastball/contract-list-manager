@@ -88,6 +88,21 @@ public sealed class HomeTests : IDisposable
     }
 
     /// <summary>
+    /// 지금 작업자료인지는 쪽지가 가리키는 파일로만 가린다 — 열람 창의 「다른 자료 열어 보기」 가 이것으로 내 작업자료를
+    /// 거절한다. 그 창이 연 것은 임시 사본이라 제 손잡이의 경로와 견주면 내 작업자료를 골라도 걸리지 않는다.
+    /// </summary>
+    [Fact]
+    public void 지금_작업자료인지는_쪽지가_가리키는_파일로_가린다()
+    {
+        var ready = Is<HomeState.Ready>(_home.Resolve());
+
+        Assert.True(_home.IsActiveWorkfile(ready.Database.Path));
+        Assert.True(_home.IsActiveWorkfile(ready.Database.Path.ToUpperInvariant()));
+        Assert.False(_home.IsActiveWorkfile(Work("다른 작업자료.pclm")));
+        Assert.False(new Home(In("빈 홈")).IsActiveWorkfile(ready.Database.Path));
+    }
+
+    /// <summary>
     /// 지금 쓰는 사람의 옛 자료는 <b>사본을 떠서</b> 올린다. 원본은 바이트 하나 바뀌지 않는다 — 옮긴 사본이
     /// 잘못됐을 때 돌아갈 자리이고, 신원은 이어져 확장의 검토 화면이 끊기지 않는다.
     /// </summary>

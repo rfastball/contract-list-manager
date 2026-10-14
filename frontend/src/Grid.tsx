@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Sheet, UserColumn } from "./types";
+import type { BatchChange, Row, Sheet, SheetExport, UserColumn } from "./types";
+import { Modal } from "./Modal";
+import "../css/grid-work.css";
 import { useFindShortcut } from "./useFindShortcut";
+import { toV2 } from "./flow/migrate";
+import { printFlow } from "./flow/syntax";
+
+/** 가공열 안내에 찍을 식 첫 줄. */
+function formulaLine(column: UserColumn | undefined): string {
+  if (!column?.formula) return "";
+  try {
+    const f = toV2(column.formula);
+    return (f.source === "sql" ? f.sql.trim() : printFlow(f.flow)).split("\n")[0];
+  } catch { return ""; }
+}
 
 /** 값이 숫자로 읽히면 오른쪽으로 붙인다 — 금액 자릿수가 눈으로 맞아야 한다. */
 function isNumeric(value: string): boolean {
@@ -16,6 +29,10 @@ function asNumber(value: string): number | null {
 
 type Props = {
   initialQuery?: string;
+  /** 처음 검색어가 있으면 검색 칸에 초점을 줄지. 대시보드에서 막 왔을 때만 준다 — 보기 전환이 이어 준 검색어는 초점을 옮기지 않는다. */
+  focusQuery?: boolean;
+  /** 검색어가 바뀔 때마다 — 보기를 바꿔 표가 새로 서도 바깥이 지금 검색어를 이어 줄 수 있게. */
+  onQueryChange?: (query: string) => void;
   sheet: Sheet;
   columns: UserColumn[];
   /**
@@ -33,8 +50,6 @@ type Props = {
   onEdit: (rowKey: string, field: string, value: string) => Promise<void>;
   /** 파서가 읽은 값을 고친다. 담기는 표가 달라 길을 가른다. */
   onCorrect: (rowKey: string, field: string, value: string) => Promise<void>;
-  /** 고친 것을 걷어 파서가 읽은 값으로 되돌린다. */
-  onRevert: (rowKey: string, field: string) => Promise<void>;
   /**
    * 줄 하나를 지운다. 무엇이 사라지는지 묻는 것은 바깥의 몫이다.
    *
@@ -43,9 +58,37 @@ type Props = {
    * 눌러 본 사람에게 다리가 "그런 접수·공고·계약이 없다" 고만 답한다.</p>
    */
   onDelete?: (rowKey: string) => void;
+  onDeleteRows?: (rows: Row[]) => void;
+  onBatchEdit?: (changes: BatchChange[]) => Promise<void>;
+  onManageColumns?: (field?: string) => void;
+  onExport?: (data: SheetExport) => Promise<void>;
 };
 
 type Sort = { column: string; dir: 1 | -1 };
+
+const quoteCell = (value: string) => /[\t\r\n"]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+
+/** Excel clipboard TSV includes quoted cells containing tabs or newlines. */
+export function parseClipboard(text: string): string[][] {
+  if (text.length > 2_000_000) throw new Error("붙여넣기는 한 번에 2MB까지 가능합니다.");
+  const rows: string[][] = [[]];
+  let value = "", quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"' && (quoted || !value)) {
+      if (quoted && text[i + 1] === '"') { value += '"'; i++; } else quoted = !quoted;
+    } else if (!quoted && (char === "\t" || char === "\n" || char === "\r")) {
+      rows[rows.length - 1].push(value); value = "";
+      if (char !== "\t") { if (char === "\r" && text[i + 1] === "\n") i++; rows.push([]); }
+    } else value += char;
+  }
+  if (quoted) throw new Error("붙여넣을 값의 따옴표가 닫히지 않았습니다.");
+  rows[rows.length - 1].push(value);
+  if (rows.length > 1 && /[\r\n]$/.test(text) && rows.at(-1)!.length === 1 && !rows.at(-1)![0]) rows.pop();
+  if (rows.some(r => r.length !== rows[0].length)) throw new Error("행마다 열 개수가 다릅니다. 사각형 범위를 복사하세요.");
+  if (rows.length * rows[0].length > 10000) throw new Error("한 번에 10,000셀까지 붙여넣을 수 있습니다.");
+  return rows;
+}
 
 /**
  * 계약면 뷰를 표로 보여 주고, 고칠 수 있는 칸을 고치게 한다.
@@ -66,9 +109,13 @@ type Sort = { column: string; dir: 1 | -1 };
  * 화면에 남아, <b>화면과 DB 가 조용히 갈라졌다</b> — 파서에서 그토록 경계한 그 일이 화면에 있었다.</p>
  */
 export function Grid({
-  sheet, columns, keyColumn, identityColumns, onEdit, onCorrect, onRevert, onDelete, initialQuery = "",
+  sheet, columns, keyColumn, identityColumns, onEdit, onCorrect, onDelete, onDeleteRows,
+  onBatchEdit, onManageColumns, onExport, initialQuery = "", focusQuery = true, onQueryChange,
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
+  const queryReport = useRef(onQueryChange);
+  queryReport.current = onQueryChange;
+  useEffect(() => { queryReport.current?.(query); }, [query]);
   const [sort, setSort] = useState<Sort | null>(null);
   /**
    * 커서는 <b>줄의 신원</b>으로 든다. <code>row</code> 는 마지막으로 본 자리일 뿐이다.
@@ -84,6 +131,44 @@ export function Grid({
   /** 편집 중인 글자. null 이면 보기 상태다. */
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** 저장하는 동안 친 글자. 끝나면 지금 칸의 편집으로 이어 받는다 — Enter 로 넣고 곧바로 친 글자를 버리지 않는다. */
+  const typedWhileSaving = useRef("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<{ id: string; col: number } | null>(null);
+  const [bulkField, setBulkField] = useState("");
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [pending, setPending] = useState<BatchChange[] | null>(null);
+  /** 행 선택 일괄 입력에서 값을 매달 수 없어 건너뛴 행 수. 검토 창이 함께 말한다. */
+  const [skipped, setSkipped] = useState(0);
+  const [batchError, setBatchError] = useState("");
+  const [notice, setNotice] = useState("");
+  /** 알림을 띠에 보이는 동안. 스크린리더 알림(role=status)은 그대로 두고, 보이는 글만 잠시 뒤 걷는다. */
+  const [noticeShown, setNoticeShown] = useState(false);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const tell = (text: string) => {
+    setNotice(text); setNoticeShown(true);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNoticeShown(false), 4000);
+  };
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const [exportBusy, setExportBusy] = useState(false);
+  /** 「엑셀 내보내기」 펼침. 고르거나 바깥을 누르거나 Esc 면 접는다 — 열린 채 두면 표 위를 가린다. */
+  const exportMenu = useRef<HTMLDetailsElement>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const closeExport = () => { if (exportMenu.current) exportMenu.current.open = false; setExportOpen(false); };
+  useEffect(() => {
+    if (!exportOpen) return;
+    const away = (e: PointerEvent) => { if (!exportMenu.current?.contains(e.target as Node)) closeExport(); };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [exportOpen]);
+  /** 가공열 칸을 고치려 할 때 뜨는 안내. 줄 신원과 열 번호. */
+  const [explain, setExplain] = useState<{ id: string; col: number } | null>(null);
+  const dragging = useRef(false);
+  const dragMoved = useRef(false);
+  const rowAnchor = useRef<string | null>(null);
+  const bulkLock = useRef(false);
 
   const editable = useMemo(() => new Set(sheet.editable), [sheet.editable]);
   const correctable = useMemo(() => new Set(sheet.correctable), [sheet.correctable]);
@@ -95,7 +180,7 @@ export function Grid({
   const board = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const here = useRef<HTMLTableCellElement>(null);
-  useEffect(() => { if (initialQuery) search.current?.focus(); }, [initialQuery]);
+  useEffect(() => { if (initialQuery && focusQuery) search.current?.focus(); }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useFindShortcut(search);
 
@@ -142,13 +227,13 @@ export function Grid({
     const seen = new Map<string, number>();
     const ids = new Map<Record<string, string>, string>();
     for (const r of sheet.rows) {
-      const name = 이름(r);
+      const name = identityColumns.map(c => r[c] ?? "").join("\u0001") + "\u0001" + (r["차수"] ?? "");
       const nth = seen.get(name) ?? 0;
       seen.set(name, nth + 1);
       ids.set(r, `${name}\u0000${nth}`);
     }
     return (r: Record<string, string>) => ids.get(r) ?? 이름(r);
-  }, [sheet.rows, 이름]);
+  }, [sheet.rows, 이름, identityColumns]);
 
   const last = Math.max(rows.length - 1, 0);
 
@@ -182,6 +267,7 @@ export function Grid({
   useEffect(() => {
     here.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [at, cursor.col]);
+  useEffect(() => { setExplain(e => e && (e.id !== cursor.id || e.col !== cursor.col) ? null : e); }, [cursor.id, cursor.col]);
 
   /** 화면에 보이는 자리로 커서를 옮긴다 — 옮긴 뒤로는 그 자리의 줄을 붙든다. */
   const go = useCallback((index: number, col: number) => {
@@ -210,6 +296,109 @@ export function Grid({
   /** 줄이 사라진 그 한 번의 그리기에서는 글자를 옆 줄에 그리지 않는다 — 곧 버린다. */
   const editing = lost ? null : draft;
 
+  const selectedRows = rows.filter(r => selected.has(신원(r)));
+  const anchorRow = anchor ? rows.findIndex(r => 신원(r) === anchor.id) : -1;
+  const bounds = { top: Math.min(anchorRow < 0 ? at : anchorRow, at), bottom: Math.max(anchorRow < 0 ? at : anchorRow, at),
+    left: Math.min(anchor?.col ?? cursor.col, cursor.col), right: Math.max(anchor?.col ?? cursor.col, cursor.col) };
+  const rangeSize = (bounds.bottom - bounds.top + 1) * (bounds.right - bounds.left + 1);
+  const clearSelection = () => { setSelected(new Set()); setAnchor(null); setBulkOpen(false); rowAnchor.current = null; };
+  const chooseCell = (ri: number, ci: number, extend = false) => {
+    if (saving || pending) return;
+    setSelected(new Set()); setBulkOpen(false); setDraft(null);
+    setAnchor(extend ? anchor ?? { id: 신원(rows[at]), col: cursor.col } : null);
+    go(ri, ci); board.current?.focus();
+  };
+  const chooseRow = (ri: number, checked: boolean, extend: boolean) => {
+    if (saving || pending) return;
+    setAnchor(null); setDraft(null);
+    const start = extend && rowAnchor.current ? rows.findIndex(r => 신원(r) === rowAnchor.current) : ri;
+    setSelected(previous => {
+      const next = new Set(previous);
+      for (let i = Math.min(start < 0 ? ri : start, ri); i <= Math.max(start, ri); i++) {
+        if (checked) next.add(신원(rows[i])); else next.delete(신원(rows[i]));
+      }
+      return next;
+    });
+    rowAnchor.current = 신원(rows[ri]);
+  };
+  const selectAllRows = (checked: boolean) => {
+    setAnchor(null); setDraft(null); setSelected(new Set(checked ? rows.map(신원) : []));
+  };
+  useEffect(() => {
+    const live = new Set(sheet.rows.map(신원));
+    setSelected(previous => {
+      const kept = new Set([...previous].filter(id => live.has(id)));
+      return kept.size === previous.size ? previous : kept;
+    });
+    if (anchor && !live.has(anchor.id)) setAnchor(null);
+  }, [sheet.rows, 신원, anchor]);
+  useEffect(() => {
+    const stop = () => { dragging.current = false; };
+    window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop); window.addEventListener("blur", stop);
+    return () => { window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); window.removeEventListener("blur", stop); };
+  }, []);
+
+  /**
+   * 바꿀 칸을 검토 창에 올린다. 고칠 수 없는 칸이 하나라도 섞이면 아무것도 올리지 않는다 — 범위를 잘못 잡은 것이다.
+   *
+   * <p><code>skipUnattached</code> 는 행 선택의 「같은 값 입력」 만 쓴다. 통합 표에는 계약이 아직 없는 줄이 정상으로
+   * 섞여 있어, 그런 줄 하나 때문에 전체를 거절하면 그 기능을 쓸 수가 없다. 그 줄은 건너뛰고 몇 줄인지 검토 창에 보인다.
+   * 모두 건너뛰게 되면 지금처럼 거절한다.</p>
+   */
+  const prepare = (asked: { ri: number; ci: number; value: string }[], operation: "set" | "revert" = "set", skipUnattached = false) => {
+    setBatchError("");
+    if (!onBatchEdit || saving) return;
+    const attached = skipUnattached ? asked.filter(c => 매달린다(rows[c.ri])) : asked;
+    // 모두 건너뛰게 되면 거르지 않고 그대로 보낸다 — 아래에서 첫 줄이 거절되며 까닭이 선다.
+    const cells = attached.length ? attached : asked;
+    const changes = new Map<string, BatchChange>();
+    for (const { ri, ci, value } of cells) {
+      const r = rows[ri], field = sheet.columns[ci];
+      if (!r || !field || !매달린다(r) || !(editable.has(field) || correctable.has(field))) {
+        setBatchError(`${ri + 1}행 · ${field ?? "표 밖"}: 수정할 수 없는 칸입니다. 범위를 다시 선택하세요. 저장한 값은 없습니다.`); return;
+      }
+      if (operation === "revert" && sheet.overrides[r[keyColumn]]?.[field] === undefined) continue;
+      const definition = definitions.get(field);
+      if (operation === "set" && definition?.kind === "choice" && value && !definition.choices.includes(value)) {
+        setBatchError(`${ri + 1}행 · ${field}: 선택 항목에 없는 값입니다 (${value}). 저장한 값은 없습니다.`); return;
+      }
+      const id = `${r[keyColumn]}\u0000${field}`;
+      const next: BatchChange = { rowKey: r[keyColumn], field, value, original: r[field] ?? "", operation };
+      if (changes.has(id) && changes.get(id)!.value !== value) {
+        setBatchError(`같은 자료의 ${field}에 서로 다른 값을 넣을 수 없습니다.`); return;
+      }
+      if (operation === "revert" || next.original !== value) changes.set(id, next);
+    }
+    if (!changes.size) { tell("변경할 값이 없습니다."); return; }
+    setSkipped(asked.length - cells.length);
+    setPending([...changes.values()]);
+  };
+  const rangeCells = (value: string) => {
+    const cells = [];
+    for (let ri = bounds.top; ri <= bounds.bottom; ri++)
+      for (let ci = bounds.left; ci <= bounds.right; ci++) cells.push({ ri, ci, value });
+    return cells;
+  };
+  const applyBatch = async () => {
+    if (!pending || !onBatchEdit || bulkLock.current) return;
+    bulkLock.current = true; setSaving(true); setBatchError("");
+    try { await onBatchEdit(pending); tell(`${pending.length}셀 변경을 저장했습니다.`); setPending(null); setBulkOpen(false); }
+    catch (e) { setBatchError((e as Error).message); }
+    finally { bulkLock.current = false; setSaving(false); }
+  };
+  const copyText = () => {
+    const list = selected.size ? selectedRows : rows.slice(bounds.top, bounds.bottom + 1);
+    const fields = selected.size ? sheet.columns : sheet.columns.slice(bounds.left, bounds.right + 1);
+    return list.map(r => fields.map(c => quoteCell(r[c] ?? "")).join("\t")).join("\r\n");
+  };
+  const exportRows = async (list: Row[]) => {
+    if (!onExport || exportBusy) return;
+    setExportBusy(true); setBatchError("");
+    try { await onExport({ columns: sheet.columns, rows: list.map(r => sheet.columns.map(c => r[c] ?? "")) }); }
+    catch (e) { setBatchError((e as Error).message); }
+    finally { setExportBusy(false); }
+  };
+
   /** 이 칸에 걸린 덮개의 원래 값. 걸려 있지 않으면 undefined 다 — 빈 문자열과 구별된다. */
   const original = row === undefined ? undefined : sheet.overrides[row[keyColumn]]?.[column];
 
@@ -234,23 +423,43 @@ export function Grid({
     }
   }, [row, column, keyColumn, editable, onEdit, onCorrect]);
 
-  /** 덮개를 걷는다. 파서가 읽은 값이 돌아오므로 표를 다시 읽어야 해서 바깥이 맡는다. */
-  const revert = useCallback(async () => {
-    if (row === undefined) return;
-
-    setSaving(true);
-    try {
-      await onRevert(row[keyColumn], column);
-    } catch {
-      // 바깥이 까닭을 알린다.
-    } finally {
-      setSaving(false);
-    }
-  }, [row, column, keyColumn, onRevert]);
+  useEffect(() => {
+    if (saving) return;
+    const typed = typedWhileSaving.current;
+    typedWhileSaving.current = "";
+    // 보통 때 타자로 편집을 시작하는 것과 같은 조건 — 고칠 수 있는 칸에 커서가 있고 줄을 고르지 않았을 때.
+    if (typed && canEdit && draft === null && !selected.size && !pending) setDraft(typed);
+  }, [saving]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (rows.length === 0) return;
     if (editing !== null) return; // 편집 중에는 입력 상자가 맡는다
+    if ((e.target as HTMLElement).matches('input, select, button')) return;
+    if (saving || pending) {
+      e.preventDefault();
+      if (saving && !pending) {
+        if (e.key === "Escape") typedWhileSaving.current = "";
+        else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) typedWhileSaving.current += e.key;
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault(); setSelected(new Set()); setAnchor({ id: 신원(rows[0]), col: 0 });
+      go(last, sheet.columns.length - 1); return;
+    }
+    if (e.shiftKey && e.key === " ") {
+      e.preventDefault(); setSelected(new Set(rows.slice(bounds.top, bounds.bottom + 1).map(신원))); setAnchor(null); return;
+    }
+    const directions: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+    if (directions[e.key]) {
+      e.preventDefault(); const [dr, dc] = directions[e.key];
+      chooseCell(Math.max(0, Math.min(last, at + dr)), Math.max(0, Math.min(sheet.columns.length - 1, cursor.col + dc)), e.shiftKey); return;
+    }
+    if (e.key === "Escape") { e.preventDefault(); if (explain) { setExplain(null); return; } clearSelection(); setBatchError(""); return; }
+    if (selected.size && (["Delete", "Backspace", "F2", "Enter"].includes(e.key) || (e.key.length === 1 && !e.ctrlKey && !e.metaKey))) { e.preventDefault(); return; }
+    if (anchor && ["Delete", "Backspace"].includes(e.key)) {
+      e.preventDefault(); prepare(rangeCells(""), e.ctrlKey ? "revert" : "set"); return;
+    }
 
     switch (e.key) {
       case "ArrowUp": move(-1, 0); break;
@@ -265,13 +474,15 @@ export function Grid({
       case "F2":
       case "Enter":
         if (canEdit) setDraft(row[column] ?? "");
+        else if (e.key === "F2" && definitions.get(column)?.kind === "computed" && row) setExplain({ id: 신원(row), col: cursor.col });
         else if (e.key === "Enter") move(1, 0);
         break;
       case "Delete":
       case "Backspace":
         // Ctrl 을 짚으면 되돌리기, 그냥 누르면 빈 값. 잘못 읽힌 칸을 <b>비우는 것</b>과
-        // 파서 값으로 <b>돌아가는 것</b>은 다른 일이라 키를 나눈다.
-        if (e.ctrlKey) { if (original !== undefined) void revert(); }
+        // 파서 값으로 <b>돌아가는 것</b>은 다른 일이라 키를 나눈다. 되돌리기는 사람이 고친 값을 지우므로
+        // 범위로 할 때와 같은 검토 창을 거친다 — 칸 하나라고 확인 없이 지우지 않는다. 고칠 수 없는 표에서는 아무것도 하지 않는다.
+        if (e.ctrlKey) { if (original !== undefined && onBatchEdit) prepare([{ ri: at, ci: cursor.col, value: "" }], "revert"); }
         else if (canEdit) void commit("");
         break;
       default:
@@ -283,9 +494,6 @@ export function Grid({
     e.preventDefault();
   };
 
-  if (sheet.rows.length === 0)
-    return <div className="empty-state">표시할 자료가 없습니다. 자료를 가져왔는지, 필터가 적용되어 있는지 확인하세요.</div>;
-
   return (
     <div className="grid-wrap">
       <div className="grid-toolbar">
@@ -296,56 +504,105 @@ export function Grid({
           aria-label="목록 검색"
           placeholder="찾기 (Ctrl+F)"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); board.current?.focus(); } }}
+          onChange={(e) => { setQuery(e.target.value); clearSelection(); setNotice("검색 조건이 바뀌어 선택을 해제했습니다."); setNoticeShown(false); }}
+          onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); clearSelection(); board.current?.focus(); } }}
         />
         <span className="result-count" role="status">{rows.length}건<span> / 전체 {sheet.rows.length}건</span></span>
         {sort && (
-          <button className="action" onClick={() => setSort(null)}>
+          <button className="action" onClick={() => { setSort(null); setAnchor(null); }}>
             {sort.column} {sort.dir > 0 ? "↑" : "↓"} · 정렬 해제
           </button>
         )}
 
         <span className="spacer" />
 
-        {/* 커서가 선 줄을 지운다. 무엇이 사라지는지는 바깥이 세어 묻는다.
-            지우는 개체가 아닌 표(계획)에서는 바깥이 손잡이를 넘기지 않아 서지 않는다. */}
-        {onDelete && (
-          <button
-            className="action danger"
-            disabled={row === undefined}
-            onClick={() => row && onDelete(이름(row))}
-          >
-            선택 자료 삭제…
-          </button>
-        )}
+        {onManageColumns && <button className="action quiet" onClick={() => onManageColumns()}>열 관리</button>}
+        {onExport && <details className="grid-export" ref={exportMenu} onToggle={e => setExportOpen(e.currentTarget.open)}
+          onKeyDown={e => {
+            if (e.key !== "Escape" || !exportMenu.current?.open) return;
+            e.preventDefault(); closeExport(); exportMenu.current.querySelector("summary")?.focus();
+          }}>
+          <summary className="action" aria-label="엑셀 내보내기">{exportBusy ? "내보내는 중…" : "엑셀 내보내기"}</summary>
+          <div className="grid-export-options">
+            <button className="action quiet" disabled={exportBusy || !rows.length} onClick={() => { closeExport(); void exportRows(rows); }}>검색 결과 {rows.length}행 내보내기</button>
+            <button className="action quiet" disabled={exportBusy || !selectedRows.length} onClick={() => { closeExport(); void exportRows(selectedRows); }}>선택한 {selectedRows.length}행 내보내기</button>
+            <span className="hint">현재 표와 정렬 순서로 저장합니다. 전체 자료는 설정의 「자료 관리」에서 내보냅니다.</span>
+          </div>
+        </details>}
       </div>
-
-      <div className="grid-board" ref={board} tabIndex={0} onKeyDown={onKeyDown}>
+      <div className="grid-selection" aria-label="선택 작업">
+        {selectedRows.length ? <>
+          <strong>{selectedRows.length}행 선택</strong>
+          {!!sheet.editable.length && onBatchEdit && <button className="action quiet" onClick={() => { setBulkField(sheet.editable[0]); setBulkValue(""); setBulkOpen(v => !v); }}>같은 값 입력…</button>}
+          {(onDeleteRows || onDelete) && <button className="action quiet" disabled={saving || (!onDeleteRows && selectedRows.length !== 1)}
+            onClick={() => onDeleteRows ? onDeleteRows(selectedRows) : onDelete?.(이름(selectedRows[0]))}>선택 자료 삭제…</button>}
+          <button className="action quiet" onClick={clearSelection}>선택 해제</button>
+        </> : anchor ? <>
+          <strong>{rangeSize}셀 선택</strong>
+          <button className="action quiet" onClick={() => void navigator.clipboard.writeText(copyText()).then(() => tell("복사했습니다."), () => setBatchError("표에 초점을 두고 Ctrl+C로 복사하세요."))}>복사</button>
+          {onBatchEdit && !!(sheet.editable.length + sheet.correctable.length) && <>
+            <button className="action quiet" onClick={() => prepare(rangeCells(""))}>내용 비우기…</button>
+            <button className="action quiet" onClick={() => prepare(rangeCells(""), "revert")}>원래 값 복원…</button>
+          </>}
+          <button className="action quiet" onClick={clearSelection}>선택 해제</button>
+        </> : <span className="hint">체크박스로 여러 행 선택 · Shift+클릭으로 범위 선택 · Ctrl+C / Ctrl+V</span>}
+      </div>
+      {bulkOpen && selectedRows.length > 0 && <form className="grid-bulk" onSubmit={e => { e.preventDefault();
+        prepare(selectedRows.map(r => ({ ri: rows.indexOf(r), ci: sheet.columns.indexOf(bulkField), value: bulkValue })), "set", true); }}>
+        <label>입력할 열 <select className="text" value={bulkField} onChange={e => setBulkField(e.target.value)}>{sheet.editable.map(c => <option key={c}>{c}</option>)}</select></label>
+        <label>같은 값 {definitions.get(bulkField)?.kind === "choice" ? <select className="text" value={bulkValue} onChange={e => setBulkValue(e.target.value)}><option value="">빈 값</option>{definitions.get(bulkField)?.choices.map(c => <option key={c}>{c}</option>)}</select>
+          : <input className="text" value={bulkValue} onChange={e => setBulkValue(e.target.value)} />}</label>
+        <button className="action" type="submit">변경 검토</button><button className="action quiet" type="button" onClick={() => setBulkOpen(false)}>취소</button>
+        <span className="hint">사용자 입력값은 같은 본번호의 전체 차수에서 함께 사용합니다.</span>
+      </form>}
+      {batchError && !pending && <p className="grid-message" role="alert">{batchError}</p>}
+      {notice && noticeShown && <p className="grid-message grid-notice" aria-hidden="true">{notice}</p>}
+      {notice && <span className="sr-only" role="status">{notice}</span>}
+      <div className="grid-board" ref={board} tabIndex={0} onKeyDown={onKeyDown}
+        onCopy={e => { if (editing !== null || !rows.length) return; e.preventDefault(); e.clipboardData.setData("text/plain", copyText()); }}
+        onPaste={e => {
+          if (editing !== null || !onBatchEdit) return;
+          e.preventDefault();
+          if (selected.size) { setBatchError("붙여넣을 시작 셀을 먼저 선택하세요."); return; }
+          try {
+            const values = parseClipboard(e.clipboardData.getData("text/plain"));
+            if (anchor && rangeSize > 1 && (values.length !== bounds.bottom - bounds.top + 1 || values[0].length !== bounds.right - bounds.left + 1))
+              throw new Error("붙여넣을 크기와 선택 범위가 다릅니다. 시작 셀 하나를 선택하거나 같은 크기의 범위를 선택하세요.");
+            prepare(values.flatMap((line, ri) => line.map((value, ci) => ({ ri: bounds.top + ri, ci: bounds.left + ci, value }))));
+          } catch (error) { setBatchError((error as Error).message); }
+        }}>
         {rows.length === 0 ? (
           <div className="empty-state"><h2>검색 결과가 없습니다</h2><p>다른 검색어로 찾아보세요.</p>
-            <button className="action" onClick={() => { setQuery(""); search.current?.focus(); }}>검색 지우기</button>
+            <button className="action" onClick={() => { setQuery(""); clearSelection(); search.current?.focus(); }}>검색 지우기</button>
           </div>
         ) : <table className="grid">
           <thead>
             <tr>
+              <th className="row-check"><input type="checkbox" aria-label={`검색 결과 ${rows.length}행 전체 선택`} checked={rows.length > 0 && selectedRows.length === rows.length}
+                ref={node => { if (node) node.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length; }}
+                onChange={e => selectAllRows(e.target.checked)} /></th>
               {sheet.columns.map((c) => (
                 <th
                   key={c}
-                  className={editable.has(c) ? "editable" : undefined}
+                  className={editable.has(c) ? "editable" : definitions.get(c)?.kind === "computed" ? "computed" : undefined}
                   title={
                     editable.has(c) ? "사용자 입력 열 (클릭하면 정렬)"
                     : correctable.has(c) ? "문서 값을 수정할 수 있는 열 (클릭하면 정렬)"
+                    : definitions.get(c)?.kind === "computed" ? "식이 채우는 가공열 (클릭하면 정렬)"
                     : "클릭하면 정렬"
                   }
-                  onClick={() =>
+                  aria-sort={sort?.column === c ? sort.dir > 0 ? "ascending" : "descending" : "none"}
+                  onClick={() => { setAnchor(null);
                     setSort((s) =>
                       s?.column !== c ? { column: c, dir: 1 } : s.dir > 0 ? { column: c, dir: -1 } : null,
                     )
-                  }
+                  }}
                 >
-                  {c}
+                  {definitions.get(c)?.kind === "computed" && <span className="grid-formula-mark" aria-hidden="true">=</span>}
+                  <button className="grid-heading" type="button" aria-label={`${c} 정렬`}>{c}</button>
                   {sort?.column === c && <span className="sort">{sort.dir > 0 ? " ↑" : " ↓"}</span>}
+                  {onManageColumns && definitions.has(c) && <button className="grid-heading-edit" aria-label={`${c} 열 정의 편집`} title="열 정의 편집"
+                    onClick={e => { e.stopPropagation(); onManageColumns(c); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16 11-11 3 3L8 19H5zM14 7l3 3" /></svg></button>}
                 </th>
               ))}
             </tr>
@@ -353,7 +610,11 @@ export function Grid({
           <tbody>
             {rows.map((r, ri) => (
               // 신원으로 키를 단다 — 자리 번호를 섞으면 줄이 옮길 때마다 새로 태어나 편집 상자가 끊긴다.
-              <tr key={신원(r)}>
+              <tr key={신원(r)} className={selected.has(신원(r)) ? "row-selected" : undefined}>
+                <td className="row-check"><input type="checkbox" aria-label={`${이름(r)} 행 선택`} checked={selected.has(신원(r))} disabled={saving}
+                  onChange={() => {}}
+                  onClick={e => chooseRow(ri, e.currentTarget.checked, e.shiftKey)}
+                  onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); selectAllRows(true); } }} /></td>
                 {sheet.columns.map((c, ci) => {
                   const current = ri === at && ci === cursor.col;
                   return (
@@ -366,10 +627,21 @@ export function Grid({
                       original={sheet.overrides[r[keyColumn]]?.[c]}
                       definition={definitions.get(c)}
                       current={current}
+                      inRange={!!anchor && ri >= bounds.top && ri <= bounds.bottom && ci >= bounds.left && ci <= bounds.right}
+                      pinned={ci === 0}
                       draft={current ? editing : null}
                       saving={current && saving}
-                      onSelect={() => { setDraft(null); go(ri, ci); board.current?.focus(); }}
-                      onOpen={() => setDraft(r[c] ?? "")}
+                      onSelect={e => { if (dragMoved.current) { dragMoved.current = false; return; } chooseCell(ri, ci, e.shiftKey); }}
+                      onPointerDown={e => { if (e.button !== 0 || e.pointerType === "touch" || editing !== null || saving || pending) return;
+                        e.preventDefault(); dragging.current = true; dragMoved.current = false; chooseCell(ri, ci, e.shiftKey); }}
+                      onPointerEnter={e => { if (dragging.current && e.buttons === 1) { dragMoved.current = true; chooseCell(ri, ci, true); } }}
+                      onOpen={() => { if (!saving) { clearSelection(); setDraft(r[c] ?? ""); } }}
+                      onExplain={definitions.get(c)?.kind === "computed" ? () => { clearSelection(); go(ri, ci); setExplain({ id: 신원(r), col: ci }); } : undefined}
+                      note={explain && explain.id === 신원(r) && explain.col === ci ? {
+                        line: formulaLine(definitions.get(c)),
+                        onFix: onManageColumns ? () => { setExplain(null); onManageColumns(c); } : undefined,
+                        onClose: () => { setExplain(null); board.current?.focus(); },
+                      } : undefined}
 
                       onDraft={setDraft}
                       onCommit={(value, move) => {
@@ -403,6 +675,19 @@ export function Grid({
           </span>
         )}
       </div>
+      {pending && <Modal label="일괄 변경 검토" onClose={() => { if (!saving) { setPending(null); setBatchError(""); } }} className="batch-review"
+        fallbackFocus={() => board.current}>
+        <h2>{pending.length}셀 변경 검토</h2>
+        <p>아래 변경을 한 번에 저장합니다. 입력열은 전체 차수에, 수집값 정정은 선택한 차수에 적용합니다.</p>
+        {skipped > 0 && <p className="hint">계약이 없는 {skipped}행은 건너뜁니다.</p>}
+        <div className="batch-preview"><table><thead><tr><th>자료 번호</th><th>열</th><th>현재 값</th><th>변경 값</th></tr></thead><tbody>
+          {pending.slice(0, 50).map(c => <tr key={`${c.rowKey}:${c.field}`}><td>{c.rowKey}</td><td>{c.field}</td><td>{c.original || "빈 값"}</td><td>{c.operation === "revert" ? "수집 원래 값" : c.value || "빈 값"}</td></tr>)}
+        </tbody></table></div>
+        {pending.length > 50 && <p className="hint">처음 50셀 표시 · 전체 {pending.length}셀에 적용합니다.</p>}
+        {batchError && <p role="alert">{batchError}</p>}
+        <div className="row end"><button className="action" disabled={saving} onClick={() => { setPending(null); setBatchError(""); }}>취소</button>
+          <button className="action primary" disabled={saving} onClick={() => void applyBatch()}>{saving ? "저장 중…" : `${pending.length}셀 변경 적용`}</button></div>
+      </Modal>}
     </div>
   );
 }
@@ -416,18 +701,25 @@ type CellProps = {
   original?: string;
   definition?: UserColumn;
   current: boolean;
+  inRange?: boolean;
+  pinned?: boolean;
   draft: string | null;
   saving: boolean;
-  onSelect: () => void;
+  onSelect: (event: React.MouseEvent) => void;
+  onPointerDown?: (event: React.PointerEvent) => void;
+  onPointerEnter?: (event: React.PointerEvent) => void;
   onOpen: () => void;
+  /** 가공열 칸 — 편집 대신 안내를 연다. */
+  onExplain?: () => void;
+  note?: { line: string; onFix?: () => void; onClose: () => void };
   onDraft: (value: string) => void;
   onCommit: (value: string, move?: "down" | "right") => void;
   onCancel: () => void;
 };
 
 function Cell({
-  cellRef, value, editable, correctable, original, definition, current, draft, saving,
-  onSelect, onOpen, onDraft, onCommit, onCancel,
+  cellRef, value, editable, correctable, original, definition, current, inRange, pinned, draft, saving,
+  onSelect, onPointerDown, onPointerEnter, onOpen, onExplain, note, onDraft, onCommit, onCancel,
 }: CellProps) {
   const open = editable || correctable;
 
@@ -455,6 +747,8 @@ function Cell({
     original !== undefined ? "overridden" : "",
     current ? "cur" : "",
     saving ? "saving" : "",
+    inRange ? "range-selected" : "",
+    pinned ? "row-key" : "",
   ].filter(Boolean).join(" ");
 
   if (draft === null) {
@@ -470,9 +764,12 @@ function Cell({
         className={classes || undefined}
         title={original === undefined ? undefined : `수정한 셀 · 원래 값: ${original || "(빈 값)"}`}
         onClick={onSelect}
-        onDoubleClick={open ? onOpen : undefined}
+        onPointerDown={onPointerDown}
+        onPointerEnter={onPointerEnter}
+        onDoubleClick={open ? onOpen : onExplain}
       >
         <div ref={shownRef} className={shown}>{value || "—"}</div>
+        {note && <FormulaNote {...note} />}
         {/* 커서가 선 칸이 잘렸으면 전체를 칸 위에 펼친다. 글자를 골라 베낄 수 있게 두되,
             그 누름이 칸의 편집으로 번지지 않게 막는다. */}
         {clipped && (
@@ -554,5 +851,26 @@ function Editor({
         else if (e.key === "Escape") { e.preventDefault(); abort(); }
       }}
     />
+  );
+}
+
+/**
+ * 가공열 칸을 고치려 할 때의 안내(§6.5). 칸의 값은 식이 채우므로 편집 상자 대신 식 첫 줄과
+ * 「식 고치기」 를 보인다. Esc 로 닫으면 초점이 표로 돌아간다.
+ */
+function FormulaNote({ line, onFix, onClose }: { line: string; onFix?: () => void; onClose: () => void }) {
+  const fix = useRef<HTMLButtonElement>(null);
+  useEffect(() => { fix.current?.focus(); }, []);
+  return (
+    <div className="grid-formula-note" role="dialog" aria-label="가공열 안내"
+      onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <p>이 칸은 식이 채웁니다. 값을 바꾸려면 식을 고치세요.</p>
+      {line && <code>= {line}</code>}
+      <div className="grid-formula-actions">
+        {onFix && <button ref={fix} type="button" className="action primary" onClick={onFix}>식 고치기</button>}
+        <button ref={onFix ? undefined : fix} type="button" className="action" onClick={onClose}>닫기</button>
+      </div>
+    </div>
   );
 }

@@ -239,6 +239,108 @@ public class UserColumnTests : IDisposable
         Assert.Empty(new UserColumnDefinition("contract", "메모", "text", null, 10).Choices);
     }
 
+    [Fact]
+    public void 가공열은_외부_연결에서_짝과_순서를_보존하고_차수별로_계산된다()
+    {
+        var old = new NoticeRecord { NoticeBase = "TESTNOTICE", Seq = "000", Items = [
+            new() { LineNo = 3, ItemName = "책상", DetailItemNumber = "002" },
+            new() { LineNo = 1, ItemName = "책상", DetailItemNumber = "001" },
+            new() { LineNo = 2, ItemName = "책상", DetailItemNumber = "001" },
+        ] };
+        _store.UpsertNotice(old);
+        var json = Formula(new("pick", ["세부품명", "세부품명번호"]), new("distinct"),
+            new("format", Text: "{세부품명}({세부품명번호})"), new("join", Text: ", "));
+        _store.SaveComputedColumn("notice", "물품요약", json);
+        // 앱 함수를 등록하지 않은 독립 읽기 전용 연결이 소비자 경계다.
+        using var consumer = new SqliteConnection($"Data Source={_path};Mode=ReadOnly;Pooling=False");
+        consumer.Open();
+        string Read(string sql) { using var c = consumer.CreateCommand(); c.CommandText = sql; return c.ExecuteScalar()?.ToString() ?? ""; }
+        Assert.Equal("책상(001), 책상(002)", Read("SELECT 물품요약 FROM v_공고"));
+        var id = Read("SELECT 식별자 FROM v_가공열 WHERE 열이름='물품요약'");
+        Assert.NotEmpty(id);
+        _store.SaveComputedColumn("notice", "새요약", json, "물품요약");
+        Assert.Equal(id, Read("SELECT 식별자 FROM v_가공열 WHERE 열이름='새요약'"));
+        Assert.Throws<InvalidOperationException>(() => _store.SetUserField(new("notice", "TESTNOTICE", "000"), "새요약", "수동값"));
+        Assert.Throws<InvalidOperationException>(() => _store.SetOverride(new("notice", "TESTNOTICE", "000"), "새요약", "수동값"));
+        _store.UpsertNotice(old with { Seq = "001", Items = [new() { LineNo = 1, ItemName = "의자", DetailItemNumber = "003" }] });
+        Assert.Equal("의자(003)", Read("SELECT 새요약 FROM v_공고"));
+        Assert.Equal("책상(001), 책상(002)", Read("SELECT 새요약 FROM v_공고차수 WHERE 차수='000'"));
+        _database.Migrate();
+        Assert.Equal("의자(003)", Read("SELECT 새요약 FROM v_공고"));
+        _store.RemoveUserColumn("notice", "새요약");
+        Assert.Equal("0", Read("SELECT count(*) FROM v_가공열"));
+        Assert.Equal("4", Read("SELECT count(*) FROM notice_item"));
+
+        // 열 관리의 원본·부모·계산 결과는 숫자로 고른 같은 최신 차수와 같은 샘플을 가리킨다.
+        _store.UpsertNotice(old with { Seq = "9", Title = "이전9" });
+        _store.UpsertNotice(old with { Seq = "10", Title = "최신10", Items = Enumerable.Range(1, 101).Reverse().Select(i =>
+            new NoticeItemRecord { LineNo = i, ItemName = "의자10", DetailItemNumber = i.ToString("D4"), UnitPrice = 1234.567m }).ToArray() });
+        for (var i = 0; i < 5; i++) _store.UpsertNotice(new NoticeRecord { NoticeBase = $"ZZNOTICE{i}", Seq = "000" });
+        var viewer = new Store(new Database(_path, Access.Read));
+        var context = System.Text.Json.JsonSerializer.SerializeToElement(viewer.ColumnContext("notice"));
+        Assert.Equal(5, context.GetProperty("rows").GetArrayLength());
+        Assert.Contains(context.GetProperty("columns").EnumerateArray(), c => c.GetString() == "입찰공고번호");
+        Assert.Equal("TESTNOTICE-10", context.GetProperty("rows")[0].GetProperty("입찰공고번호").GetString());
+        Assert.Equal(ComputedColumn.Fields("notice").Keys, context.GetProperty("fields").EnumerateArray().Select(c => c.GetString()));
+        var sources = context.GetProperty("sources");
+        Assert.Equal(5, sources.GetArrayLength());
+        var first = sources[0];
+        Assert.Equal("TESTNOTICE", first.GetProperty("base").GetString());
+        Assert.Equal("10", first.GetProperty("revision").GetString());
+        Assert.Equal("최신10", first.GetProperty("title").GetString());
+        Assert.Equal(101, first.GetProperty("totalRows").GetInt32());
+        Assert.Equal(100, first.GetProperty("rows").GetArrayLength());
+        Assert.Equal("0001", first.GetProperty("rows")[0].GetProperty("세부품명번호").GetString());
+        Assert.Equal("0100", first.GetProperty("rows")[99].GetProperty("세부품명번호").GetString());
+        Assert.Equal("1,234.567", first.GetProperty("rows")[0].GetProperty("추정단가").GetString());
+        Assert.Equal(0, sources[1].GetProperty("totalRows").GetInt32());
+        Assert.Empty(sources[1].GetProperty("rows").EnumerateArray());
+        var previews = System.Text.Json.JsonSerializer.SerializeToElement(viewer.PreviewComputedColumn("notice",
+            Formula(new("at", Index: 1), new("get", Text: "세부품명번호"))));
+        Assert.Equal(sources.EnumerateArray().Select(s => s.GetProperty("base").GetString()),
+            previews.EnumerateArray().Select(p => p.GetProperty("base").GetString()));
+        Assert.Equal("10", previews[0].GetProperty("revision").GetString());
+        Assert.Equal("0001", previews[0].GetProperty("value").GetString());
+        Assert.Throws<InvalidOperationException>(() => viewer.ColumnContext("notice; DROP TABLE notice"));
+    }
+
+    [Fact]
+    public void 가공열은_행선택_개수_빈목록과_문자열_리터럴을_처리한다()
+    {
+        _store.UpsertContract(new ContractRecord { ContractBase = "TESTCONTRACT", Seq = "00", Items = [
+            new() { LineNo = 1, ItemName = "첫째", ItemIdNumber = "0001", UnitPrice = 1234.567m },
+            new() { LineNo = 2, ItemName = "둘째", ItemIdNumber = "0002" },
+        ] });
+        _store.SaveComputedColumn("contract", "둘째번호", Formula(new("pick", ["품명", "물품식별번호"]), new("at", Index: 2), new("get", Text: "물품식별번호")));
+        Assert.Equal("0002", Cell("둘째번호"));
+        _store.SaveComputedColumn("contract", "첫단가", Formula(new("at", Index: 1), new("get", Text: "단가")));
+        Assert.Equal("1,234.567", Cell("첫단가"));
+        _store.SaveComputedColumn("contract", "문자열", Formula(new("pick", ["품명"]), new("format", Text: "'{품명}'"), new("join", Text: "'|")));
+        Assert.Equal("'첫째''|'둘째'", Cell("문자열"));
+        _store.SaveComputedColumn("contract", "행수", Formula(new ColumnStep("count")));
+        Assert.Equal("2", Cell("행수"));
+        _store.UpsertContract(new ContractRecord { ContractBase = "TESTCONTRACT", Seq = "00" });
+        Assert.Equal("0", Cell("행수"));
+        Assert.Equal("", Cell("둘째번호"));
+        Assert.Equal("", Cell("문자열"));
+    }
+
+    [Theory]
+    [InlineData("{\"version\":1,\"steps\":[{\"op\":\"pick\",\"fields\":[\"없는필드\"]},{\"op\":\"count\"}]}")]
+    [InlineData("{\"version\":1,\"steps\":[{\"op\":\"join\",\"text\":\",\"}]}")]
+    [InlineData("{\"version\":1,\"steps\":[{\"op\":\"at\",\"index\":0},{\"op\":\"get\",\"text\":\"품명\"}]}")]
+    [InlineData("{\"version\":2,\"steps\":[{\"op\":\"count\"}]}")]
+    [InlineData("{\"version\":1,\"steps\":[{\"op\":\"format\",\"text\":\"{없는필드}\"},{\"op\":\"join\"}]}")]
+    public void 잘못된_가공식은_저장하지_않는다(string json)
+    {
+        Assert.Throws<InvalidOperationException>(() => _store.SaveComputedColumn("contract", "실패열", json));
+        Assert.DoesNotContain(_store.UserColumns(), c => c.FieldName == "실패열");
+        _database.RefreshViews();
+    }
+
+    private static string Formula(params ColumnStep[] steps) =>
+        System.Text.Json.JsonSerializer.Serialize(new ColumnFormula(1, "", steps), ComputedColumn.Json);
+
     // ── 준비 ─────────────────────────────────────────────
 
     private static EntityRef Contract => new("contract", "R26TA09110507", "00");

@@ -16,6 +16,6 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     // root 가 frontend/ 라 여기 경로도 그 아래를 가리킨다.
-    include: ["src/**/*.test.tsx"],
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });

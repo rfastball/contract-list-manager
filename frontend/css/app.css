@@ -13,6 +13,8 @@ body {
   background: var(--a-window);
   color: var(--a-ink);
   font-family: "Pretendard GOV Variable", "Malgun Gothic", system-ui, sans-serif;
+  /* 코드(흐름식·SQL·연산자 기호)에만 쓰는 고정폭 글꼴. 설명 문장에는 쓰지 않는다. */
+  --font-code: "Cascadia Mono", Consolas, "Pretendard GOV Variable", monospace;
   font-size: var(--fs-body);
   line-height: 1.55;
 }
@@ -28,15 +30,18 @@ input::placeholder { color: var(--a-muted); opacity: 1; }
 button { touch-action: manipulation; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }
 
-.sidebar { display: flex; flex-direction: column; padding: var(--sp-24) var(--sp-12) var(--sp-16); background: var(--n-header-bg); border-right: 1px solid var(--a-border); overflow: auto; }
-.brand { display: flex; align-items: center; gap: var(--sp-8); padding: 0 var(--sp-8) var(--sp-24); font-size: var(--fs-strong); white-space: nowrap; }
-.brand svg { width: 1.5rem; height: 1.5rem; fill: none; stroke: var(--a-primary); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
-.nav-label { margin: var(--sp-16) var(--sp-12) var(--sp-8); font-size: var(--fs-caption); color: var(--n-ink-soft); }
-.nav-link { display: flex; align-items: center; justify-content: space-between; appearance: none; border: 1px solid transparent; border-radius: var(--rad-control); padding: var(--sp-10) var(--sp-12); background: transparent; color: var(--n-ink-control); font: inherit; cursor: pointer; text-align: left; }
+/* 사이드바. 나라장터 입구 아래에 통합이라는 사슬 카드가 서고, 그 안에 접수 → 공고 → 계약이 한 줄로 꿰인다.
+   계획·현황·설정은 사슬 밖이라 마디도 선도 없이 글만 같은 시작선(--rail-text)에 선다.
+   레일은 한 벌이다 — 입구와 카드가 같은 폭(--rail)의 칸을 같은 들여쓰기(--rail-in)에 세우고, 칸 안의 선과 마디는
+   그 칸의 가운데 정렬 하나로 선다. 선과 마디를 따로 픽셀로 재어 두면 125%·150% 배율에서 따로 반올림되어 1px 어긋난다.
+   고른 것은 어디서나 같다: 글이 파랗게 굵어지고 글 칸이 --a-sel 로 깔린다. */
+.sidebar { --rail: 24px; --rail-in: 7px; --rail-text: calc(var(--rail) + var(--sp-4)); display: flex; flex-direction: column; padding: var(--sp-24) var(--sp-12) var(--sp-16); background: var(--n-header-bg); border-right: 1px solid var(--a-border); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n-border-strong) transparent; }
+.brand { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 2px; align-items: center; padding: 0 0 var(--sp-16); white-space: nowrap; }
+.brand svg { width: 20px; height: 20px; fill: none; stroke: var(--a-primary); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.brand strong { padding-left: var(--sp-10); font-size: var(--fs-section); font-weight: 700; letter-spacing: -.025em; }
+.nav-link { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); appearance: none; border: 0; border-radius: var(--rad-control); background: transparent; cursor: pointer; text-align: left; font: inherit; }
 .nav-link:hover { background: var(--n-hover); }
-.nav-link[aria-pressed="true"] { background: var(--a-sel); color: var(--a-primary); font-weight: 600; }
-.sidebar-bottom { margin-top: auto; padding-top: var(--sp-24); display: flex; flex-direction: column; gap: var(--sp-8); }
-.sidebar-bottom .action { text-align: left; }
+.nav-link[aria-pressed="true"], .nav-link[aria-current="true"] { background: var(--a-sel); color: var(--a-primary); }
 .page-heading { flex: 1; min-width: 0; }
 .page-heading h1 { margin: 0; font-size: 1.5rem; font-weight: 700; letter-spacing: -.025em; }
 .page-heading p { margin: var(--sp-4) 0 0; font-size: var(--fs-dense); color: var(--n-ink-soft); }
@@ -70,7 +75,13 @@ fieldset.plain { margin: 0; padding: 0; border: 0; min-width: 0; }
 .stat .warn { color: var(--a-danger); }
 
 /* ── 탭 ───────────────────────────────────────────── */
-.tabs { display: flex; flex-direction: column; gap: var(--sp-4); }
+.tabs { position: relative; display: flex; flex-direction: column; }
+/* 사이드바의 글은 모두 한 벌이다 — 크기·굵기·색이 같고, 위계는 사슬 위의 자리가 말한다. */
+.sidebar .tab, .sidebar .nav-link, .settings-index .nav-link {
+  min-height: 34px; padding: var(--sp-6) var(--sp-10);
+  font-size: var(--fs-strong); font-weight: 550; letter-spacing: -.01em; color: var(--n-ink-control);
+}
+.sidebar .tab[aria-selected="true"], .sidebar .nav-link[aria-pressed="true"], .settings-index .nav-link[aria-current="true"] { color: var(--a-primary); font-weight: 700; }
 .tab {
   appearance: none; border: 0; background: transparent; cursor: pointer;
   padding: var(--sp-10) var(--sp-12); font: inherit; color: var(--n-ink-soft);
@@ -79,6 +90,22 @@ fieldset.plain { margin: 0; padding: 0; border: 0; min-width: 0; }
 .tab:hover { background: var(--n-hover); }
 .tab[aria-selected="true"] { color: var(--a-primary); background: var(--a-sel); font-weight: 600; }
 .tab:focus-visible { outline: 2px solid var(--a-primary); outline-offset: -2px; }
+/* 사슬 밖의 자리 — 레일 칸만큼 비워 글이 사슬의 글과 같은 시작선에 선다. 설정은 가는 선으로 가른다. */
+.off-chain, .sidebar-bottom { display: flex; flex-direction: column; padding-left: var(--rail-in); }
+.off-chain { margin-top: var(--sp-12); gap: var(--sp-2); }
+.sidebar .plain-tab { padding-left: var(--rail-text); }
+.sidebar-lists { display: flex; flex-direction: column; gap: var(--sp-4); margin-block: var(--sp-24); padding-top: var(--sp-16); border-top: 1px solid var(--n-border-strong); }
+.sidebar-lists h2 { margin: 0 var(--sp-10) var(--sp-8); font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-control); }
+.sidebar-lists p { margin: var(--sp-8) var(--sp-10); font-size: var(--fs-caption); color: var(--n-ink-control); }
+.sidebar-lists .nav-link span { min-width: 0; overflow-wrap: anywhere; }
+.sidebar .sidebar-list-new { justify-content: flex-start; gap: var(--sp-8); border: 1px dashed var(--n-border-control); font-size: var(--fs-body); }
+.sidebar-list-new svg { flex: none; width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.sidebar-bottom { margin-top: auto; padding-top: var(--sp-12); border-top: 1px solid var(--n-border-strong); }
+.sidebar-bottom .nav-link { justify-content: flex-start; gap: var(--sp-4); padding-left: 0; color: var(--n-ink-soft); }
+.sidebar-bottom .nav-link:hover { color: var(--a-ink); }
+/* 설정은 자료의 마디가 아니라 앱의 손잡이라, 레일 칸에 마디 대신 그림을 세운다. */
+.nav-glyph { flex: none; width: var(--rail); display: inline-flex; justify-content: center; }
+.nav-glyph svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 
 /* 같은 것을 다른 눈으로 보는 자리라 탭이 아니라 낮은 위계의 알약으로 둔다. */
 .shape { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-left: auto; align-items: center; }
@@ -110,18 +137,6 @@ button.action.primary:hover { background: var(--a-primary-h); }
 button.action.quiet { background: transparent; border-color: transparent; color: var(--n-ink-soft); }
 button.action.quiet:hover { background: var(--n-hover); color: var(--a-ink); }
 button.action:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
-
-/* 판정이 밀린 건수. 라벨 옆의 괄호가 아니라 알약이라, 0 이 아닐 때만 눈에 걸린다.
-   이름을 .count 로 두면 안 된다 — Outline 의 '계약 3'·'품목 2' 가 그 이름을 쓴다. */
-.badge {
-  display: inline-block; margin-left: var(--sp-6);
-  min-width: 1.25em; padding: 0 var(--sp-4);
-  border-radius: var(--rad-pill);
-  background: var(--a-primary); color: var(--a-on-accent);
-  font-size: var(--fs-caption); font-weight: 600; line-height: 1.5;
-  font-variant-numeric: tabular-nums; text-align: center;
-}
-/* 눌리면 바탕이 --a-sel 이라 배지 글자가 묻힌다 — 배지만 진한 파랑을 지킨다. */
 
 /* 쌓이는 자리. 경로는 길어서 접히므로 줄바꿈을 허용하고 숫자를 고정폭으로 읽는다. */
 .path {
@@ -249,74 +264,6 @@ td.cur { position: relative; }
 .score.high { color: var(--a-ok); }
 .score.mid { color: var(--a-warn); }
 
-/* ── 대사 화면 ────────────────────────────────────── */
-/* 왼쪽에 아직 맞추지 못한 것을 세우고, 고르면 오른쪽에 짝 후보를 편다 — 계정 대사의 얼개. */
-.reconcile { flex: 1; display: grid; grid-template-columns: minmax(14rem, 28%) minmax(0, 1fr); min-height: 0; outline: 0; }
-
-.reconcile-list { border-right: 1px solid var(--a-border); overflow: auto; display: flex; flex-direction: column; }
-/* 거르개 세 알을 머리에 담는다 — 탭을 새로 세우지 않고 이미 있는 알약 어휘를 쓴다. */
-.reconcile-head {
-  padding: var(--sp-4) var(--sp-8); position: sticky; top: 0;
-  display: flex; gap: var(--sp-4); align-items: center;
-  background: var(--n-header-bg); color: var(--n-header-ink);
-  font-size: var(--fs-caption); font-weight: 600;
-  border-bottom: 1px solid var(--n-border-strong);
-}
-.reconcile-head .chip { margin: var(--sp-2) 0; }
-.reconcile-list ul { list-style: none; margin: 0; padding: 0; }
-.reconcile-list li {
-  padding: var(--sp-8) var(--sp-12); cursor: pointer;
-  border-bottom: 1px solid var(--a-border);
-}
-.reconcile-list li:hover { background: var(--n-hover); }
-.reconcile-list li[aria-selected="true"] {
-  background: var(--a-sel);
-}
-.reconcile-list .title { font-size: var(--fs-body); }
-.reconcile-list .sub { color: var(--n-ink-soft); font-size: var(--fs-caption); }
-
-.reconcile-detail { overflow: auto; padding: var(--sp-16); }
-
-/* 지금 이어진 짝. 고를 후보가 아니라 이미 선 결정이라 바탕을 달리해 격을 갈라 둔다. */
-.card.current { background: var(--n-header-bg); }
-
-/* 추천 밖으로 나가는 길. 후보 밑에 두어 먼저 볼 것을 먼저 보게 한다. */
-.reconcile-search { margin-top: var(--sp-24); border-top: 1px solid var(--a-border); padding-top: var(--sp-16); }
-.reconcile-search h3 { margin: 0; font-size: var(--fs-body); }
-.reconcile-search input { margin-top: var(--sp-8); }
-.reconcile-search ul {
-  list-style: none; margin: var(--sp-8) 0 0; padding: 0;
-  max-height: 18rem; overflow: auto;
-  border: 1px solid var(--a-border); border-radius: var(--rad-control);
-}
-.reconcile-search li { padding: var(--sp-6) var(--sp-12); cursor: pointer; border-bottom: 1px solid var(--a-border); }
-.reconcile-search li:last-child { border-bottom: 0; }
-.reconcile-search li:hover { background: var(--n-hover); }
-.reconcile-search li[aria-selected="true"] { background: var(--a-sel); }
-.reconcile-search .title { font-size: var(--fs-body); }
-.reconcile-search .sub { color: var(--n-ink-soft); font-size: var(--fs-caption); }
-
-.reconcile .hint { margin: var(--sp-8) 0 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }
-
-.cand-head { display: flex; align-items: center; gap: var(--sp-12); }
-.cand-head .why { color: var(--n-ink-soft); font-size: var(--fs-caption); margin-left: auto; }
-
-/* 잇기 전에 확인할 점. 근거와 구별돼야 눈이 먼저 여기로 간다. */
-.blocker { color: var(--a-warn); font-size: var(--fs-caption); margin: var(--sp-8) 0 0; }
-
-/* 나란히 견주기. 같은 줄과 다른 줄을 색으로 갈라 3초에 판단하게 한다. */
-table.facets { width: 100%; border-collapse: collapse; margin-top: var(--sp-8); }
-table.facets th, table.facets td {
-  text-align: left; padding: var(--sp-4) var(--sp-8);
-  border-top: 1px solid var(--a-border); font-size: var(--fs-caption);
-  vertical-align: top; word-break: break-all;
-}
-table.facets thead th { color: var(--n-ink-soft); font-weight: 600; border-top: 0; }
-table.facets tbody th { width: 8rem; color: var(--n-ink-soft); font-weight: 400; white-space: nowrap; }
-table.facets tr.agree td { background: var(--fb-fill-bg); color: var(--a-ok); }
-table.facets tr.differ td { background: var(--a-unconf); color: var(--a-warn); }
-table.facets tr.unknown td { color: var(--a-muted); }
-
 /* ── 구조 보기 ────────────────────────────────────── */
 /* 조달 건은 한 줄, 단계는 세 칸. 중첩된 카드 대신 한 판에서 관계를 읽는다. */
 .outline-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -423,6 +370,54 @@ table.outline-items .num { text-align: right; font-variant-numeric: tabular-nums
 }
 .sheet h2 { margin: 0 0 var(--sp-16); font-size: var(--fs-section); }
 
+/* 설정은 두 기둥이다. 왼쪽은 사이드바와 같은 바탕·같은 노선의 목차, 오른쪽은 혼자 굴러가는 본문.
+   제목과 목차는 굴러가도 제자리에 있고, 닫기는 바닥에 붙어 언제나 손 닿는 곳에 선다. */
+.sheet.settings {
+  display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(60rem, calc(100vw - 4rem)); height: min(48rem, calc(100vh - 4rem)); max-height: none;
+  padding: 0; overflow: hidden;
+}
+/* 왼쪽 기둥의 바탕. 머리와 목차가 한 면으로 읽히도록 둘 뒤에 한 장을 깐다. */
+.sheet.settings::before {
+  content: ""; grid-column: 1; grid-row: 1 / -1;
+  background: var(--n-header-bg); border-right: 1px solid var(--a-border);
+}
+.settings-head { grid-column: 1; grid-row: 1; padding: var(--sp-24) var(--sp-16) var(--sp-16) var(--sp-24); }
+.sheet.settings .settings-head h2 { margin: 0; font-size: var(--fs-section); font-weight: 700; letter-spacing: -.025em; }
+.settings-index { position: relative; grid-column: 1; grid-row: 2 / -1; align-self: start; display: flex; flex-direction: column; padding: 0 var(--sp-12) var(--sp-16); }
+.settings-body { grid-column: 2; grid-row: 1 / span 2; overflow: auto; padding: var(--sp-24) var(--sp-40) var(--sp-40); scrollbar-width: thin; scrollbar-color: var(--n-border-strong) transparent; }
+.settings-foot { grid-column: 2; grid-row: 3; display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-40); border-top: 1px solid var(--a-border); }
+.settings-foot .spacer { flex: 1; }
+
+/* 절. 절 사이의 선이 무리를 가르고, 머리 아래는 좁게 붙여 안쪽이 한 덩이로 읽힌다. */
+.set { padding: var(--sp-24) 0; border-top: 1px solid var(--a-border); scroll-margin-top: var(--sp-24); }
+.set:first-child { padding-top: 0; border-top: 0; }
+.set:last-child { padding-bottom: 0; }
+.set h3 { margin: 0 0 var(--sp-12); font-size: var(--fs-strong); font-weight: 700; letter-spacing: -.01em; }
+.set .hint { margin: var(--sp-6) 0 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.set .hint .warn { color: var(--a-warn); }
+.set .row { flex-wrap: wrap; }
+.set-group + .set-group, .file-card + .set-group { margin-top: var(--sp-16); }
+.set .label.sub { flex: 0 0 auto; min-width: 5.5rem; color: var(--n-ink-soft); }
+.set .row.between { justify-content: space-between; flex-wrap: nowrap; }
+.set .row.between .hint { margin: 0; }
+/* 바꾸는 셋과 그대로 두는 백업 사이의 가는 선. */
+.row-rule { align-self: stretch; width: 1px; margin: var(--sp-4); background: var(--n-border-strong); }
+
+/* 파일 하나를 가리키는 자리. 경로가 머리, 그 파일의 사정이 밑에, 그 파일로 하는 일이 맨 밑에 붙는다. */
+.file-card { display: grid; gap: var(--sp-2); padding: var(--sp-12) var(--sp-16); background: var(--n-surface-alt); border-radius: var(--rad-surface); }
+.file-path { margin: 0; font-size: var(--fs-dense); font-weight: 600; color: var(--n-ink-control); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.file-path.empty { font-weight: 400; color: var(--n-ink-soft); }
+.file-meta { margin: 0; font-size: var(--fs-caption); color: var(--n-ink-soft); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.file-card .row { margin-top: var(--sp-10); }
+
+/* 고르는 칸. 설명은 상자가 아니라 글 시작선에 맞춰 들인다. */
+.check { display: flex; align-items: center; gap: var(--sp-10); min-height: 2rem; cursor: pointer; }
+.check input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--a-primary); }
+.check input:disabled + span { color: var(--n-ink-soft); }
+.set .check-hint { margin: 0 0 var(--sp-8); padding-left: 26px; }
+.set .check-hint:last-child { margin-bottom: 0; }
+
 .field { display: block; margin-bottom: var(--sp-16); }
 .field .label { display: block; font-weight: 600; margin-bottom: var(--sp-6); }
 /* 구역 안에서 칸 하나에 다시 이름을 다는 자리. 구역 머리와 같은 굵기로 서면 둘 중 무엇이
@@ -453,16 +448,23 @@ input.text:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 
 
 /* ── 열 고치기 ────────────────────────────────────── */
 /* 고치면 곧바로 반영된다. 저장 단추 뒤로 미루면 화면과 DB 가 갈라져 있는 동안이 생긴다. */
-.columns { border: 1px solid var(--a-border); border-radius: var(--rad-surface); padding: var(--sp-12); }
-.columns-group + .columns-group { margin-top: var(--sp-16); }
-.columns-group h3 {
-  margin: 0 0 var(--sp-6); font-size: var(--fs-caption); font-weight: 600;
-  color: var(--n-ink-soft);
+/* 종류마다 한 무리. 무리 안의 줄은 subgrid 로 칸을 나눠 써서 이름·종류·후보·단추가 세로로 맞는다. */
+.columns { display: grid; gap: var(--sp-24); }
+.columns-group {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) 6.5rem minmax(0, 1fr) auto;
+  column-gap: var(--sp-6); row-gap: var(--sp-6); align-items: center;
 }
-
-.columns-row { display: flex; gap: var(--sp-6); align-items: center; margin-bottom: var(--sp-6); }
-.columns-row input.text { flex: 1 1 8rem; min-width: 0; }
-.columns-row .spacer { flex: 1 1 8rem; }
+.columns-group > h4, .columns-group > .hint { grid-column: 1 / -1; }
+.columns-group h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-caption); font-weight: 600; letter-spacing: .02em; color: var(--n-ink-soft); }
+.columns-group > .hint { margin: 0; }
+.columns-row, .columns-add { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; }
+.columns-add { margin-top: var(--sp-2); }
+.columns-add input.text { grid-column: 1 / 4; }
+.columns-add .action { grid-column: 4; }
+.columns-row select { min-height: 2.125rem; padding: var(--sp-4) var(--sp-8); }
+.columns-actions { display: flex; justify-content: flex-end; gap: var(--sp-4); }
+.columns-actions .action.icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0; }
+.glyph { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* 지우면 무엇이 사라지는가. 수를 오른쪽에 붙여 눈이 한 줄로 훑게 한다. */
 .tally { list-style: none; margin: var(--sp-6) 0 0; padding: 0; }
@@ -538,12 +540,8 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { flex-direction: row; flex-wrap: wrap; gap: var(--sp-8); padding: var(--sp-8) var(--sp-12); border-right: 0; border-bottom: 1px solid var(--a-border); overflow: visible; }
-  .brand { padding: 0; margin-right: auto; }
-  .nav-label { display: none; }
-  .tabs { order: 3; flex-basis: 100%; flex-direction: row; overflow-x: auto; }
-  .tab { flex: 1; min-width: max-content; padding: var(--sp-8); text-align: center; }
-  .nav-link { padding: var(--sp-8); }
-  .sidebar-bottom { margin: 0; padding: 0; }
+  .brand { display: flex; gap: var(--sp-8); padding: 0; margin-right: auto; }
+  .brand strong { padding-left: 0; }
   .top { padding: var(--sp-8) var(--sp-16); gap: var(--sp-8); }
   .page-heading p { margin-top: var(--sp-4); }
   .outline-actions { padding: var(--sp-8) var(--sp-16); }
@@ -556,77 +554,119 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
   .outline-items { display: block; overflow-x: auto; }
   .workspace-footer { padding: var(--sp-6) var(--sp-12); }
   .footer-shortcut { display: none; }
-  .reconcile { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(8rem, 35%) minmax(0, 1fr); }
-  .reconcile-list { border-right: 0; border-bottom: 1px solid var(--a-border); }
   .sheet { width: calc(100vw - 1.5rem); max-height: calc(100dvh - 1.5rem); padding: var(--sp-16); }
   .sheet .row { flex-wrap: wrap; }
+  /* 좁으면 목차를 걷고 한 기둥으로 선다 — 제목·본문·바닥이 차례로. */
+  .sheet.settings { grid-template-columns: minmax(0, 1fr); width: calc(100vw - 1.5rem); height: calc(100dvh - 1.5rem); padding: 0; }
+  .sheet.settings::before, .settings-index { display: none; }
+  .settings-head { grid-column: 1; grid-row: 1; padding: var(--sp-16) var(--sp-16) var(--sp-8); border-bottom: 1px solid var(--a-border); }
+  .settings-body { grid-column: 1; grid-row: 2; padding: var(--sp-16); }
+  .settings-foot { grid-column: 1; padding: var(--sp-8) var(--sp-16); }
+  .set .row.between { flex-wrap: wrap; }
+  .columns-group { grid-template-columns: minmax(0, 1fr) 6.5rem; }
+  .columns-row > :nth-child(3), .columns-actions { grid-column: 1 / -1; }
+  .columns-row > .spacer { display: none; }
+  .columns-add input.text { grid-column: 1; }
+  .columns-add .action { grid-column: 2; }
   .status-group { min-width: 0; width: 100%; }
 }
 
 /* ── 나라장터 ─────────────────────────────────────── */
 /* 움직임은 들어온 순간 한 번뿐이다. 움직임을 줄여 달라고 했으면 아래 전역 규칙이 모두 걷고 +N 만 남는다. */
 @keyframes pclm-glide { from { left: -72px; } to { left: 100%; } }
-@keyframes pclm-flow { from { stroke-dashoffset: 26; } to { stroke-dashoffset: -100; } }
+@keyframes pclm-drop {
+  0% { transform: translateY(0); opacity: 1; }
+  90% { transform: translateY(var(--drop-dy, 0)); opacity: 1; }
+  100% { transform: translateY(var(--drop-dy, 0)) scale(1.6); opacity: 0; }
+}
 @keyframes pclm-row { from { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; } to { max-height: 48px; padding-top: 9px; padding-bottom: 9px; opacity: 1; } }
 @keyframes pclm-arrive { 0% { background-color: var(--a-sel); } 35% { background-color: var(--a-sel); } 100% { background-color: transparent; } }
 @keyframes pclm-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 .sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* 사이드바의 가지. 원천에서 줄기가 내려와 갈래마다 꺾여 마디에 닿는다. 확장이 붙어 있으면 실선, 아니면 점선이다. */
-.source-tree { position: relative; margin: var(--sp-4) 0; --tree-line: 2px dashed var(--n-border-strong); --tree-node: var(--n-border-control); }
-.source-tree.connected { --tree-line: 2px solid var(--fb-fill-bd); --tree-node: var(--a-ok); }
-.source-tree.readonly { --tree-line: 2px solid var(--a-border); --tree-node: var(--n-border-strong); }
-.source-root { position: relative; display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 2px; height: 56px; }
-.source-branch { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; column-gap: 2px; align-items: center; height: 40px; }
-/* 갈래 옆의 눈 — Chrome 에서 보고 있는 그 종류의 화면을 오른쪽에 비춘다. */
-.branch-see { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; appearance: none; border: 0; border-radius: var(--rad-control); background: transparent; color: var(--a-primary); cursor: pointer; }
-.branch-see:hover { background: var(--n-hover); }
-.branch-see:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
-.branch-see svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
-.tree-deco { position: relative; align-self: stretch; }
-.tree-line { position: absolute; left: 9px; width: 0; border-left: var(--tree-line); }
-.tree-line.up { top: 0; bottom: 50%; }
-.tree-line.down { top: 50%; bottom: 0; }
-.tree-line.root-down { top: calc(50% + 10px); bottom: 0; }
-.tree-elbow { position: absolute; left: 9px; width: 14px; height: 0; top: calc(50% - 1px); border-top: var(--tree-line); }
+/* 사이드바의 사슬. 입구(나라장터)의 선은 연결 상태를 말한다 — 붙어 있으면 초록 실선, 아니면 점선, 열람 창이면 흐린 실선.
+   그 초록이 카드 머리로 이어지고, 카드 안의 선은 자료 관계라 중립색이다. 통합을 고르면 사슬 전체가 파랗게 선다. */
+.source-tree {
+  position: relative; z-index: 1;
+  --intake-line: repeating-linear-gradient(to bottom, var(--n-border-strong) 0 4px, transparent 4px 7px);
+  --chain-in: var(--n-border-strong);
+}
+.source-tree.connected { --intake-line: var(--fb-fill-bd); --chain-in: var(--fb-fill-bd); }
+.source-tree.readonly { --intake-line: var(--a-border); }
+/* 레일 칸. 선은 2px 폭의 흐름 자식이고 마디도 흐름 자식이라, 둘이 이 칸의 가운데 정렬 하나를 함께 쓴다 —
+   선이나 마디를 따로 절대 위치로 옮기지 않는다. */
+.sidebar .rail { flex: none; align-self: stretch; width: var(--rail); display: flex; flex-direction: column; align-items: center; }
+.rail-line { flex: 1; width: 2px; background: var(--chain-line); transition: background-color var(--dur-pop) var(--ease-out); }
+.rail-line.end { background: transparent; }
+
+/* 입구. 마디의 가운데가 「나라장터」 첫 줄의 가운데에 온다 — rem 으로 재어 글꼴 크기 설정을 따라간다. */
+.source-root { display: flex; align-items: stretch; padding-left: var(--rail-in); }
+.source-root .rail { padding-top: calc(var(--fs-strong) * .775); }
+.source-root .rail-line { margin-top: 3px; background: var(--intake-line); }
+.source-icon { flex: none; width: 12px; height: 12px; border-radius: var(--rad-pill); background: var(--a-card); border: 2px solid var(--n-border-control); }
+.source-icon.ok { background: var(--a-ok); border-color: var(--a-ok); box-shadow: 0 0 0 3px var(--fb-fill-bg); }
+.source-icon.warn { background: var(--a-warn); border-color: var(--a-warn); box-shadow: 0 0 0 3px var(--fb-blank-bg); }
+.sidebar .tab.source-tab { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: var(--sp-6) var(--sp-8) var(--sp-10) var(--sp-4); }
+.source-name { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); min-width: 0; }
+.source-name b { font-weight: inherit; white-space: nowrap; }
+.source-name svg { width: 13px; height: 13px; flex: none; fill: none; stroke: var(--n-ink-soft); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* 한 줄로 고정한다 — 상태가 바뀌어도 줄이 늘거나 줄지 않는다. 넘치면 말줄임. */
+.source-status { font-size: var(--fs-caption); font-weight: 500; letter-spacing: 0; color: var(--n-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+
+/* 사슬 카드 — 통합 그 자체. 머리를 고르면 카드 전체가, 칸을 고르면 그 칸이 선다.
+   테두리는 안쪽 그림자로 긋는다: 진짜 테두리는 배율에 따라 기기 픽셀로 깎여 안쪽을 밀어내므로, 카드의 레일이 입구의
+   레일과 같은 들여쓰기(--rail-in)에 서지 못한다. 머리의 선은 그림자 위로 지나 입구의 선과 끊김 없이 잇는다. */
+/* 선은 옅게, 마디는 한 단계 진하게 — 선과 같은 색이면 흰 카드 위에서 마디가 사라져 사슬이 읽히지 않는다. */
+.chain {
+  --chain-line: var(--n-border-strong); --chain-node: var(--n-border-control);
+  padding: 0 var(--rail-in) var(--rail-in); border-radius: var(--rad-surface); background: var(--a-card);
+  box-shadow: inset 0 0 0 1px var(--a-border); transition: box-shadow var(--dur-pop) var(--ease-out);
+}
+.chain.whole { --chain-line: var(--a-primary); --chain-node: var(--a-primary); box-shadow: inset 0 0 0 1px var(--a-primary), 0 0 0 3px var(--a-sel); }
+.sidebar .tab.chain-head { display: flex; align-items: stretch; width: 100%; min-height: 0; padding: 0; border-radius: var(--rad-surface) var(--rad-surface) 0 0; }
+.sidebar .tab.chain-head:hover, .sidebar .tab.chain-head[aria-selected="true"] { background: transparent; }
+.chain-head .rail-line { background: var(--chain-in); }
+.chain.whole .chain-head .rail-line { background: var(--a-primary); }
+.chain-label { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: var(--sp-8) var(--sp-4); }
+.chain-label > span { font-weight: 700; }
+.chain-head:hover .chain-label > span, .chain.whole .chain-label > span { color: var(--a-primary); }
+.chain-caption { font-size: .6875rem; font-weight: 500; letter-spacing: .01em; color: var(--n-ink-soft); white-space: nowrap; }
+
+.source-branch { display: flex; align-items: center; }
+.sidebar .tab.branch-tab { flex: 1; display: flex; align-items: center; min-width: 0; min-height: 36px; padding: 0 var(--sp-8) 0 0; }
 /* 마디는 깜빡이지 않는다 — 색이 천천히 차올랐다가 천천히 빠진다. */
 .tree-node {
-  position: absolute; z-index: 2; left: 22px; top: 50%; width: 10px; height: 10px; margin-top: -5px;
-  border-radius: var(--rad-pill); border: 2px solid var(--tree-node); background-color: var(--a-card);
-  transition: background-color 700ms var(--ease-out), border-color 700ms var(--ease-out);
+  flex: none; width: 10px; height: 10px; border-radius: var(--rad-pill);
+  border: 2px solid var(--chain-node); background-color: var(--a-card);
+  transition: background-color 700ms var(--ease-out), border-color 700ms var(--ease-out), box-shadow var(--dur-pop) var(--ease-out);
 }
 .tree-node.flash { background-color: var(--a-ok); border-color: var(--a-ok); }
 .tree-node.current { background-color: var(--a-primary); border-color: var(--a-primary); box-shadow: 0 0 0 3px var(--a-sel); }
-.source-icon {
-  position: absolute; left: 0; top: 50%; width: 20px; height: 20px; margin-top: -10px; border-radius: var(--rad-control);
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--a-card); color: var(--n-ink-soft); border: 1.5px solid var(--n-border-control);
-}
-.source-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
-.source-icon.ok { background: var(--a-ok); color: var(--a-on-accent); border-color: var(--a-ok); }
-.source-icon.warn { background: var(--fb-blank-bg); color: var(--a-warn); border-color: var(--a-warn); }
-.source-flow { position: absolute; left: 0; top: 0; width: 40px; overflow: visible; pointer-events: none; z-index: 1; }
-.source-flow path {
-  fill: none; stroke: var(--a-ok); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 26 100;
-  animation: pclm-flow 1000ms cubic-bezier(.45, 0, .3, 1) both;
-}
-.tab.source-tab { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding: var(--sp-4) var(--sp-10); color: var(--a-ink); }
-.source-name { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); min-width: 0; }
-.source-name b { font-size: var(--fs-strong); letter-spacing: -.02em; white-space: nowrap; }
-.source-name svg { width: 13px; height: 13px; flex: none; fill: none; stroke: var(--n-ink-soft); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-/* 한 줄로 고정한다 — 상태가 바뀌어도 줄이 늘거나 줄지 않는다. 넘치면 말줄임. */
-.source-status { font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-control); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; min-height: 1.2em; }
-.tab.branch-tab { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); min-width: 0; padding: var(--sp-8) var(--sp-8) var(--sp-8) var(--sp-10); color: var(--a-ink); font-weight: 600; font-size: var(--fs-strong); letter-spacing: -.01em; }
-.tab.branch-tab[aria-selected="true"] { font-weight: 700; }
-.branch-meta { display: inline-flex; align-items: center; gap: var(--sp-4); }
-.branch-count { font-size: var(--fs-dense); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--n-ink-soft); }
+/* 칸 이름은 꺾이지 않는다. 눈과 +N 이 함께 서서 폭이 모자라면 전체 건수가 둘째 줄로 밀려 가려진다 —
+   이름이 「접/수」 로 꺾이거나 수가 잘려 다른 수로 읽히는 것보다 낫다. 전체 건수는 aria-label 에 남는다. */
+.branch-name { flex: none; margin: 0 var(--sp-6) 0 var(--sp-4); white-space: nowrap; }
+.branch-meta { display: flex; flex: 1 1 0; min-width: 0; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 var(--sp-4); height: 1.25rem; overflow: hidden; }
+.branch-count { font-size: var(--fs-dense); font-weight: 550; line-height: 1.25rem; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--n-ink-soft); }
 .tab[aria-selected="true"] .branch-count { color: var(--a-primary); }
 .branch-new {
   padding: 0 5px; border-radius: var(--rad-pill); background: var(--fb-fill-bg); border: 1px solid var(--fb-fill-bd);
   color: var(--a-ok); font-size: .6875rem; font-weight: 700; line-height: 1.45; font-variant-numeric: tabular-nums;
   animation: pclm-in 420ms var(--ease-out) both;
 }
+/* 칸 옆의 눈 — Chrome 에서 보고 있는 그 종류의 화면을 오른쪽에 비춘다. */
+.branch-see { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; appearance: none; border: 0; border-radius: var(--rad-control); background: transparent; color: var(--a-primary); cursor: pointer; }
+.branch-see:hover { background: var(--n-hover); }
+.branch-see:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+.branch-see svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+
+/* 들어옴 방울. 자리와 떨어질 거리(--drop-dy)는 그려진 마디에서 재어 달고, 단 뒤에 go 로 움직임을 건다. */
+.source-flow {
+  position: absolute; z-index: 3; left: 0; top: 0; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: var(--rad-pill); background: var(--a-ok); box-shadow: 0 0 0 3px var(--fb-fill-bg);
+  pointer-events: none; opacity: 0;
+}
+.source-flow.go { animation: pclm-drop 1000ms cubic-bezier(.45, 0, .3, 1) both; }
 
 /* 나라장터 화면 */
 .nara { flex: 1; overflow: auto; min-height: 0; }
@@ -780,10 +820,23 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .board-card .text-link { margin-top: var(--sp-8); font-size: var(--fs-dense); }
 
 @media (max-width: 760px) {
-  /* 좁으면 사이드바가 한 줄로 눕는다 — 가지의 꾸밈을 걷고 갈래를 다른 탭과 나란히 세운다. */
-  .source-tree, .source-root, .source-branch { display: contents; }
-  .tree-deco, .source-flow, .source-status, .source-name svg, .branch-count { display: none; }
-  .tab.source-tab, .tab.branch-tab { flex: 1; min-width: max-content; padding: var(--sp-8); flex-direction: row; justify-content: center; font-size: inherit; }
+  /* 누우면 사슬은 걷는다 — 레일·마디·카드의 틀이 없어지고 일곱 탭과 설정이 단추만 나란히 선다. */
+  .source-tree, .source-root, .chain, .source-branch, .off-chain, .sidebar-bottom { display: contents; }
+  .sidebar .rail, .source-flow, .source-status, .source-name svg, .chain-caption, .branch-count, .nav-glyph { display: none; }
+  .tabs { order: 3; flex-basis: 100%; flex-direction: row; overflow-x: auto; }
+  .sidebar .tab, .sidebar .tab.source-tab, .sidebar .tab.chain-head, .sidebar .tab.branch-tab {
+    flex: 1; min-width: max-content; min-height: 0; padding: var(--sp-8); gap: var(--sp-6);
+    flex-direction: row; justify-content: center; text-align: center; border-radius: var(--rad-control);
+  }
+  .sidebar .tab.chain-head:hover { background: var(--n-hover); }
+  .sidebar .tab.chain-head[aria-selected="true"] { background: var(--a-sel); }
+  .chain-label { padding: 0; }
+  .chain-label > span, .chain-head:hover .chain-label > span, .chain.whole .chain-label > span { font-weight: inherit; color: inherit; }
+  .branch-name { margin: 0; }
+  .branch-meta { flex: none; }
+  .sidebar .nav-link, .sidebar-bottom .nav-link { padding: var(--sp-8); }
+  .sidebar-lists { flex-direction: row; flex-wrap: wrap; align-items: center; width: 100%; margin: 0; padding-top: var(--sp-8); }
+  .sidebar-lists h2 { margin: 0 var(--sp-8) 0 0; }
   .nara-conduit, .nara-readonly, .nara-body, .nara-board { padding-left: var(--sp-16); padding-right: var(--sp-16); }
   .nara-setup { padding: var(--sp-24) var(--sp-16); }
 }
@@ -809,15 +862,13 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .dock h2, .dock h3 { margin: 0; }
 .dock p { margin: 0; }
 
-/* 레일: 점과 이름만. 누르면 까닭을 펼친다. */
+/* 레일: 펼치는 단추와 연결 점만. 누르면 까닭을 펼친다. */
 .dock-rail { flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--sp-12); width: 100%; padding: 0 0 var(--sp-16); appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--a-ink); font: inherit; }
 .dock-rail:hover { background: var(--n-hover); }
 .dock-rail:focus-visible { outline: 2px solid var(--a-primary); outline-offset: -2px; }
 .rail-top { width: 100%; height: 6.75rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); border-bottom: 1px solid var(--a-border); }
 .rail-top svg, .dock-icon svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .rail-top svg { color: var(--n-ink-control); }
-.rail-title { writing-mode: vertical-rl; font-size: var(--fs-body); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
-.rail-state { writing-mode: vertical-rl; font-size: var(--fs-caption); color: var(--n-ink-soft); white-space: nowrap; }
 
 .live-dot { display: inline-block; width: 8px; height: 8px; flex: none; border-radius: var(--rad-pill); border: 2px solid var(--n-border-control); }
 .live-dot.on { background: var(--a-ok); border-color: var(--a-ok); }
@@ -924,6 +975,11 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .dock-same-list dt { color: var(--n-ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dock-same-list dd { margin: 0; overflow-wrap: anywhere; }
 .dock-rest { padding: var(--sp-8) var(--sp-16) var(--sp-12); border-top: 1px solid var(--a-border); }
+/* 남겨 둘 것: 그대로 남는 값과 단추 하나. 누르면 그 값에 줄을 긋고 「지움」 을 단다. */
+.dock-keep { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12); }
+.dock-keep-main { flex: 1 1 10rem; min-width: 0; }
+.dock-keep .dock-seg { flex: none; margin-top: 0; }
+.wide-card-head + .dock-keep { border-top: 0; }
 
 .dock-item { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--sp-8); align-items: baseline; padding: var(--sp-6) var(--sp-16); animation: pclm-in 420ms var(--ease-out) both; }
 .dock-item-main { display: flex; flex-direction: column; min-width: 0; }
@@ -937,6 +993,7 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .dock-act-title.ok { color: var(--a-ok); }
 .dock-act-title.danger { color: var(--a-danger); }
 .dock-act-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-8); }
+.dock-totals { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-6); margin-top: var(--sp-6); }
 .dock-act-row .action.primary { max-width: 100%; font-weight: 600; overflow-wrap: anywhere; }
 
 /* 펼침: 화면과 구조를 나란히. 기둥이 작업 영역을 차지한다. */
@@ -996,18 +1053,6 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .dock-foot.wide { position: sticky; bottom: var(--sp-16); z-index: 3; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-12) var(--sp-16); border: 1px solid var(--n-border-strong); border-radius: var(--rad-surface); }
 .dock-foot.wide > div:first-child { flex: 1 1 300px; min-width: 0; }
 
-/* 확장 상태 보드의 설정 */
-.board-settings { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-12); }
-.board-settings[disabled] { opacity: .6; }
-.board-seg { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-top: var(--sp-6); }
-.board-seg button { appearance: none; cursor: pointer; font: inherit; font-size: var(--fs-dense); font-weight: 600; padding: var(--sp-4) 10px; border-radius: var(--rad-control); border: 1px solid var(--n-border-control); background: var(--a-card); color: var(--n-ink-control); }
-.board-seg button[aria-pressed="true"] { border-color: var(--a-primary); background: var(--a-sel); color: var(--a-primary); box-shadow: inset 0 0 0 1px var(--a-primary); }
-.board-seg button:disabled { cursor: default; }
-.board-setting-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); }
-.board-setting-row kbd { font: inherit; font-weight: 600; }
-.board-foot { margin-top: var(--sp-12) !important; }
-.board-past { margin-top: var(--sp-4) !important; }
-
 /* 확장 상태 보드의 열린 탭 표 */
 .board-card-head { display: flex; align-items: baseline; gap: var(--sp-12); margin-bottom: 10px; }
 .board-card-head h2 { margin-bottom: 0; }
@@ -1026,7 +1071,6 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
   .app.dock-wide .dock { grid-row: 1 / span 2; height: auto; max-height: none; border-top: 0; }
   .dock-rail { flex-direction: row; justify-content: center; padding: var(--sp-8); }
   .rail-top { width: auto; height: auto; flex-direction: row; border-bottom: 0; }
-  .rail-title, .rail-state { writing-mode: horizontal-tb; }
 }
 @media (max-width: 760px) {
   .app { grid-template-rows: auto minmax(0, 1fr) auto; }
@@ -1071,3 +1115,30 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .quiet-link:hover { text-decoration: underline; }
 .quiet-link:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 2px; }
 .sheet > .hint { margin: 0; color: var(--n-ink-soft); font-size: var(--fs-caption); }
+
+.computed-form { margin-top: var(--sp-16); }
+.computed-form label { display: flex; flex-direction: column; gap: var(--sp-4); margin-block: var(--sp-8); }
+.computed-fields { display: grid; grid-template-columns: 1fr 2fr; gap: var(--sp-12); }
+.computed-fields > label { min-width: 0; }
+.computed-form input.text, .computed-form select { width: 100%; min-width: 0; }
+.computed-pick { border: 1px solid var(--a-border); padding: var(--sp-8) var(--sp-12); margin-block: var(--sp-12); }
+.computed-pick label, .computed-form .computed-check { display: inline-flex; flex-direction: row; align-items: center; margin-right: var(--sp-12); }
+.computed-tokens { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.computed-preview { margin-top: var(--sp-16); overflow: auto; }
+.computed-preview table { width: 100%; border-collapse: collapse; }
+.computed-preview th, .computed-preview td { padding: var(--sp-8); text-align: left; border-bottom: 1px solid var(--a-border); overflow-wrap: anywhere; }
+.computed-preview small { display: block; color: var(--n-ink-soft); }
+.computed-columns > .row { padding-block: var(--sp-8); }
+@media (max-width: 760px) { .computed-fields { grid-template-columns: 1fr; } }
+
+/* 탐색 구획과 설정 표시 옵션. */
+.sidebar-section-title { margin: var(--sp-16) var(--sp-10) var(--sp-6); font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-soft); }
+.sidebar .plain-tab { padding-left: var(--sp-10); }
+.display-options { display: grid; grid-template-columns: max-content minmax(0, 17rem); align-items: center; gap: var(--sp-12) var(--sp-16); }
+.set h4 { margin: var(--sp-12) 0 var(--sp-6); font-size: var(--fs-body); font-weight: 650; }
+@media (max-width: 760px) {
+  .source-views > .sidebar-section-title { grid-column: 1 / -1; }
+}
+
+.dashboard-top { padding: var(--sp-12) var(--sp-16); }
+.view-bar[hidden] { display: none; }

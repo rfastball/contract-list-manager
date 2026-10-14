@@ -1,0 +1,164 @@
+/* 맞춤 뷰(docs/user-views.md §7). 사이드바의 작업 영역이지만 열 관리와 같은 손이라 columns.css 의 말과 토큰을 그대로 쓴다(.column-manager). */
+.uv { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.uv-status { padding: var(--sp-24); }
+
+/* 처음 — 뷰가 없을 때 하나 */
+.uv-empty { max-width: 44rem; padding: var(--sp-40) var(--sp-24); font-size: var(--fs-body); line-height: 1.7; }
+.uv-empty h2 { margin: 0 0 var(--sp-8); font-size: var(--fs-section); letter-spacing: -.02em; }
+.uv-empty > p { margin: 0 0 var(--sp-24); color: var(--n-ink-control); max-width: 60ch; }
+
+/* 머리 — u_이름 · 한 줄 = 조달 건 · 건 수 … 상태 · 저장 */
+.uv-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-16); padding: var(--sp-12) var(--sp-24); border-bottom: 1px solid var(--a-border); }
+.uv-picker { display: none; }
+.column-manager .uv-picker select { width: auto; max-width: 12rem; min-height: 2rem; padding-block: var(--sp-2); }
+.uv-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-16); min-width: 0; }
+.uv-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+.uv-name > span { font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-control); }
+.uv-name.is-unnamed input { border-style: dashed; }
+
+.uv-name input:focus-visible { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+.uv-name input { min-width: 6ch; max-width: 100%; min-height: 2.25rem; border: 1px solid var(--n-border-control); border-radius: var(--rad-control); background: var(--a-card); padding: 0 var(--sp-8); font: inherit; font-size: var(--fs-strong); font-weight: 700; color: var(--a-ink); }
+.uv-name input::placeholder { color: var(--n-ink-control); font-weight: 400; }
+
+.uv-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-6); font-size: var(--fs-body); color: var(--n-ink-control); }
+.uv-meta > * { white-space: nowrap; flex: none; }
+.uv-total { font-variant-numeric: tabular-nums; }
+.uv-actions { display: flex; flex: none; align-items: center; gap: var(--sp-8); margin-left: auto; font-size: var(--fs-caption); white-space: nowrap; }
+.uv-actions .action { font-size: var(--fs-body); }
+.uv-collect-toggle { display: none !important; }
+.uv-head .column-notice { flex-basis: 100%; margin: 0; }
+/* 계약이 여럿인 건 — 뷰에 계약 필드가 있을 때만 머리 아래 한 줄 */
+.uv-contracts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6) var(--sp-12); padding: var(--sp-8) var(--sp-24); border-bottom: 1px solid var(--a-border); font-size: var(--fs-body); }
+.uv-contracts-label { color: var(--n-ink-control); white-space: nowrap; }
+.uv-contracts-count { color: var(--n-ink-soft); font-variant-numeric: tabular-nums; }
+.uv-contracts-hint { flex-basis: 100%; }
+.uv-reason { display: flex; align-items: center; gap: var(--sp-6); margin: 0; padding: var(--sp-6) var(--sp-24); border-bottom: 1px solid var(--a-border);
+  background: var(--n-surface-alt); color: var(--n-ink-control); font-size: var(--fs-caption); }
+.uv-reason .cm-icon { color: var(--a-warn); }
+.uv-reason.is-error, .uv-reason.is-error .cm-icon { color: var(--a-danger); }
+
+/* 몸 — 왼쪽 뷰 목록 · 가운데 미리보기 · 오른쪽 필드 목록 */
+.uv-body { position: relative; display: grid; grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr) minmax(16rem, 22rem); flex: 1; min-height: 0; }
+.uv.is-editing .uv-body { grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr); }
+.uv.without-list .uv-body { grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); }
+.uv.without-list.is-editing .uv-body { grid-template-columns: minmax(0, 1fr); }
+.uv.is-table .uv-body { grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr); }
+.uv.is-table.without-list .uv-body { grid-template-columns: minmax(0, 1fr); }
+.uv-table { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.uv-list { display: flex; flex-direction: column; min-height: 0; padding-top: var(--sp-16); border-right: 1px solid var(--a-border); background: var(--a-window); }
+.cm-row.uv-view { grid-template-columns: minmax(0, 1fr) auto; }
+.uv-new { align-self: flex-start; margin: var(--sp-8) var(--sp-16) var(--sp-16); }
+.uv-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+/* 표본 고르개 */
+.uv-record { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.uv-sample { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-12); padding: var(--sp-8) var(--sp-24); border-bottom: 1px solid var(--a-border); }
+.uv-sample-label { font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-soft); }
+.uv-sample-step { display: inline-flex; flex: 1 1 auto; align-items: center; gap: var(--sp-2); min-width: 0; }
+.uv-sample-label, .uv-sample-find, .uv-sample-edges { flex: none; }
+.uv-sample-current { display: inline-flex; flex: 0 1 auto; align-items: baseline; gap: var(--sp-8); min-width: 0; max-width: 30rem; padding-inline: var(--sp-4); font-size: var(--fs-body); }
+.uv-sample-key { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.uv-sample-title { min-width: 0; color: var(--n-ink-control); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uv-sample-pos { color: var(--n-ink-soft); font-size: var(--fs-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.uv-sample-find { display: inline-flex; align-items: center; gap: var(--sp-6); padding: 0 var(--sp-8); border: 1px solid var(--n-border-control); border-radius: var(--rad-control); background: var(--a-card); color: var(--n-ink-soft); }
+.uv-sample-find:focus-within { outline: 2px solid var(--a-primary); outline-offset: 1px; }
+.uv-sample-find input { width: 9rem; min-height: 2rem; border: 0; background: transparent; font: inherit; font-size: var(--fs-body); color: var(--a-ink); }
+.column-manager .uv-sample-find input:focus-visible { outline: none; }
+.uv-sample-edges { display: inline-flex; gap: var(--sp-6); white-space: nowrap; }
+.uv-sample-options { flex-basis: 100%; font-size: var(--fs-caption); color: var(--n-ink-control); }
+.uv-sample-options summary { width: fit-content; padding-block: var(--sp-4); cursor: pointer; }
+.uv-sample-filtered { font-weight: 600; }
+.uv-sample-options-body { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-12); padding-block: var(--sp-8); }
+.uv-sample-options-body > p { flex-basis: 100%; }
+
+/* 미리보기 — 한 줄 = 필드 이름 · 식 요약 · 이 표본의 값 · 꼬리 */
+.uv-record-scroll { container: uv-record / inline-size; flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-8) var(--sp-16) var(--sp-16); }
+.uv-script { list-style: none; margin: 0; padding: 0; }
+/* 한 줄 = 필드 이름 · 식 요약 · 이 표본의 값 · 꼬리. 미리보기 칸이 40rem 보다 좁으면 두 줄(이름·꼬리 / 식·값)로 접는다. */
+.uv-row { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) minmax(0, 1.2fr) auto 1.5rem;
+  grid-template-areas: "grip field field tails open" ". formula value value value" ". err err err err"; align-items: center; gap: 0 var(--sp-12);
+  padding: var(--sp-6) var(--sp-8); border-bottom: 1px solid var(--a-border); font-size: var(--fs-body); line-height: 1.5; cursor: default; }
+@container uv-record (min-width: 40rem) {
+  /* 꼬리 칸은 폭을 박는다 — 줄마다 꼬리가 달라도 값의 왼쪽 끝이 한 세로줄에 선다. */
+  .uv-row { grid-template-columns: 1.25rem 9.5rem minmax(0, 1fr) minmax(0, 1.2fr) 7rem 1.5rem;
+    grid-template-areas: "grip field formula value tails open" ". err err err err err"; }
+}
+.uv-row:hover { background: var(--n-hover); }
+.uv-row.is-selected { background: var(--a-sel); }
+.uv-row.is-selected .uv-field { color: var(--a-primary); }
+.column-manager .uv-row:focus-visible { outline-offset: -2px; }
+.uv-row.is-drop { box-shadow: inset 0 2px 0 var(--a-primary); }
+.uv-grip { grid-area: grip; display: inline-flex; color: var(--n-ink-soft); cursor: grab; }
+.uv-field { grid-area: field; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uv-formula { grid-area: formula; min-width: 0; font-size: var(--fs-dense); color: var(--n-ink-control); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uv-formula .uv-op { color: var(--a-primary); font-weight: 700; }
+.uv-formula.is-same { color: var(--n-ink-soft); }
+.uv-value { grid-area: value; min-width: 0; color: var(--a-ink); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 이 장에서 빈 값 — 글자만 warn 이다. 바탕(blank)은 「고친 칸」 의 뜻이라 쓰지 않는다. */
+.uv-blank { color: var(--a-warn); font-weight: 600; }
+.uv-tails { grid-area: tails; display: inline-flex; justify-content: flex-end; gap: var(--sp-6); white-space: nowrap; }
+.uv-tail { display: inline-flex; align-items: center; gap: var(--sp-4); padding: 0 var(--sp-6); border: 1px solid var(--a-border); border-radius: var(--rad-control);
+  background: var(--a-card); color: var(--n-ink-control); font-size: var(--fs-caption); line-height: 1.6; font-variant-numeric: tabular-nums; }
+.uv-tail.is-warn { color: var(--a-warn); font-weight: 600; }
+.uv-tail.is-broken { color: var(--a-danger); font-weight: 600; }
+.column-manager .uv-open { grid-area: open; width: 1.5rem; height: 1.5rem; opacity: 0; }
+.column-manager .uv-row:is(:hover, :focus-within, .is-selected) .uv-open { opacity: 1; }
+.uv-row-error { grid-area: err; display: flex; align-items: flex-start; gap: var(--sp-6); margin: var(--sp-2) 0 0; color: var(--a-danger); font-size: var(--fs-caption); }
+.uv-row-error .cm-icon { margin-top: var(--sp-2); }
+.uv-row-error > span { color: var(--a-ink); }
+.uv-unnamed { color: var(--n-ink-soft); font-style: italic; font-weight: 400; }
+.uv-rename { width: 100%; min-height: 1.75rem; padding: 0 var(--sp-6); border: 1px solid var(--n-border-control); border-radius: var(--rad-control); background: var(--a-card); font: inherit; font-weight: 600; color: var(--a-ink); }
+.uv-empty-record { padding: var(--sp-24) var(--sp-8); max-width: 60ch; font-size: var(--fs-body); line-height: 1.7; }
+.uv-empty-record h2 { margin: 0 0 var(--sp-4); font-size: var(--fs-strong); }
+.uv-empty-record p { margin: 0; color: var(--n-ink-control); }
+.uv-record-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-16); padding: var(--sp-8) 0 0; }
+
+/* 필드 목록 — 접수 → 공고 → 계약, 필드마다 지금 표본의 값 */
+.uv-collect { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--a-border); background: var(--a-window); }
+.uv-collect-body { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.uv-collect-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16) var(--sp-8); }
+.uv-collect-head h2 { margin: 0; font-size: var(--fs-strong); }
+.uv-collect-search { grid-column: 1 / -1; }
+.uv-collect-close { display: none; }
+.uv-collect-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--sp-8) var(--sp-16); }
+.uv-group + .uv-group { margin-top: var(--sp-8); }
+.uv-group h3 { position: sticky; top: 0; z-index: 1; margin: 0; padding: var(--sp-8); background: var(--a-window); color: var(--n-header-ink); font-size: var(--fs-caption); font-weight: 700; }
+.uv-group ul { list-style: none; margin: 0; padding: 0; }
+.uv-pick { display: grid; grid-template-columns: 1rem minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--rad-control); font-size: var(--fs-body); cursor: pointer; }
+.uv-pick:hover { background: var(--n-hover); }
+.uv-pick input { margin: 0; align-self: center; accent-color: var(--a-primary); }
+.uv-pick:has(input:checked) .uv-pick-name { font-weight: 600; }
+.uv-pick-name { min-width: 0; overflow-wrap: anywhere; }
+.uv-pick-value { min-width: 0; color: var(--n-ink-control); font-size: var(--fs-dense); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 줄을 연 편집 — 경로 이름 › 필드 아래로 가공열 편집기 */
+.uv-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.uv-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6); padding: var(--sp-8) var(--sp-24); border-bottom: 1px solid var(--a-border); color: var(--n-ink-soft); }
+.column-manager .uv-crumb-back { padding-inline: var(--sp-8); color: var(--n-ink-control); }
+.uv-column-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-24); font-size: var(--fs-body); font-weight: 600; }
+.column-manager .uv-column-name input { width: min(28rem, 100%); min-height: 2.5rem; font-size: var(--fs-strong); }
+.uv-crumb-hint { margin-left: auto; }
+.uv-editor > .uv-row-error { padding: var(--sp-8) var(--sp-24) 0; }
+.uv-editor-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-16) var(--sp-24) var(--sp-24); }
+
+/* 좁은 창 — 뷰 목록은 머리의 고르개로, 필드 목록은 「필드 추가」 서랍으로 */
+@container (max-width: 60rem) {
+  .uv-body, .uv.is-editing .uv-body, .uv.without-list .uv-body, .uv.is-table .uv-body { grid-template-columns: minmax(0, 1fr); }
+  .uv-list { display: none; }
+  .uv-picker { display: block; }
+  .uv-collect-toggle { display: inline-flex !important; }
+  .uv-collect { display: none; }
+  .uv-collect.is-open { display: flex; position: absolute; top: 0; right: 0; bottom: 0; z-index: var(--z-popover); width: min(24rem, 100%);
+    border-left: 1px solid var(--n-border-strong); box-shadow: -6px 0 18px var(--a-shadow); }
+  .uv-collect-close { display: inline-flex; }
+  @media (prefers-reduced-motion: no-preference) {
+    .uv-collect.is-open { animation: uv-drawer var(--dur-pop) var(--ease-out); }
+  }
+}
+@container (max-width: 36rem) {
+  .uv-head, .uv-sample, .uv-crumbs, .uv-column-name, .uv-editor-scroll, .uv-reason, .uv-contracts { padding-inline: var(--sp-16); }
+  .uv-sample { flex-wrap: wrap; }
+  .uv-sample-find input { width: 7rem; }
+}
+@keyframes uv-drawer { from { opacity: 0; transform: translateX(12px); } }

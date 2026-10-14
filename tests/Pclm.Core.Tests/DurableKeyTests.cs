@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
 using Pclm.Core.Storage;
 using Xunit;
@@ -8,7 +8,7 @@ namespace Pclm.Core.Tests;
 /// <summary>
 /// 변경공고·변경계약이 들어와도 <b>사람이 붙인 것이 뷰에서 사라지지 않는지</b> 본다.
 ///
-/// <para>손으로 적은 값과 확정한 링크가 <c>(본번호, 차수)</c> 에 매달려 있고 뷰는 최신 차수만
+/// <para>손으로 적은 값과 명시 참조 연결가 <c>(본번호, 차수)</c> 에 매달려 있고 뷰는 최신 차수만
 /// 내던 시절, 변경계약 한 건이 들어오면 진행상태·담당·메모가 조용히 빈 문자열이 되고 링크가
 /// 끊겨 공고 열이 통째로 비었다. 아무 오류도 나지 않아 <b>사람이 알아챌 방법이 없었다</b> —
 /// 이 시험이 지키려는 것이 바로 그 자리다(ADR-012).</para>
@@ -58,16 +58,20 @@ public class DurableKeyTests : IDisposable
     }
 
     [Fact]
-    public void 변경계약이_들어와도_확정한_링크가_끊기지_않는다()
+    public void 변경계약이_들어와도_명시참조_연결이_끊기지_않는다()
     {
         _store.UpsertNotice(Notice("000"));
         _store.UpsertContract(Contract("00"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09110507", "00"),
-            new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+            new EntityRef("notice", "R26BK09017075", "000"));
 
         _store.UpsertContract(Contract("01"));
+        ReferenceFixture.Contract(_database,
+            new EntityRef("contract", "R26TA09110507", "01"),
+            new EntityRef("notice", "R26BK09017075", "000"));
+
 
         var row = Single("SELECT 계약번호, 공고명 FROM v_통합;");
 
@@ -76,14 +80,14 @@ public class DurableKeyTests : IDisposable
     }
 
     [Fact]
-    public void 변경공고가_들어와도_확정한_링크가_끊기지_않는다()
+    public void 변경공고가_들어와도_명시참조_연결이_끊기지_않는다()
     {
         _store.UpsertNotice(Notice("000"));
         _store.UpsertContract(Contract("00"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09110507", "00"),
-            new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+            new EntityRef("notice", "R26BK09017075", "000"));
 
         _store.UpsertNotice(Notice("001") with { Title = "수질측정기 구매(변경)" });
 
@@ -109,21 +113,21 @@ public class DurableKeyTests : IDisposable
     }
 
     [Fact]
-    public void 변경접수가_들어와도_확정한_링크가_끊기지_않는다()
+    public void 변경접수가_들어와도_명시참조_연결이_끊기지_않는다()
     {
         _store.UpsertRequest(Request("000"));
         _store.UpsertNotice(Notice("000"));
 
-        new RequestLinker(_database).Confirm(
+        ReferenceFixture.Request(_database,
             new EntityRef("request", "MPKPLA26910286", "000"),
-            new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+            new EntityRef("notice", "R26BK09017075", "000"));
 
         _store.UpsertRequest(Request("001"));
         _store.UpsertContract(Contract("00"));
 
-        new Linker(_database).Confirm(
+        ReferenceFixture.Contract(_database,
             new EntityRef("contract", "R26TA09110507", "00"),
-            new EntityRef("notice", "R26BK09017075", "000"), 1.0);
+            new EntityRef("notice", "R26BK09017075", "000"));
 
         // 링크는 계열끼리라 차수가 올라도 통합의 접수 열이 그대로 채워진다.
         var row = Single("SELECT 접수번호, 요청명 FROM v_통합;");

@@ -4,15 +4,13 @@ import mappingJson from "../../src/Pclm.Core/Erp/mapping.json?raw";
 import captureSource from "../../extension/capture.js?raw";
 import popupSource from "../../extension/popup.js?raw";
 import popupHtml from "../../extension/popup.html?raw";
-import popupCss from "../../extension/popup.css?raw";
 import backgroundSource from "../../extension/background.js?raw";
 import exportSource from "../../extension/export.js?raw";
 import optionsSource from "../../extension/options.js?raw";
 import optionsHtml from "../../extension/options.html?raw";
+import manifestJson from "../../extension/manifest.json?raw";
 
 afterEach(() => {
-  window.dispatchEvent(new Event("pagehide"));
-  document.getElementById("pclm-collector")?.remove();
   document.body.replaceChildren();
   delete (Element.prototype as Partial<Element>).checkVisibility;
   vi.restoreAllMocks(); vi.useRealTimers();
@@ -29,33 +27,17 @@ function screen() {
   }
   // jsdom에는 레이아웃 엔진이 없다. 화면 표시 여부만 대역으로 둔다.
   Object.defineProperty(Element.prototype, "checkVisibility", { configurable: true, value() { return true; } });
-  // 중계·UI 테스트용 화면 대역. 실제 추출은 아래 수집 테스트가 소유한다.
-  return () => {
-    const reference = document.querySelector<HTMLInputElement>('input[title="입찰공고번호"]')!.value.split(" - ");
-    return { noticeBase: reference[0], seq: reference[1], fields: { title: { value: "시험 공고" } } };
-  };
 }
 
+const popupSender = { id: "extension", url: "chrome-extension://extension/popup.html" };
+
 function worker() {
-  const read = screen();
-  let snapshot = read(), documentId = "doc1";
-  const stored: Record<string, any> = {}, local: Record<string, any> = {};
+  const local: Record<string, any> = {};
   const native = vi.fn(async (_host: string, request: any) => {
     let result: any;
     if (request.method === "hello") result = { datasetId: "test", mapping: { profiles: [] }, mappingRevision: "v1" };
-    if (request.method === "inspect") result = { baseToken: "v1", entity: snapshot.noticeBase + "-" + snapshot.seq, entityType: "notice", itemCount: 0, changes: [], unmatched: [],
-      document: { rows: [{ values: Object.fromEntries(Object.entries(snapshot.fields).map(([key, field]: [string, any]) => [key, field.value])) }] } };
-    if (request.method === "capture") result = { status: "stored", entity: "R26BK00000001-001", changed: true };
-    if (request.method === "captureStatus") result = { status: "not_found" };
     return { protocolVersion: 2, requestId: request.requestId, ok: true, result };
   });
-  const original = native.getMockImplementation()!;
-  const nextCapture = (action: (host: string, request: any) => Promise<any>) => {
-    native.mockImplementation(async (host, request) => {
-      if (request.method !== "capture") return original(host, request);
-      native.mockImplementation(original); return action(host, request);
-    });
-  };
   // 상시 연결 포트 대역. 호스트 쪽 끊김은 시험이 drop() 으로 일으킨다 — 확장이 스스로 disconnect() 한 것은
   // 브라우저가 그 포트의 onDisconnect 로 알리지 않는다.
   const ports: { host: string; posted: any[]; disconnect: () => void; drop: () => void; closed: boolean;
@@ -75,33 +57,32 @@ function worker() {
       sendNativeMessage: native, connectNative, lastError: undefined, onStartup: { addListener: vi.fn() },
       onMessage: { addListener: vi.fn() }, onInstalled: { addListener: vi.fn() }, openOptionsPage: vi.fn(),
       getManifest: () => ({ version: "0.4.1" }), reload: vi.fn() },
-    tabs: { get: async () => ({ url: "https://www.g2b.go.kr/" }), query: vi.fn(async (_?: object): Promise<any[]> => [{ id: 1 }]),
+    tabs: { query: vi.fn(async (_?: object): Promise<any[]> => [{ id: 1 }]),
       onRemoved: { addListener: vi.fn() }, onActivated: { addListener: vi.fn() }, onUpdated: { addListener: vi.fn() },
       update: vi.fn(async (..._: any[]) => ({})), create: vi.fn(async (..._: any[]) => ({})),
       sendMessage: vi.fn(async (..._: any[]): Promise<any> => { throw new Error("수신자 없음"); }) },
     windows: { WINDOW_ID_NONE: -1, update: vi.fn(async (..._: any[]) => ({})), create: vi.fn(async (..._: any[]) => ({})), onFocusChanged: { addListener: vi.fn() } },
-    commands: { getAll: async () => [{ name: "save-current", shortcut: "Alt+Shift+S" }], onCommand: { addListener: vi.fn() } },
-    permissions: { contains: vi.fn(async (_: object) => true), onAdded: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } },
+    // 옛 판이 쓰던 자리. 지금 판은 닿지 않아야 한다.
+    commands: { getAll: vi.fn(async () => []), onCommand: { addListener: vi.fn() } },
     action: { setBadgeText: vi.fn(async (_: object) => {}), setBadgeBackgroundColor: vi.fn(async (_: object) => {}), openPopup: vi.fn(async () => {}) },
-    scripting: { executeScript: vi.fn(async (args: any): Promise<any[]> => args.files ? [] : [{ documentId, result: { snapshot } }]) },
-    storage: { onChanged: { addListener: vi.fn() }, local: { get: vi.fn(async (): Promise<Record<string, unknown>> => ({ ...local })),
-      set: vi.fn(async (value: object) => { Object.assign(local, value); }) }, session: {
-      get: vi.fn(async () => ({ ...stored })),
-      set: vi.fn(async (value: object) => { Object.assign(stored, value); }),
-      remove: vi.fn(async (keys: string[]) => { keys.forEach(key => delete stored[key]); }),
-    } },
+    permissions: { contains: vi.fn(async (_: object) => true), onAdded: { addListener: vi.fn() }, onRemoved: { addListener: vi.fn() } },
+    scripting: { executeScript: vi.fn(async (args: any): Promise<any[]> => args.files ? [] : [{ result: { error: "화면을 읽지 못했습니다." } }]) },
+    storage: { onChanged: { addListener: vi.fn() }, local: { get: vi.fn(async (_?: unknown): Promise<Record<string, unknown>> => ({ ...local })),
+      set: vi.fn(async (value: object) => { Object.assign(local, value); }) } },
   };
-  const sender = { id: "extension", url: "https://www.g2b.go.kr/", frameId: 0, documentId: "doc1", tab: { id: 1 } };
-  const start = () => new Function("chrome", backgroundSource)(chrome);
-  start();
-  let preview: any;
-  const send = (action: string, from: any = sender, captureId?: string): Promise<any> =>
-    new Promise(resolve => chrome.runtime.onMessage.addListener.mock.lastCall![0]({ type: "pclm-capture", action, captureId, preview }, from,
-      (view: any) => { preview = view.preview; resolve(view); }));
-  return { chrome, sender, native, ports, connectNative, stored, local, start, send, nextCapture,
-    change: () => { snapshot = { ...snapshot, seq: "002" }; },
-    navigate: () => { documentId = "doc2"; } };
+  new Function("chrome", backgroundSource)(chrome);
+  // 팝업이 중계기에 묻는 길 — 받지 않으면(true 를 돌려주지 않으면) 답이 없다.
+  const ask = (message: object, sender: object = popupSender): Promise<any> => new Promise(resolve => {
+    if (chrome.runtime.onMessage.addListener.mock.lastCall![0](message, sender, resolve) !== true) resolve(undefined);
+  });
+  const command = (message: object) => ports[0].onMessage.addListener.mock.calls[0][0](message);
+  return { chrome, native, ports, connectNative, local, ask, command };
 }
+
+const runUi = new Function("chrome", "document", exportSource + "; return " + popupSource);
+const popupBody = () => { document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1]; };
+const text = (id: string) => document.getElementById(id)!.textContent;
+const shown = (id: string) => !document.getElementById(id)!.hidden;
 
 it("임의 업무 화면은 이름과 ID를 보존하고 원천 표만 내보내며 내부 값과 빈 열을 제외한다", () => {
   screen();
@@ -134,6 +115,48 @@ it("임의 업무 화면은 이름과 ID를 보존하고 원천 표만 내보내
   screen();
   const mapped = new Function("document", "window", "location", captureSource + "; return pclmReadMapped([]);");
   expect(() => mapped(document, fakeWindow, location)).toThrow("앱을 새 판으로 바꿔 주세요");
+});
+
+it("WebSquare 표는 보이는 열을 화면 순서·화면 머리글·표시값으로 내보내고 단추·행 번호·숨긴 열과 DataList 전용 키를 뺀다", () => {
+  screen();
+  document.body.innerHTML = `<div id="grid" aria-label="공고 목록"></div><div id="gridCopy"></div>`;
+  // 열 정의: [ID, 머리글, 종류, 보임, 화면 순서, 행마다 표시값]
+  const columns: [string, string, string, boolean, number, string[]][] = [
+    ["rowNum", "No", "text", true, 0, ["1", "2"]],
+    ["bidNm", "공고명", "link", true, 2, ["시험 공고 &amp; 부속", '둘째 공고<div style="display: none"><p>숨긴 풍선</p></div>']],
+    ["pstDt", "게시일시<br>(마감일시)", "text", true, 3, ["2026/09/21 10:00<br />(2026/09/28 10:00)", "2026/09/22 09:00"]],
+    ["hiddenCol", "숨긴 열", "text", false, 4, ["숨긴값", "숨긴값"]],
+    ["btnView", "보기", "button", true, 5, ["<button>보기</button>", "<button>보기</button>"]],
+    ["dtl", "상세", "text", true, 6, ['<button type="button" class="btn"></button>', '<button type="button" class="btn"></button>']],
+    ["rrno", "번호", "text", true, 7, ["000000-0000000", "000000-0000000"]],
+    ["instNm", "공고기관", "text", true, 1, ["시험기관", "둘째 기관"]],
+    ["dmndInstNm", "공고기관", "text", true, 8, ["수요기관", ""]],
+  ];
+  const list = { getAllJSON: () => [{ bidNm: "시험 공고", extraKey: "원천전용", ntceInsttCd: "X0000001" }] };
+  const grid = {
+    getDataList: () => list,
+    getColumnCount: () => columns.length,
+    getColumnID: (i: number) => columns[i][0],
+    getHeaderID: (i: number) => "column" + i,
+    getHeaderValue: (id: string) => columns[Number(id.slice(6))][1],
+    getColumnType: (i: number) => columns[i][2],
+    getColumnVisible: (i: number) => columns[i][3],
+    getDisplayColumnIndex: (i: number) => columns[i][4],
+    getDataLength: () => 2,
+    getCellDisplayData: (r: number, i: number) => columns[i][5][r],
+  };
+  const fakeWindow: any = { $p: { getComponentById: (id: string) => id === "grid" || id === "gridCopy" ? grid : null } };
+  fakeWindow.top = fakeWindow;
+  const read = new Function("document", "window", "location", exportSource + "; return pclmExportPage();");
+  const result = read(document, fakeWindow, { origin: "https://www.g2b.go.kr", pathname: "/work" });
+  expect(result.sheets.map((s: any) => s.name)).toEqual(["공고 목록", "수집 정보"]);
+  expect(result.sheets[0].rows).toEqual([
+    ["공고기관", "공고명", "게시일시 (마감일시)", "공고기관 2"],
+    ["시험기관", "시험 공고 & 부속", "2026/09/21 10:00\n(2026/09/28 10:00)", "수요기관"],
+    ["둘째 기관", "둘째 공고", "2026/09/22 09:00", ""],
+  ]);
+  expect(result.warnings).toEqual([]);
+  expect(JSON.stringify(result.sheets[0])).not.toMatch(/extraKey|원천전용|ntceInsttCd|X0000001|숨긴|보기|상세|000000|rowNum|"No"/);
 });
 
 it("상시 연결은 포트 하나로 인사하고, 끊기면 물러서며 다시 잇고, 개발 전환이 바뀌면 그쪽 호스트로 옮긴다", async () => {
@@ -246,7 +269,9 @@ it("지금 보는 화면: 포트가 열린 동안 나라장터 탭을 알고 읽
   await vi.advanceTimersByTimeAsync(0);
   expect(reads).toHaveLength(before + 1);
   command({ protocolVersion: 2, command: "export", tabId: 1 });
-  expect(w.chrome.tabs.sendMessage).toHaveBeenLastCalledWith(1, { type: "pclm-export" }, { frameId: 0 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.chrome.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 1 }, world: "MAIN", files: ["export.js"] });
+  expect(w.chrome.tabs.sendMessage).not.toHaveBeenCalled();
   command({ protocolVersion: 2, command: "focusTab", tabId: 3 });
   command({ protocolVersion: 2, command: "read", tabId: 99 });
   command({ command: "read", tabId: 1 });
@@ -261,457 +286,6 @@ it("지금 보는 화면: 포트가 열린 동안 나라장터 탭을 알고 읽
   prints[1] = "또 바뀜";
   await vi.advanceTimersByTimeAsync(900);
   expect(reads).toHaveLength(settled);
-});
-
-it("앱이 부른 내보내기는 그 탭의 수집기가 단추와 같은 길로 내려받고, 다른 탭이 보낸 것은 듣지 않는다", async () => {
-  screen();
-  const messages: any[] = [];
-  const result = { kind: "exported", title: "시험 화면", sheets: [{ name: "필드", rows: [["번호"], ["001"]] }], warnings: [] };
-  const chrome = { storage: { local: { get: async () => ({ panelMode: "button" }) }, onChanged: { addListener: vi.fn() } },
-    runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: (fn: any) => messages.push(fn) },
-      sendMessage: vi.fn(async (message: any): Promise<any> => message.action === "export" ? result : "") } };
-  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, async () => ({ ok: false }));
-  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:export") });
-  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
-  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-    expect(this.download).toMatch(/^시험 화면_.*\.xlsx$/);
-  });
-  const forged = vi.fn();
-  expect(messages[0]({ type: "pclm-export" }, { id: "extension", tab: { id: 2 } }, forged)).toBeUndefined();
-  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
-  const respond = vi.fn();
-  expect(messages[0]({ type: "pclm-export" }, { id: "extension" }, respond)).toBe(true);
-  await waitFor(() => expect(respond).toHaveBeenCalledWith(true));
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: "pclm-capture", action: "export" });
-  expect(download).toHaveBeenCalledTimes(1);
-  delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL;
-});
-
-it("중계기는 발신자와 확인한 화면을 검증하고 동시 클릭·세션 저장 실패·충돌을 차단한다", async () => {
-  const w = worker();
-  for (const sender of [{ ...w.sender, id: "other" }, { ...w.sender, frameId: 1 },
-    { ...w.sender, url: "https://evil.example/" }]) expect((await w.send("save", sender)).kind).toBe("blocked");
-  expect(w.native).not.toHaveBeenCalled();
-  expect((await w.send("inspect")).kind).toBe("ready");
-  expect(w.stored.pendingCapture).toBeUndefined();
-  w.change();
-  expect((await w.send("save")).kind).toBe("blocked");
-  expect(w.native.mock.calls.some(([, request]) => request.method === "capture")).toBe(false);
-  await w.send("inspect");
-  w.chrome.storage.session.set.mockRejectedValueOnce(new Error("세션 저장 실패"));
-  expect((await w.send("save")).kind).toBe("blocked");
-  expect(w.stored.pendingCapture).toBeUndefined();
-  await w.send("inspect");
-  w.nextCapture(async (_host, request) => ({ protocolVersion: 2, requestId: request.requestId,
-    ok: false, error: { code: "conflict", message: "자료가 바뀌었습니다." } } as any));
-  expect((await w.send("save")).message).toContain("바뀌었습니다");
-  expect(w.stored.pendingCapture).toBeUndefined();
-  await w.send("inspect"); w.navigate();
-  expect((await w.send("save")).kind).toBe("blocked");
-  w.start(); // 서비스 워커 재시작 후에는 미리 확인하지 않은 자료를 저장하지 않는다.
-  expect((await w.send("save", { ...w.sender, documentId: "doc2" })).kind).toBe("blocked");
-
-  const other = worker();
-  await other.send("inspect");
-  other.start(); // 정상 미리보기는 워커 재시작 뒤에도 화면·토큰 재검증을 거쳐 저장할 수 있다.
-  let finish!: (value: any) => void;
-  other.nextCapture((_host, request) => new Promise(resolve => { finish = result =>
-    resolve({ protocolVersion: 2, requestId: request.requestId, ok: true, result }); }));
-  const saving = other.send("save");
-  await waitFor(() => expect(finish).toBeDefined());
-  expect((await other.send("save")).kind).toBe("busy");
-  finish({ status: "stored", entity: "R26BK00000001-001", changed: false });
-  expect((await saving).message).toContain("이미 같은");
-  expect(other.native.mock.calls.filter(([, request]) => request.method === "capture")).toHaveLength(1);
-});
-
-it("응답 단절 후 다른 탭·재시작에서도 결과부터 조회하고 같은 미확인 요청만 명시적으로 재전송한다", async () => {
-  const w = worker();
-  await w.send("inspect");
-  w.nextCapture(async () => { throw new Error("연결 끊김"); });
-  const unknown = await w.send("save");
-  expect(unknown.kind).toBe("pending");
-  const original = structuredClone(w.stored.pendingCapture);
-  w.start(); w.change();
-  w.chrome.storage.local.get.mockResolvedValue({ erpDevelopment: true });
-  const second = { ...w.sender, tab: { id: 2 } };
-  expect(await w.send("inspect", second)).toMatchObject({ kind: "retry", previous: true });
-  expect(w.stored.pendingCapture).toEqual(original);
-  expect(w.native.mock.lastCall![0]).toBe("kr.rfastball.pclm.erp");
-  expect(w.native.mock.calls.filter(([, request]) => request.method === "capture")).toHaveLength(1);
-  await w.send("retry", second, "stale-request");
-  expect(w.native.mock.calls.filter(([, request]) => request.method === "capture")).toHaveLength(1);
-  w.native.mockRejectedValueOnce(new Error("다시 끊김"));
-  expect((await w.send("retry", second, original.captureId)).kind).toBe("pending");
-  expect(w.native.mock.lastCall![1].params).toEqual(original);
-  expect(w.stored.pendingRetryAllowed).toBe(false);
-  w.native.mockImplementationOnce(async (_host, request) => ({ protocolVersion: 2, requestId: request.requestId,
-    ok: true, result: { status: "unknown" } }));
-  expect((await w.send("recover", second)).kind).toBe("pending");
-  expect(w.stored.pendingRetryAllowed).toBe(false);
-  w.native.mockImplementationOnce(async (_host, request) => ({ protocolVersion: 2, requestId: request.requestId,
-    ok: true, result: { status: "stored", entity: original.snapshot.noticeBase + "-" + original.snapshot.seq } }));
-  expect((await w.send("recover", second)).kind).toBe("stored");
-  expect(w.stored.pendingCapture).toBeUndefined();
-});
-
-it("호스트가 알려 준 디스크 판이 다르면 확장이 스스로 다시 불러오고, 같은 쌍으로 두 번은 하지 않는다", async () => {
-  vi.useFakeTimers({ toFake: ["setTimeout"] });
-  const w = worker();
-  const original = w.native.getMockImplementation()!;
-  let disk: string | undefined = "0.4.2";
-  w.native.mockImplementation(async (host, request) => {
-    const response = await original(host, request);
-    if (request.method === "hello") response.result.extensionVersion = disk;
-    return response;
-  });
-  Object.defineProperty(navigator, "userAgentData", { configurable: true, value: { brands: [{ brand: "Chromium" }, { brand: "Microsoft Edge" }] } });
-  try {
-    const first = await w.send("inspect");
-    expect(first).toMatchObject({ kind: "blocked", message: "확장을 새 판(0.4.2)으로 다시 불러옵니다. 잠시 뒤 화면을 다시 확인해 주세요." });
-    expect(w.native.mock.calls.find(([, request]) => request.method === "hello")![1].params).toEqual({ extensionVersion: "0.4.1", browser: "Edge" });
-    expect(w.native.mock.calls.some(([, request]) => request.method === "inspect")).toBe(false);
-    expect(w.chrome.runtime.reload).not.toHaveBeenCalled(); // 응답이 먼저 나간다.
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(w.chrome.runtime.reload).toHaveBeenCalledTimes(1);
-    expect(w.local.reloadAttempt).toBe("0.4.1→0.4.2");
-
-    // 다시 불러와도 판이 그대로면(다른 폴더에서 로드한 확장) 되풀이하지 않고 평소대로 간다.
-    expect((await w.send("inspect")).kind).toBe("ready");
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(w.chrome.runtime.reload).toHaveBeenCalledTimes(1);
-
-    // 같은 판이거나 옛 호스트라 판을 모르면 다시 불러오지 않는다.
-    for (const version of ["0.4.1", undefined]) {
-      disk = version;
-      expect((await w.send("inspect")).kind).toBe("ready");
-    }
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(w.chrome.runtime.reload).toHaveBeenCalledTimes(1);
-  } finally { delete (navigator as any).userAgentData; }
-});
-
-const runUi = new Function("chrome", "document", "location", "fetch", exportSource + "; return " + popupSource);
-it("팝업은 자동 확인 뒤 한 번의 저장으로 대상을 유지하고 오류 종류에 맞는 복구 행동을 표시한다", async () => {
-  const w = worker();
-  const chrome = { storage: w.chrome.storage, commands: w.chrome.commands, runtime: { sendMessage: vi.fn(({ action, captureId }) => w.send(action,
-    { id: "extension", url: w.chrome.runtime.getURL("popup.html") }, captureId)), openOptionsPage: vi.fn() } };
-  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
-  await runUi(chrome, document, { origin: "chrome-extension://extension" });
-  const button = () => document.getElementById("action") as HTMLButtonElement;
-  const click = () => button().onclick!.call(button(), { isTrusted: true } as MouseEvent);
-  expect(button().textContent).toBe("검토한 자료 저장");
-  expect(document.getElementById("title")!.textContent).toBe("시험 공고");
-  expect(document.getElementById("shortcut")!.textContent).toContain("Alt+Shift+S");
-  expect(document.getElementById("development")).toBeNull(); // 연결 환경은 설정 창으로 옮겼다.
-  // 툴바 팝업은 간결한 모양이다 — 내보내기 안내는 누르기 전엔 비어 있고, 폭은 뷰포트에 눌리지 않는다.
-  expect(document.getElementById("collector")!.dataset.surface).toBe("popup");
-  expect(document.getElementById("export-status")!.textContent).toBe("");
-  expect(popupCss).not.toMatch(/body\s*\{[^}]*max-width/);
-  const settings = document.getElementById("settings")!;
-  settings.click(); expect(chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
-  settings.onclick!.call(settings, { isTrusted: true } as MouseEvent);
-  expect(chrome.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
-  expect(w.native.mock.calls.some(([, request]) => request.method === "capture")).toBe(false);
-  button().click(); // ERP가 만든 합성 클릭은 저장 동작이 아니다.
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-  w.nextCapture(async () => { throw new Error("연결 끊김"); });
-  click();
-  await waitFor(() => expect(button().textContent).toBe("저장 결과 확인"));
-  expect(document.getElementById("help")!.hidden).toBe(false);
-  expect(document.getElementById("title")!.textContent).toBe("시험 공고");
-  click();
-  await waitFor(() => expect(button().textContent).toBe("같은 요청 다시 저장"));
-  click();
-  await waitFor(() => expect(document.getElementById("status")!.textContent).toContain("저장했습니다"));
-  expect(document.getElementById("title")!.textContent).toBe("시험 공고");
-  expect(document.getElementById("help")!.hidden).toBe(true);
-});
-
-it("페이지 수집기는 접기와 상세를 제공하고 SPA 전환·값 대입 뒤 이전 저장 상태를 무효화한다", async () => {
-  vi.useFakeTimers();
-  const read = screen();
-  let changed = false;
-  const chrome = { storage: { local: { get: async () => ({}) }, onChanged: { addListener: vi.fn() } },
-    runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: vi.fn() }, sendMessage: vi.fn(async (message: any): Promise<any> => {
-    if (message.type !== "pclm-capture") return "";
-    let snapshot; try { snapshot = read(); } catch (e) { return { kind: "blocked", message: (e as Error).message }; }
-    return { kind: "ready", message: "저장 대상 확인됨", entity: snapshot.noticeBase + "-" + snapshot.seq,
-      fields: { title: changed ? "다음 공고" : "시험 공고" }, fingerprint: JSON.stringify(snapshot) };
-  }) } };
-  const fetchFile = async (file: string) => ({ ok: true, text: async () => file === "popup.html" ? popupHtml : popupCss });
-  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, fetchFile);
-  const panel = document.getElementById("pclm-collector")!;
-  const root = panel.shadowRoot!;
-  expect(panel.hidden).toBe(false);
-  expect(root.getElementById("title")!.textContent).toBe("시험 공고");
-  expect(root.getElementById("collector")!.dataset.surface).toBeUndefined(); // 페이지 수집기는 다 보인다.
-  root.getElementById("collapse")!.click();
-  expect(root.getElementById("content")!.hidden).toBe(true);
-  expect(root.getElementById("collapse")!.getAttribute("aria-expanded")).toBe("false");
-  expect(root.getElementById("compact-status")!.textContent).toBe("저장 가능");
-  root.getElementById("collapse")!.click();
-  document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")!.textContent = "계약 상세";
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(panel.hidden).toBe(false); // 계약 화면도 수집 대상이다.
-  window.dispatchEvent(new Event("pagehide"));
-  document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")!.textContent = "입찰공고상세[내자]";
-  changed = true;
-  document.querySelector<HTMLInputElement>('input[title="입찰공고번호"]')!.value = "R26BK00000002 - 001";
-  window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(panel.hidden).toBe(false);
-  expect(root.getElementById("entity")!.textContent).toContain("R26BK00000002-001");
-  const calls = chrome.runtime.sendMessage.mock.calls.length;
-  await vi.advanceTimersByTimeAsync(3000);
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(calls); // 같은 화면에는 연결 요청을 반복하지 않는다.
-  document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")!.remove();
-  await vi.advanceTimersByTimeAsync(1000);
-  expect(root.getElementById("target")!.hidden).toBe(true);
-  expect(panel.hidden).toBe(false);
-  expect(root.getElementById("status")!.textContent).toContain("엑셀로 내보내세요");
-});
-
-it("「툴바 버튼으로만」이면 페이지 수집기도 관찰도 두지 않고, 설정을 바꾸면 열린 탭에 바로 반영한다", async () => {
-  vi.useFakeTimers();
-  screen();
-  const changed: any[] = [], messages: any[] = [];
-  const chrome = { storage: { local: { get: async () => ({ panelMode: "button" }) }, onChanged: { addListener: (fn: any) => changed.push(fn) } },
-    runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: (fn: any) => messages.push(fn) },
-      sendMessage: vi.fn(async (message: any): Promise<any> => message.type === "pclm-capture"
-        ? { kind: "ready", message: "저장 대상 확인됨", entity: "R26BK00000001-001", fields: { title: "시험 공고" } } : "") } };
-  const fetchFile = async (file: string) => ({ ok: true, text: async () => file === "popup.html" ? popupHtml : popupCss });
-  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, fetchFile);
-  expect(document.getElementById("pclm-collector")).toBeNull();
-  await vi.advanceTimersByTimeAsync(3000);
-  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
-  const respond = vi.fn();
-  const result = (view: object, sender: object = { id: "extension" }, reply = respond) =>
-    messages[0]({ type: "pclm-command-result", view }, sender, reply);
-  result({ kind: "stored", message: "검토한 자료를 저장했습니다.", entityType: "notice", entity: "R26BK00000001-001", fields: { title: "시험 공고" } });
-  expect(respond).toHaveBeenLastCalledWith(false); // 패널이 없으면 중계기가 배지로 알린다.
-  // 배지만으로는 저장됐는지 알기 어렵다. 패널이 없어도 화면에 크게 알린다.
-  const toast = () => document.getElementById("pclm-toast")?.shadowRoot?.querySelector<HTMLElement>(".toast");
-  expect(toast()!.className).toBe("toast ok");
-  expect(toast()!.textContent).toContain("계약 목록에 저장했습니다");
-  expect(toast()!.textContent).toContain("공고 · R26BK00000001-001 · 시험 공고");
-  result({ kind: "ready", message: "검토가 필요합니다. 충돌한 변경값을 고른 뒤 저장하세요." });
-  expect(document.querySelectorAll("#pclm-toast")).toHaveLength(1); // 새 결과가 옛 알림을 갈아 끼운다.
-  expect(toast()!.className).toBe("toast review");
-  expect(toast()!.textContent).toContain("충돌한 변경값");
-  await vi.advanceTimersByTimeAsync(8000);
-  expect(document.getElementById("pclm-toast")).toBeNull();
-
-  changed[0]({ panelMode: { newValue: "always" } }, "local");
-  await vi.waitFor(() => expect(document.getElementById("pclm-collector")?.shadowRoot?.getElementById("title")?.textContent).toBe("시험 공고"));
-  const root = document.getElementById("pclm-collector")!.shadowRoot!;
-  expect(root.getElementById("shortcut")!.textContent).toBe("단축키 없음 — 설정에서 지정");
-  const forged = vi.fn();
-  result({ kind: "blocked", message: "위조" }, { id: "extension", tab: { id: 2 } }, forged);
-  expect(forged).not.toHaveBeenCalled();
-  result({ kind: "stored", message: "검토한 자료를 저장했습니다.", entity: "R26BK00000001-001" });
-  expect(respond).toHaveBeenLastCalledWith(true);
-  expect(root.getElementById("status")!.textContent).toContain("저장했습니다");
-
-  changed[0]({ panelMode: { newValue: "button" } }, "local");
-  await vi.waitFor(() => expect(document.getElementById("pclm-collector")).toBeNull());
-  const calls = chrome.runtime.sendMessage.mock.calls.length;
-  document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")!.textContent = "계약 상세";
-  await vi.advanceTimersByTimeAsync(3000);
-  expect(chrome.runtime.sendMessage).toHaveBeenCalledTimes(calls); // 1초 관찰도 함께 멈췄다.
-});
-
-it("충돌은 「수집값 적용」 을 미리 고르되 빈 값으로 지우기는 유지를 고르고, 사람 값 복원과 행 삭제만 사람이 고르게 둔다", async () => {
-  const conflicts = [
-    { id: "c1", conflict: true, table: "notice", field: "title", before: "옛 제목", after: "새 제목" },
-    { id: "c2", conflict: true, table: "notice", field: "__override", override: "공고명", before: "고친 값", after: "새 제목" },
-    { id: "c3", conflict: true, table: "notice_item", line: 2, field: "__row", before: "지어낸 품목", after: null },
-    { id: "c4", conflict: false, table: "notice", field: "posted_at", before: null, after: "2026/09/24" },
-    // 늦게 그려진 탭을 빈 칸으로 읽었다. 한 번 누름에 멀쩡한 값을 지우지 않는다.
-    { id: "c5", conflict: true, table: "notice", field: "award_method", before: "적격심사제", after: null },
-    { id: "c6", conflict: true, table: "notice", field: "notice_agency", before: "시험기관", after: "" },
-  ];
-  const sendMessage = vi.fn(async (message: any): Promise<any> => message.action === "inspect"
-    ? { kind: "ready", message: "검토가 필요합니다.", entity: "R26BK00000001-001", fields: { title: "시험 공고" }, changes: conflicts }
-    : { kind: "stored", message: "검토한 자료를 저장했습니다." });
-  const chrome = { storage: { local: { get: async () => ({}), set: vi.fn(async () => {}) } },
-    commands: { getAll: async () => [] }, runtime: { sendMessage, openOptionsPage: vi.fn() } };
-  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
-  await runUi(chrome, document, { origin: "chrome-extension://extension" });
-  const selects = [...document.querySelectorAll<HTMLSelectElement>("#changes select")];
-  expect(selects.map(s => s.value)).toEqual(["apply", "", "", "keep", "keep"]);
-  // 덮개는 사람이 고친 값과 새로 읽은 값을 나란히 보인다.
-  expect(document.getElementById("changes")!.textContent).toContain("notice 공고명: 정정값 고친 값 · 새 수집값 새 제목");
-  const button = document.getElementById("action")!;
-  button.onclick!.call(button, { isTrusted: true } as MouseEvent);
-  await waitFor(() => expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ action: "save", choices: { c1: "apply", c5: "keep", c6: "keep" } })));
-});
-
-it("페이지 수집기의 「숨기기」 는 툴바 버튼으로만 열기로 바꾸고, 툴바 팝업은 표시 방식을 오간다", async () => {
-  vi.useFakeTimers();
-  screen();
-  const local: Record<string, any> = { panelMode: "always" }, changed: any[] = [];
-  const storage = { local: { get: async () => ({ ...local }), set: vi.fn(async (value: object) => {
-    const changes = Object.fromEntries(Object.entries(value).map(([key, newValue]) => [key, { newValue, oldValue: local[key] }]));
-    Object.assign(local, value); changed.forEach(fn => fn(changes, "local"));
-  }) }, onChanged: { addListener: (fn: any) => changed.push(fn) } };
-  const chrome = { storage, runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: vi.fn() },
-    sendMessage: vi.fn(async (message: any): Promise<any> => message.type === "pclm-capture"
-      ? { kind: "ready", message: "저장 대상 확인됨", entity: "R26BK00000001-001", fields: { title: "시험 공고" } } : "") } };
-  const fetchFile = async (file: string) => ({ ok: true, text: async () => file === "popup.html" ? popupHtml : popupCss });
-  await runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, fetchFile);
-  const pin = document.getElementById("pclm-collector")!.shadowRoot!.getElementById("pin")!;
-  expect(pin.hidden).toBe(false);
-  expect(pin.textContent).toBe("숨기기");
-  expect(pin.title).toContain("툴바의 확장 아이콘에서 다시 띄울 수 있습니다");
-  pin.click(); // 페이지 스크립트가 만든 합성 클릭은 수집기를 치우지 못한다.
-  expect(storage.local.set).not.toHaveBeenCalled();
-  pin.onclick!.call(pin, { isTrusted: true } as MouseEvent);
-  expect(local.panelMode).toBe("button");
-  await vi.waitFor(() => expect(document.getElementById("pclm-collector")).toBeNull());
-  vi.useRealTimers();
-  changed.length = 0; // 그 탭은 닫았다 — 아래 전환이 수집기를 다시 세우지 않게 한다.
-
-  // 툴바 팝업: 지금 값의 반대로 가는 버튼이다.
-  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
-  const popup = { storage, commands: { getAll: async () => [] }, runtime: { openOptionsPage: vi.fn(),
-    sendMessage: vi.fn(async () => ({ kind: "blocked", message: "현재 화면 확인 필요" })) } };
-  await runUi(popup, document, { origin: "chrome-extension://extension" });
-  const toggle = document.getElementById("pin")!;
-  expect(toggle.textContent).toBe("화면에 항상 띄우기");
-  await toggle.onclick!.call(toggle, { isTrusted: true } as MouseEvent);
-  expect(local.panelMode).toBe("always");
-  expect(toggle.textContent).toBe("화면에서 숨기기");
-  expect(document.getElementById("status")!.textContent).toContain("띄웁니다");
-  await toggle.onclick!.call(toggle, { isTrusted: true } as MouseEvent);
-  expect(local.panelMode).toBe("button");
-  expect(toggle.textContent).toBe("화면에 항상 띄우기");
-});
-
-it("확장을 다시 불러오면 열린 나라장터 탭에 수집기를 다시 넣고, 새 수집기가 끊긴 옛 것을 물러나게 한다", async () => {
-  const w = worker();
-  w.chrome.runtime.onInstalled.addListener.mock.lastCall![0]({ reason: "update" });
-  await waitFor(() => expect(w.chrome.scripting.executeScript).toHaveBeenCalledWith(
-    { target: { tabId: 1 }, files: ["capture.js", "export.js", "popup.js"] }));
-  expect(w.chrome.tabs.query).toHaveBeenCalledWith({ url: "https://www.g2b.go.kr/*" });
-
-  vi.useFakeTimers();
-  screen();
-  const instance = () => {
-    const changed: any[] = [], messages: any[] = [];
-    const chrome = { storage: { local: { get: async () => ({ panelMode: "always" }) }, onChanged: { addListener: (fn: any) => changed.push(fn) } },
-      runtime: { id: "extension", getURL: (file: string) => file, onMessage: { addListener: (fn: any) => messages.push(fn) },
-        sendMessage: vi.fn(async (message: any): Promise<any> => message.type === "pclm-capture"
-          ? { kind: "ready", message: "저장 대상 확인됨", entity: "R26BK00000001-001", fields: { title: "시험 공고" } } : "") } };
-    const fetchFile = async (file: string) => ({ ok: true, text: async () => file === "popup.html" ? popupHtml : popupCss });
-    return { changed, messages, run: () => runUi(chrome, document, { origin: "https://www.g2b.go.kr" }, fetchFile) };
-  };
-  const old = instance(), fresh = instance();
-  await old.run();
-  const stale = document.getElementById("pclm-collector");
-  expect(stale).not.toBeNull();
-  await fresh.run();
-  expect(document.querySelectorAll("#pclm-collector")).toHaveLength(1);
-  expect(document.getElementById("pclm-collector")).not.toBe(stale);
-
-  // 물러난 쪽은 설정 전환도 단축키 결과도 받지 않는다.
-  old.changed[0]({ panelMode: { newValue: "button" } }, "local");
-  const reply = vi.fn();
-  old.messages[0]({ type: "pclm-command-result", view: { kind: "stored" } }, { id: "extension" }, reply);
-  await vi.advanceTimersByTimeAsync(0);
-  expect(document.getElementById("pclm-collector")).not.toBeNull();
-  expect(reply).not.toHaveBeenCalled();
-  fresh.changed[0]({ panelMode: { newValue: "button" } }, "local");
-  await vi.waitFor(() => expect(document.getElementById("pclm-collector")).toBeNull());
-});
-
-it("단축키는 고를 것이 없을 때만 저장하고, 결과를 페이지 수집기나 탭 배지로 알린다", async () => {
-  const w = worker();
-  const g2b = { id: 1, url: "https://www.g2b.go.kr/" };
-  const press = (tab: object = g2b) => w.chrome.commands.onCommand.addListener.mock.lastCall![0]("save-current", tab);
-  const count = (method: string) => w.native.mock.calls.filter(([, request]) => request.method === method).length;
-  const tabBadges = () => w.chrome.action.setBadgeText.mock.calls.map(([o]: any) => o).filter(o => o.tabId === 1 && o.text !== null);
-  press();
-  await waitFor(() => expect(tabBadges().at(-1)?.text).toBe("✓"));
-  expect(count("capture")).toBe(1);
-  expect(w.chrome.action.openPopup).not.toHaveBeenCalled();
-  expect(w.chrome.tabs.sendMessage.mock.lastCall![2]).toEqual({ frameId: 0 });
-
-  const original = w.native.getMockImplementation()!;
-  w.native.mockImplementation(async (host, request) => {
-    const response = await original(host, request);
-    if (request.method === "inspect") response.result.changes = [{ id: "c1", table: "공고", field: "title", before: "갑", after: "을", conflict: true }];
-    return response;
-  });
-  press();
-  await waitFor(() => expect(w.chrome.action.openPopup).toHaveBeenCalledTimes(1));
-  expect(tabBadges().at(-1)?.text).toBe("!");
-  expect(count("capture")).toBe(1); // 충돌은 사람이 고른다.
-
-  // 빈 값으로 지우는 변경만 남았으면 팝업의 기본과 같이 유지를 골라 저장한다 — 지우지 않는다.
-  w.native.mockImplementation(async (host, request) => {
-    const response = await original(host, request);
-    if (request.method === "inspect") response.result.changes = [{ id: "w1", table: "공고", field: "award_method", before: "적격심사제", after: null, conflict: true }];
-    return response;
-  });
-  press();
-  await waitFor(() => expect(count("capture")).toBe(2));
-  expect(w.native.mock.calls.filter(([, request]) => request.method === "capture").at(-1)![1].params.choices).toEqual({ w1: "keep" });
-  w.native.mockImplementation(async (host, request) => {
-    const response = await original(host, request);
-    if (request.method === "inspect") response.result.changes = [{ id: "c1", table: "공고", field: "title", before: "갑", after: "을", conflict: true }];
-    return response;
-  });
-
-  w.chrome.tabs.sendMessage.mockResolvedValueOnce(true); // 페이지 수집기가 떠 있으면 거기에 그린다.
-  const badges = tabBadges().length;
-  press();
-  await waitFor(() => expect(w.chrome.tabs.sendMessage).toHaveBeenCalledTimes(4));
-  expect(w.chrome.tabs.sendMessage.mock.lastCall![1].view).toMatchObject({ kind: "ready", message: expect.stringContaining("검토가 필요합니다") });
-  await new Promise(resolve => setTimeout(resolve, 0));
-  expect(tabBadges()).toHaveLength(badges);
-  expect(count("capture")).toBe(2);
-
-  const inspected = count("inspect");
-  press({ id: 1, url: "https://other.example/" });
-  await waitFor(() => expect(tabBadges()).toHaveLength(badges + 1));
-  expect(tabBadges().at(-1)?.text).toBe("!");
-  expect(count("inspect")).toBe(inspected);
-
-  // 버튼 모드에서 미확인 저장이 생기면 강제로 띄우던 패널 대신 전역 배지로 남기고, 단축키도 저장하지 않는다.
-  w.native.mockImplementation(original);
-  w.chrome.storage.local.get.mockResolvedValue({ panelMode: "button" });
-  await w.send("inspect");
-  w.nextCapture(async () => { throw new Error("연결 끊김"); });
-  expect((await w.send("save")).kind).toBe("pending");
-  expect(w.chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: "!" });
-  press();
-  await waitFor(() => expect(w.chrome.action.openPopup).toHaveBeenCalledTimes(2));
-  expect(count("capture")).toBe(3);
-  expect(w.stored.pendingCapture).toBeDefined();
-});
-
-
-// 자료 자리는 확장에서 보지도 옮기지도 않는다. 수집 통로가 저장 구조를 고치는 통로를 겸하면 브라우저 쪽의
-// 실수 하나가 사람의 자료 자리를 바꾼다 — 자리는 계약 목록 앱에서만 다룬다.
-it("확장은 설정 창에서도 자료 자리를 묻거나 옮기지 않는다", async () => {
-  const w = worker();
-  const listener = w.chrome.runtime.onMessage.addListener.mock.lastCall![0];
-  const optionsPage = { id: "extension", url: "chrome-extension://extension/options.html" };
-  const replied = vi.fn();
-  for (const action of ["location", "moveLocation"])
-    expect(listener({ type: "pclm-location", action, datasetId: "test", folder: "D:\\" }, optionsPage, replied)).toBeUndefined();
-  expect(w.native).not.toHaveBeenCalled();
-  expect(replied).not.toHaveBeenCalled();
-
-  document.body.innerHTML = optionsHtml;
-  const chrome = { storage: { local: { get: async () => ({}), set: vi.fn(async () => {}) }, onChanged: { addListener: vi.fn() } },
-    commands: { getAll: async () => [] }, tabs: { create: vi.fn() }, runtime: { sendMessage: vi.fn() } };
-  await new Function("chrome", "document", optionsSource)(chrome, document);
-  expect(document.getElementById("location")).toBeNull();
-  (document.getElementById("development") as HTMLInputElement).click();
-  await waitFor(() => expect(chrome.storage.local.set).toHaveBeenCalledWith({ erpDevelopment: true }));
-  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
 });
 
 it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않은 값을 보내지 않는다", () => {
@@ -730,6 +304,30 @@ it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않�
   expect(result.data.tables[table.source][1].ctrtDmndRcptItemSqno).toBe("002");
   expect(result.data.tables[table.source][0].ctrtDmndQty).toBe("0");
   expect(JSON.stringify(result)).not.toContain("보내면 안 되는 값");
+});
+
+it("변경계약서 작성 화면은 번호·차수를 품목 표에서 읽고, 바뀌기 전 업체 표는 보내지 않는다", () => {
+  screen();
+  // 메뉴 01608 — 머리에는 차수가 없다. 업체는 바뀌기 전(앞 차수) 표와 지금 표로 나뉘어 온다.
+  const item = { ctrtNo: "R26TA00000005", ctrtChgOrd: "01", ctrtItemSqno: 1, ctrtAmt: 2000 };
+  const grids: Record<string, unknown[]> = {
+    mf_wfm_container_grdCtrtLis: [item], mf_wfm_container_grdCtrtLisExcel: [item],
+    mf_wfm_container_grdBeoeEtpsLst: [{ ctrtChgOrd: "00", ctentUntyGrpNo: "OLD0001", ctentUntyGrpNm: "바뀌기 전 업체" }],
+    mf_wfm_container_grdCrntEtpsLst: [{ ctrtChgOrd: "01", ctentUntyGrpNo: "NEW0001", ctentUntyGrpNm: "시험 업체" }],
+  };
+  document.body.innerHTML = `<div id="mf_wfm_container">${Object.keys(grids).map(id => `<div id="${id}"></div>`).join("")}</div>`;
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01608" },
+    $p: { getComponentById: (id: string) => id in grids ? { getDataList: () => ({ getAllJSON: () => grids[id] }) } : null } };
+  fakeWindow.top = fakeWindow;
+  const read = new Function("document", "window", "location", "profiles", captureSource + "; return pclmReadMapped(profiles);");
+  const run = () => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, JSON.parse(mappingJson).profiles);
+  const result = run();
+  expect(result).toMatchObject({ profile: "g2b-contract-change-v1", screen: "01608" });
+  expect(Object.keys(result.data.tables).sort()).toEqual(["mf_wfm_container_grdCrntEtpsLst", "mf_wfm_container_grdCtrtLis"]);
+  expect(JSON.stringify(result)).not.toContain("바뀌기 전 업체");
+  // 품목 표가 비면 번호를 읽지 못한 것이다 — 머리의 계약번호만으로 짐작하지 않는다.
+  grids.mf_wfm_container_grdCtrtLis = [];
+  expect(run).toThrow("화면에서 번호를 읽지 못했습니다.");
 });
 
 it("받는지는 hello 매핑에서 화면을 단 프로필만으로 정하고, 화면 하나를 그 프로필 하나로 읽으며, 표가 없어도 받는다", () => {
@@ -789,7 +387,7 @@ it("받는지는 hello 매핑에서 화면을 단 프로필만으로 정하고, 
   expect(missing.unsupported).toBeFalsy();
 });
 
-it("확장은 hello 매핑의 프로필만을 수집과 지금 보는 화면 읽기에 넘기고, 탭 보고에 메뉴 번호를 싣는다", async () => {
+it("확장은 hello 매핑의 프로필만을 지금 보는 화면 읽기에 넘기고, 탭 보고에 메뉴 번호를 싣는다", async () => {
   vi.useFakeTimers();
   const w = worker();
   // 수집하는 화면은 프로필이 단 screen 이다 — 따로 목록을 싣지 않는다.
@@ -821,14 +419,6 @@ it("확장은 hello 매핑의 프로필만을 수집과 지금 보는 화면 읽
   expect(last.params.tabs[0].snapshot).toMatchObject({ screen: "01579", mappingRevision: "v1" });
   expect(last.params.tabs[2].message).toBe("화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요.");
   expect(passed).toEqual([[profiles], [profiles], [profiles]]);
-
-  // 수집기의 확인도 같은 목록으로 읽고, 화면 번호가 실린 스냅샷을 호스트에 보낸다.
-  passed.length = 0;
-  const view = w.send("inspect");
-  await vi.advanceTimersByTimeAsync(0);
-  expect((await view).kind).toBe("ready");
-  expect(passed).toEqual([[profiles]]);
-  expect(w.native.mock.calls.find(([, r]) => r.method === "inspect")![1].params.snapshot).toMatchObject({ screen: "01579" });
 });
 
 it("원값을 먼저 읽고, 숨은 칸의 차수를 쓰고, 부가 필드의 충돌은 그 필드만 비운다", () => {
@@ -861,14 +451,10 @@ it("원값을 먼저 읽고, 숨은 칸의 차수를 쓰고, 부가 필드의 �
   expect(run).toThrow("필드가 여러 값으로 관찰됩니다: ctrtNoOrd"); // 문서 번호의 충돌은 막는다.
 });
 
-it("엑셀 파일은 유효한 ZIP과 XML로 생성하고 번호·수식 원문·중복 시트 이름을 보존한다", async () => {
+// 무압축 ZIP 을 풀어 항목마다 CRC 와 XML 을 확인한다.
+async function unzip(bytes: Uint8Array) {
   const nodeVerifier = "node:zlib";
   const { crc32 } = await import(/* @vite-ignore */ nodeVerifier);
-  const workbook = new Function(exportSource + "; return pclmWorkbook;")();
-  const bytes: Uint8Array = workbook([
-    { name: "업무/자료", rows: [["번호", "내용"], ["00123", '=HYPERLINK("https://example.invalid")'], ["한글 & <원문>", "_x0041_"]] },
-    { name: "업무:자료", rows: [["번호"], ["002"]] },
-  ]);
   const view = new DataView(bytes.buffer), decoder = new TextDecoder(), files = new Map<string, Document>();
   const end = bytes.length - 22;
   expect(view.getUint32(end, true)).toBe(0x06054b50);
@@ -886,6 +472,16 @@ it("엑셀 파일은 유효한 ZIP과 XML로 생성하고 번호·수식 원문�
     at += 46 + nameSize + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
   }
   expect(at).toBe(end);
+  return files;
+}
+
+it("엑셀 파일은 유효한 ZIP과 XML로 생성하고 번호·수식 원문·중복 시트 이름을 보존한다", async () => {
+  const workbook = new Function(exportSource + "; return pclmWorkbook;")();
+  const bytes: Uint8Array = workbook([
+    { name: "업무/자료", rows: [["번호", "내용"], ["00123", '=HYPERLINK("https://example.invalid")'], ["한글 & <원문>", "_x0041_"]] },
+    { name: "업무:자료", rows: [["번호"], ["002"]] },
+  ]);
+  const files = await unzip(bytes);
   expect([...files.get("xl/workbook.xml")!.querySelectorAll("sheet")].map(s => s.getAttribute("name"))).toEqual(["업무 자료", "업무 자료 2"]);
   const sheet = files.get("xl/worksheets/sheet1.xml")!;
   expect(sheet.querySelector('c[r="A2"]')!.textContent).toBe("00123");
@@ -897,48 +493,59 @@ it("엑셀 파일은 유효한 ZIP과 XML로 생성하고 번호·수식 원문�
   expect(() => workbook([{ name: "초과", rows: [["x".repeat(32768)]] }])).toThrow("너무 큽니다");
 });
 
-it("내보내기는 DB 연결과 미확인 저장에 의존하지 않으며 사용자 클릭으로 XLSX를 내려받는다", async () => {
-  const w = worker();
-  w.stored.pendingCapture = { captureId: "미확인 요청" };
-  const result = { title: "시험 화면", sheets: [{ name: "필드", rows: [["번호"], ["001"]] },
-    { name: "수집 정보", rows: [["항목", "내용"], ["범위", "로딩된 자료"]] }], warnings: [] };
-  w.chrome.scripting.executeScript.mockImplementation(async args => args.files ? [] : [{ documentId: "doc1", result: { workbook: result } }] as any);
-  expect(await w.send("export")).toMatchObject({ kind: "exported", ...result });
-  expect(w.native).not.toHaveBeenCalled();
-  expect(w.stored.pendingCapture).toEqual({ captureId: "미확인 요청" });
-  expect((await w.send("export", { ...w.sender, documentId: "old" })).kind).toBe("blocked");
-  expect((await w.send("export", { ...w.sender, url: "https://other.example" })).kind).toBe("blocked");
-  w.chrome.tabs.get = async () => ({ url: "https://other.example/" });
-  expect((await w.send("export", { id: "extension", url: w.chrome.runtime.getURL("popup.html") })).kind).toBe("blocked");
+it("엑셀 열은 모든 값이 자릿점 숫자나 날짜일 때만 숫자·날짜로 쓰고, 번호·선행 0·섞인 열은 문자열로 두며 너비를 한글 폭으로 잰다", async () => {
+  const workbook = new Function(exportSource + "; return pclmWorkbook;")();
+  const columns: [string, string[]][] = [
+    ["금액", ["1,234,567", "5", "0"]],
+    ["원", ["1,000원", "20원", ""]],
+    ["소수", ["1.5", "2,000.25", "3"]],
+    ["코드", ["00123", "1", "2"]],
+    ["일자번호", ["20260921", "20260922", "20260923"]],
+    ["사업자", ["123-45-67890", "123-45-67891", "123-45-67892"]],
+    ["섞임", ["1,234", "없음", "5"]],
+    ["날짜", ["2026/09/21", "2026/09/22", ""]],
+    ["일시", ["2026-09-21 10:30", "2026-09-22 08:00:15", "2026-09-23"]],
+    ["없는날", ["2026/02/30", "2026/03/01", "2026/03/02"]],
+    ["한글", ["가나다라마바사아자차", "", ""]],
+    ["영문", ["abcdefghij", "", ""]],
+    ["구분자", ["2026/09/21", "2026-09-22", "2026.09.23"]],
+  ];
+  const rows = [columns.map(([name]) => name), ...[0, 1, 2].map(r => columns.map(([, values]) => values[r]))];
+  const files = await unzip(workbook([{ name: "형식", rows }]));
+  const sheet = files.get("xl/worksheets/sheet1.xml")!, styles = files.get("xl/styles.xml")!;
+  const cell = (ref: string) => sheet.querySelector(`c[r="${ref}"]`);
+  const value = (ref: string) => Number(cell(ref)!.querySelector("v")!.textContent);
+  const format = (ref: string) => {
+    const xf = styles.querySelectorAll("cellXfs > xf")[Number(cell(ref)!.getAttribute("s"))];
+    return styles.querySelector(`numFmt[numFmtId="${xf.getAttribute("numFmtId")}"]`)?.getAttribute("formatCode");
+  };
+  const day = (y: number, m: number, d: number) => (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5;
 
-  document.body.innerHTML = popupHtml.match(/<body>([\s\S]*)<\/body>/)![1];
-  const create = vi.fn((_blob: Blob) => "blob:export"), revoke = vi.fn();
-  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
-  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revoke });
-  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-    expect(this.download).toMatch(/^시험 화면_.*\.xlsx$/);
-    expect(this.href).toBe("blob:export");
-  });
-  const chrome = { storage: w.chrome.storage, commands: w.chrome.commands, runtime: { sendMessage: vi.fn(async ({ action }) => action === "export"
-    ? { kind: "exported", ...result } : { kind: "blocked", message: "앱 연결 없음", connection: true }) } };
-  await runUi(chrome, document, { origin: "chrome-extension://extension" });
-  const button = document.getElementById("export") as HTMLButtonElement;
-  button.click(); expect(download).not.toHaveBeenCalled();
-  vi.useFakeTimers();
-  await button.onclick!.call(button, { isTrusted: true } as MouseEvent);
-  expect(download).toHaveBeenCalledTimes(1);
-  expect(create.mock.calls[0][0]).toBeInstanceOf(Blob);
-  expect(document.getElementById("export-status")!.textContent).toContain("다운로드를 요청했습니다");
-  expect(document.getElementById("status")!.textContent).toBe("앱 연결 없음");
-  await vi.advanceTimersByTimeAsync(30000); expect(revoke).toHaveBeenCalledWith("blob:export");
-  chrome.runtime.sendMessage.mockRejectedValueOnce(new Error("연결 끊김"));
-  await button.onclick!.call(button, { isTrusted: true } as MouseEvent);
-  expect(document.getElementById("export-status")!.textContent).toContain("연결 끊김");
-  expect(button.disabled).toBe(false);
-  delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL;
+  expect(["A2", "A3", "A4"].map(value)).toEqual([1234567, 5, 0]);
+  expect(cell("A2")!.hasAttribute("t")).toBe(false);
+  expect(format("A2")).toBe("#,##0");
+  expect([value("B2"), value("B3"), format("B2")]).toEqual([1000, 20, '#,##0"원"']);
+  expect(cell("B4")).toBeNull(); // 빈 칸은 쓰지 않는다.
+  expect([value("C2"), value("C3"), format("C2")]).toEqual([1.5, 2000.25, "#,##0.00"]);
+  for (const ref of ["D2", "E2", "F2", "G2", "G3", "J2", "J3", "M2"]) expect(cell(ref)!.getAttribute("t")).toBe("inlineStr");
+  expect(cell("D2")!.textContent).toBe("00123");
+  expect([value("H2"), format("H2")]).toEqual([day(2026, 9, 21), "yyyy\\/mm\\/dd"]);
+  expect(value("I2")).toBeCloseTo(day(2026, 9, 21) + 10.5 / 24, 9);
+  expect(value("I4")).toBe(day(2026, 9, 23));
+  expect(format("I2")).toBe("yyyy\\-mm\\-dd hh:mm:ss");
+  expect(cell("A1")!.getAttribute("t")).toBe("inlineStr"); // 머리글은 늘 문자열이다.
+
+  const widths = [...sheet.querySelectorAll("cols > col")].map(c => Number(c.getAttribute("width")));
+  expect(widths).toHaveLength(columns.length);
+  expect(widths[10]).toBeGreaterThan(widths[11]);
+  expect(widths[10]).toBe(22);
+  expect(Math.min(...widths)).toBeGreaterThanOrEqual(8);
+  expect(styles.querySelector("parsererror")).toBeNull();
+  expect(styles.documentElement.firstElementChild!.tagName).toBe("numFmts");
+  const xfs = styles.querySelector("cellXfs")!;
+  expect(Number(xfs.getAttribute("count"))).toBe(xfs.children.length);
+  expect(Number(styles.querySelector("numFmts")!.getAttribute("count"))).toBe(styles.querySelectorAll("numFmt").length);
 });
-
-// ── 지금 보는 화면 3b: 화면 이름표 · 확장 설정 · 오류 사건 ──────────────────
 
 it("화면 그대로: 수집 규칙의 칸마다 이름표(aria-label·앞 th·없음)와 보이는 글을, 품목은 줄마다 원값으로 읽는다", () => {
   screen();
@@ -990,61 +597,381 @@ it("화면 그대로: 수집 규칙의 칸마다 이름표(aria-label·앞 th·�
   expect(JSON.stringify(unsupported)).not.toContain("비밀");
 });
 
-it("확장 설정을 탭 보고에 싣고, 창의 설정 명령을 옵션 창과 같은 자리에 쓰며 단축키 화면을 연다", async () => {
+// ── 다리 확장(0.10): 저장은 창의 「가져오기」 만 한다 ──────────────────────────
+
+it("확장은 나라장터 화면에 아무것도 심지 않는다 — 콘텐츠 스크립트·단축키·다시 넣기·저장 메시지가 없다", () => {
+  const manifest = JSON.parse(manifestJson);
+  for (const key of ["content_scripts", "web_accessible_resources", "commands"]) expect(manifest).not.toHaveProperty(key);
+  expect(manifest.permissions).toEqual(["scripting", "nativeMessaging", "storage"]);
+  expect(manifest.host_permissions).toEqual(["https://www.g2b.go.kr/*"]);
+  expect(manifest.action).toEqual({ default_popup: "popup.html", default_title: "계약 목록" });
+  const w = worker();
+  expect(w.chrome.runtime.onInstalled.addListener).not.toHaveBeenCalled();
+  expect(w.chrome.commands.onCommand.addListener).not.toHaveBeenCalled();
+  const listener = w.chrome.runtime.onMessage.addListener.mock.lastCall![0];
+  const reply = vi.fn();
+  for (const type of ["pclm-capture", "pclm-shortcut", "pclm-options", "pclm-command-result"])
+    expect(listener({ type, action: "save" }, popupSender, reply)).toBeUndefined();
+  expect(reply).not.toHaveBeenCalled();
+  expect(backgroundSource).not.toMatch(/pendingCapture|setBadgeText|panelMode|chrome\.commands|method: "event"/);
+});
+
+it("탭 보고의 설정은 사이트 접근 하나이고, 창의 명령 중 확장 관리만 열며 옛 설정 명령은 듣지 않는다", async () => {
   vi.useFakeTimers();
   const w = worker();
-  w.local.panelMode = "button";
-  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }] : [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
+  w.chrome.tabs.query.mockImplementation(async () => [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
   w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : !args.args ? [{ result: "지문" }]
     : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } },
       screenRows: [{ group: "계약 기본정보", label: "계약명", text: "시험 계약", source: "ctrtNm" }] } }]);
   const reports = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs");
   await vi.advanceTimersByTimeAsync(300);
   const last = reports().at(-1)!;
-  expect(last.params.settings).toEqual({ panelMode: "button", shortcut: "Alt+Shift+S", siteAccess: true });
+  expect(last.params.settings).toEqual({ siteAccess: true });
   expect(w.chrome.permissions.contains).toHaveBeenCalledWith({ origins: ["https://www.g2b.go.kr/*"] });
   expect(last.params.tabs[0].screenRows).toEqual([{ group: "계약 기본정보", label: "계약명", text: "시험 계약", source: "ctrtNm" }]);
 
-  const command = (message: object) => w.ports[0].onMessage.addListener.mock.calls[0][0](message);
-  command({ protocolVersion: 2, command: "setPanelMode", mode: "always" });
+  // 페이지 수집기도 단축키도 없다 — 옛 창이 보내도 아무것도 하지 않는다.
+  w.command({ protocolVersion: 2, command: "setPanelMode", mode: "always" });
+  w.command({ protocolVersion: 2, command: "openShortcuts" });
   await vi.advanceTimersByTimeAsync(300);
-  expect(w.chrome.storage.local.set).toHaveBeenCalledWith({ panelMode: "always" });
-  expect(reports().at(-1)!.params.settings.panelMode).toBe("always");
-  command({ protocolVersion: 2, command: "setPanelMode", mode: "sometimes" });
-  expect(w.chrome.storage.local.set).toHaveBeenCalledTimes(1);
-  // 새 창으로 연다 — 앱이 새로 선 창을 알아보고 앞으로 가져온다. 탭으로 열면 뒤에 있는 창에 섞여 가려낼 수 없다.
-  command({ protocolVersion: 2, command: "openShortcuts" });
-  expect(w.chrome.windows.create).toHaveBeenCalledWith({ url: "chrome://extensions/shortcuts", focused: true });
-  // 확장 관리 — 명령줄로는 chrome:// 를 열 수 없어 창이 확장에 맡긴다.
-  command({ protocolVersion: 2, command: "openExtensions" });
+  expect(w.chrome.storage.local.set).not.toHaveBeenCalled();
+  expect(w.chrome.windows.create).not.toHaveBeenCalled();
+  // 확장 관리 — 명령줄로는 chrome:// 를 열 수 없어 창이 확장에 맡긴다. 새 창으로 연다 — 앱이 새로 선 창을 알아보고 앞으로 가져온다.
+  w.command({ protocolVersion: 2, command: "openExtensions" });
   expect(w.chrome.windows.create).toHaveBeenCalledWith({ url: "chrome://extensions/", focused: true });
   expect(w.chrome.tabs.create).not.toHaveBeenCalled();
 
   // 사이트 접근이 바뀌면(다음 확인에서) 다시 보고한다.
   w.chrome.permissions.contains.mockResolvedValue(false);
   await vi.advanceTimersByTimeAsync(2600);
-  expect(reports().at(-1)!.params.settings.siteAccess).toBe(false);
+  expect(reports().at(-1)!.params.settings).toEqual({ siteAccess: false });
 });
 
-it("수집 흐름의 실패와 다시 보내 풀림을 코드만 실어 포트로 알린다", async () => {
+it("호스트가 알려 준 디스크 판이 다르면 확장이 스스로 다시 불러오고, 같은 쌍으로 두 번은 하지 않는다", async () => {
+  vi.useFakeTimers();
+  Object.defineProperty(navigator, "userAgentData", { configurable: true, value: { brands: [{ brand: "Chromium" }, { brand: "Microsoft Edge" }] } });
+  try {
+    const w = worker();
+    const original = w.native.getMockImplementation()!;
+    let disk: string | undefined = "0.4.2";
+    w.native.mockImplementation(async (host, request) => {
+      const response = await original(host, request);
+      if (request.method === "hello") response.result.extensionVersion = disk;
+      return response;
+    });
+    w.chrome.tabs.query.mockImplementation(async () => [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
+    w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : !args.args ? [{ result: "지문" }]
+      : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } } } }]);
+    const tab = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs").at(-1)?.params.tabs[0];
+    const reads = () => w.chrome.scripting.executeScript.mock.calls.filter(([args]: any) => args.args).length;
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.chrome.runtime.reload).not.toHaveBeenCalled(); // 보고가 먼저 나갈 틈을 준다.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tab()).toMatchObject({ state: "error", message: "확장을 새 판(0.4.2)으로 다시 불러옵니다. 잠시 뒤 화면을 다시 확인해 주세요." });
+    expect(w.native.mock.calls.find(([, request]) => request.method === "hello")![1].params).toEqual({ extensionVersion: "0.4.1", browser: "Edge" });
+    expect(reads()).toBe(0); // 옛 판으로는 화면을 읽지 않는다.
+    expect(w.chrome.runtime.reload).toHaveBeenCalledTimes(1);
+    expect(w.local.reloadAttempt).toBe("0.4.1→0.4.2");
+
+    // 다시 불러와도 판이 그대로면(다른 폴더에서 로드한 확장) 되풀이하지 않고 평소대로 읽는다.
+    w.command({ protocolVersion: 2, command: "read", tabId: 1 });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tab()).toMatchObject({ state: "supported" });
+    // 같은 판이거나 옛 호스트라 판을 모르면 다시 불러오지 않는다.
+    for (const version of ["0.4.1", undefined]) {
+      disk = version;
+      await vi.advanceTimersByTimeAsync(61_000); // 쥐고 있던 hello 가 낡았다.
+      w.command({ protocolVersion: 2, command: "read", tabId: 1 });
+      await vi.advanceTimersByTimeAsync(300);
+      expect(tab()).toMatchObject({ state: "supported" });
+    }
+    expect(w.native.mock.calls.filter(([, request]) => request.method === "hello")).toHaveLength(4);
+    expect(w.chrome.runtime.reload).toHaveBeenCalledTimes(1);
+  } finally { delete (navigator as any).userAgentData; }
+});
+
+it("앱이 부른 내보내기는 콘텐츠 스크립트 없이 그 탭에 export.js 를 넣고, 팝업과 같은 이름 규칙으로 그 탭에서 내려받는다", async () => {
+  vi.useFakeTimers();
   const w = worker();
-  await waitFor(() => expect(w.ports).toHaveLength(1));
-  const events = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "event").map(m => m.params);
-  await w.send("inspect");
-  w.nextCapture(async () => { throw new Error("연결 끊김"); });
-  expect((await w.send("save")).kind).toBe("pending");
-  expect(events()).toEqual([{ kind: "error", code: "unconfirmed" }]);
-  expect((await w.send("inspect")).kind).toBe("retry"); // 결과 조회 — 오류가 아니다.
-  expect((await w.send("retry", w.sender, w.stored.pendingCapture.captureId)).kind).toBe("stored");
-  expect(events()).toEqual([{ kind: "error", code: "unconfirmed" }, { kind: "recovered" }]);
-  // 저장 대상의 거절은 rejected — 화면 안내(번호 없음)는 세지 않는다.
-  await w.send("inspect");
-  w.nextCapture(async (_host, request) => ({ protocolVersion: 2, requestId: request.requestId,
-    ok: false, error: { code: "conflict", message: "시험 계약 건명이 바뀌었습니다." } } as any));
-  await w.send("save");
-  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : [{ documentId: "doc1", result: { error: "화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요." } }]);
-  await w.send("inspect");
-  expect(events().slice(2)).toEqual([{ kind: "error", code: "rejected" }]);
-  // 자료는 싣지 않는다.
-  expect(JSON.stringify(events())).not.toMatch(/R26|시험|건명/);
+  w.chrome.tabs.query.mockImplementation(async () => [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : !args.args ? [{ result: "지문" }]
+    : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } } } }]);
+  await vi.advanceTimersByTimeAsync(300);
+  w.chrome.scripting.executeScript.mockClear();
+  w.command({ protocolVersion: 2, command: "export", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  const calls = w.chrome.scripting.executeScript.mock.calls.map(([args]: any) => args);
+  expect(calls[0]).toEqual({ target: { tabId: 1 }, world: "MAIN", files: ["export.js"] });
+  expect(calls[1]).toMatchObject({ target: { tabId: 1 }, world: "MAIN" });
+  expect(calls[1].args).toBeUndefined();
+  expect(w.chrome.tabs.sendMessage).not.toHaveBeenCalled(); // 받을 콘텐츠 스크립트가 없다.
+  // 확장이 모르는 탭은 내보내지 않는다.
+  w.command({ protocolVersion: 2, command: "export", tabId: 7 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(w.chrome.scripting.executeScript).toHaveBeenCalledTimes(2);
+
+  // 그 탭 안에서 도는 함수 — export.js 가 놓은 두 함수로 파일을 짓고 고른 이름으로 내려받는다.
+  const page = globalThis as any;
+  page.pclmExportPage = () => ({ title: "시험/화면", sheets: [{ name: "필드", rows: [["번호"], ["001"]] }], warnings: [] });
+  page.pclmWorkbook = vi.fn(() => new Uint8Array([1, 2]));
+  const create = vi.fn((_blob: Blob) => "blob:export"), revoke = vi.fn();
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revoke });
+  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toMatch(/^시험_화면_\d{4}-\d\d-\d\d\.xlsx$/);
+    expect(this.href).toBe("blob:export");
+  });
+  try {
+    calls[1].func();
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(page.pclmWorkbook).toHaveBeenCalledWith([{ name: "필드", rows: [["번호"], ["001"]] }]);
+    expect(document.querySelector("a")).toBeNull(); // 단 고리를 걷는다.
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(revoke).toHaveBeenCalledWith("blob:export");
+  } finally {
+    delete page.pclmExportPage; delete page.pclmWorkbook;
+    delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL;
+  }
+});
+
+it("앱이 부른 내보내기의 결과는 그 탭의 보고에 실려 돌아간다 — 표가 없으면 그 까닭을, 지으면 성공을, 다시 읽어도 남긴다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  let page: any = { error: "내보낼 표가 없습니다." };
+  w.chrome.tabs.query.mockImplementation(async () => [{ id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" }]);
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? []
+    : String(args.func).includes("pclmExportPage") && !args.args ? [{ result: page }]
+    : !args.args ? [{ result: "지문" }]
+    : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } } } }]);
+  const reported = () => w.ports.flatMap(p => p.posted).filter(m => m.method === "tabs").at(-1)!.params.tabs[0];
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reported().export).toBeUndefined();
+
+  w.command({ protocolVersion: 2, command: "export", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reported().export).toMatchObject({ ok: false, message: "내보낼 표가 없습니다." });
+  const failedAt = reported().export.at;
+  expect(typeof failedAt).toBe("number");
+
+  page = { ok: true };
+  await vi.advanceTimersByTimeAsync(5);
+  w.command({ protocolVersion: 2, command: "export", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reported().export).toMatchObject({ ok: true, message: "" });
+  expect(reported().export.at).toBeGreaterThan(failedAt);
+
+  // 다시 읽어도 결과는 남는다 — 앱이 아직 보지 못했을 수 있다.
+  w.command({ protocolVersion: 2, command: "read", tabId: 1 });
+  await vi.advanceTimersByTimeAsync(300);
+  expect(reported().export).toMatchObject({ ok: true });
+});
+
+it("팝업은 연결 상태와 이 탭을 「지금 보는 화면」 에서 어떻게 보는지를 알리고, 저장 단추는 두지 않는다", async () => {
+  const open = async (status: any) => {
+    popupBody();
+    const chrome = { runtime: { openOptionsPage: vi.fn(), sendMessage: vi.fn(async (message: any) => {
+      if (message.type !== "pclm-status") throw new Error("묻지 않을 것");
+      if (status instanceof Error) throw status;
+      return status;
+    }) } };
+    await runUi(chrome, document);
+    return chrome;
+  };
+  const exportable = () => !(document.getElementById("export") as HTMLButtonElement).disabled;
+
+  const chrome = await open({ connected: true, destination: "D:\\시험\\시험자료.pclm", environment: "development",
+    tab: { g2b: true, state: "supported", screen: "계약 상세", kind: "g2b-contract-v1" } });
+  expect(text("connection")).toBe("계약 목록과 이어져 있습니다");
+  expect(text("destination")).toBe("작업자료 시험자료.pclm");
+  expect(text("environment")).toBe("개발용");
+  expect(text("tab")).toBe("이 화면은 계약 목록 창 오른쪽 「지금 보는 화면」에서 가져옵니다. 창이 닫혀 있으면 계약 목록을 여세요.");
+  expect(exportable()).toBe(true);
+  expect(text("export-status")).toBe("");
+  // 저장·검토·단축키·도움말은 없다 — 가져오기는 앱이 한다.
+  for (const id of ["action", "inspect", "changes", "shortcut", "help", "pin", "collapse"]) expect(document.getElementById(id)).toBeNull();
+  expect(popupHtml).not.toMatch(/단축키|저장 대상|<details/);
+  const settings = document.getElementById("settings")!;
+  settings.click(); expect(chrome.runtime.openOptionsPage).not.toHaveBeenCalled();
+  settings.onclick!.call(settings, { isTrusted: true } as MouseEvent);
+  expect(chrome.runtime.openOptionsPage).toHaveBeenCalledTimes(1);
+
+  await open({ connected: true, tab: { g2b: true, state: "unsupported", screen: "개찰 결과" } });
+  expect(shown("destination")).toBe(false); // 작업자료를 아직 모른다.
+  expect(text("environment")).toBe("");
+  expect(text("tab")).toBe("이 화면은 수집하지 않습니다. 엑셀로는 내보낼 수 있습니다.");
+  await open({ connected: true, tab: { g2b: true, state: "reading" } });
+  expect(text("tab")).toBe("화면을 읽는 중입니다.");
+  await open({ connected: true, tab: { g2b: true } }); // 거울이 아직 모르는 탭
+  expect(text("tab")).toBe("화면을 읽는 중입니다.");
+  await open({ connected: true, tab: { g2b: true, state: "error", message: "화면에서 번호를 읽지 못했습니다." } });
+  expect(text("tab")).toBe("화면에서 번호를 읽지 못했습니다.");
+
+  // 연결이 없으면 이 탭의 수집 여부는 뜻이 없다. 내보내기는 앱 없이도 된다.
+  await open({ connected: false, tab: { g2b: true, state: "supported" } });
+  expect(text("connection")).toBe("계약 목록에 연결되지 않았습니다");
+  expect(text("destination")).toBe("계약 목록을 실행하면 자동으로 이어집니다.");
+  expect(shown("tab")).toBe(false);
+  expect(exportable()).toBe(true);
+
+  // 개발 전환이 켜져 있으면 업무용 앱을 켜도 이어지지 않는다 — 그 까닭과 설정 단추를 가리킨다.
+  await open({ connected: false, environment: "development", tab: { g2b: true, state: "supported" } });
+  expect(text("connection")).toBe("계약 목록에 연결되지 않았습니다");
+  expect(text("environment")).toBe("개발용");
+  expect(text("destination")).toBe("확장 설정에서 「개발 DB 사용」 이 켜져 있어 개발용 계약 목록만 찾습니다. 업무용이면 설정에서 끄세요.");
+  expect(shown("destination")).toBe(true);
+  expect(document.getElementById("settings")!.textContent).toBe("설정");
+
+  await open({ connected: true, destination: "D:\\시험\\시험자료.pclm", tab: { g2b: false } });
+  expect(text("tab")).toBe("나라장터 화면이 아닙니다.");
+  expect(exportable()).toBe(false);
+  await open({ connected: false, tab: { g2b: false } });
+  expect(text("tab")).toBe("나라장터 화면이 아닙니다.");
+
+  await open(new Error("중계기 없음"));
+  expect(text("connection")).toBe("계약 목록에 연결되지 않았습니다");
+  expect(exportable()).toBe(false);
+});
+
+it("팝업은 열려 있는 동안 2초마다 상태를 다시 읽어 그리고, 내보내는 중에는 단추를 되살리지 않으며, 걷히면 멈춘다", async () => {
+  vi.useFakeTimers();
+  popupBody();
+  let status: any = { connected: false, tab: { g2b: true, state: "supported" } };
+  const sendMessage = vi.fn(async (message: any): Promise<any> => {
+    if (message.type === "pclm-export") return new Promise(() => {}); // 끝나지 않는 내보내기
+    return status;
+  });
+  await runUi({ runtime: { sendMessage, openOptionsPage: vi.fn() } }, document);
+  expect(text("connection")).toBe("계약 목록에 연결되지 않았습니다");
+  expect(shown("tab")).toBe(false);
+
+  // 팝업을 연 뒤에 앱이 켜졌다 — 다시 열지 않아도 2초 안에 바뀐다.
+  status = { connected: true, destination: "D:\\시험\\시험자료.pclm", tab: { g2b: true, state: "supported" } };
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(text("connection")).toBe("계약 목록과 이어져 있습니다");
+  expect(text("destination")).toBe("작업자료 시험자료.pclm");
+  expect(text("tab")).toBe("이 화면은 계약 목록 창 오른쪽 「지금 보는 화면」에서 가져옵니다. 창이 닫혀 있으면 계약 목록을 여세요.");
+
+  const button = document.getElementById("export") as HTMLButtonElement;
+  void button.onclick!.call(button, { isTrusted: true } as MouseEvent);
+  expect(button.disabled).toBe(true);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(button.disabled).toBe(true); // 다시 그려도 내보내는 중인 단추는 그대로다.
+
+  // 다른 팝업이 같은 문서에 섰으면 옛 것은 묻지 않는다.
+  popupBody();
+  const asked = sendMessage.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(sendMessage.mock.calls.length).toBe(asked);
+});
+
+it("중계기는 팝업에 상시 포트·hello·거울이 아는 것만으로 상태를 답하고, 탭에서 온 물음에는 답하지 않는다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  w.local.erpDevelopment = false;
+  const original = w.native.getMockImplementation()!;
+  w.native.mockImplementation(async (host, request) => {
+    const response = await original(host, request);
+    if (request.method === "hello") Object.assign(response.result, { destination: "C:\\시험\\시험자료.pclm", environment: "production" });
+    return response;
+  });
+  let active: any = { id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" };
+  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [active] : [active]);
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : !args.args ? [{ result: "지문" }]
+    : [{ result: { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: {}, tables: {} } } } }]);
+  await vi.advanceTimersByTimeAsync(300);
+
+  expect(await w.ask({ type: "pclm-status" })).toEqual({ connected: true, destination: "C:\\시험\\시험자료.pclm", environment: "production",
+    tab: { g2b: true, state: "supported", screen: "계약 상세", kind: "g2b-contract-v1", message: undefined } });
+  expect(await w.ask({ type: "pclm-status" }, { id: "extension", tab: { id: 1 }, url: "https://www.g2b.go.kr/a" })).toBeUndefined();
+  expect(await w.ask({ type: "pclm-status" }, { id: "other", url: "chrome-extension://other/popup.html" })).toBeUndefined();
+  const reads = w.chrome.scripting.executeScript.mock.calls.length;
+
+  // 팝업이 실제로 그리는 모양.
+  popupBody();
+  await runUi({ runtime: { sendMessage: (message: object) => w.ask(message), openOptionsPage: vi.fn() } }, document);
+  expect(text("connection")).toBe("계약 목록과 이어져 있습니다");
+  expect(text("destination")).toBe("작업자료 시험자료.pclm");
+  expect(text("tab")).toBe("이 화면은 계약 목록 창 오른쪽 「지금 보는 화면」에서 가져옵니다. 창이 닫혀 있으면 계약 목록을 여세요.");
+  expect(w.chrome.scripting.executeScript).toHaveBeenCalledTimes(reads); // 팝업을 열었다고 다시 읽지 않는다.
+
+  // 앱이 꺼지면 연결 안 됨이고, 옛 hello 의 작업자료는 보이지 않는다. 개발 전환은 저장된 값으로 안다.
+  w.ports[0].drop();
+  w.local.erpDevelopment = true;
+  expect(await w.ask({ type: "pclm-status" })).toMatchObject({ connected: false, destination: undefined, environment: "development", tab: { g2b: true } });
+  active = { id: 3, windowId: 10, url: "https://other.example/" };
+  expect((await w.ask({ type: "pclm-status" })).tab).toEqual({ g2b: false });
+});
+
+it("팝업의 엑셀 내보내기는 앱 없이 중계기가 읽은 표로 파일을 지어 내려받고, 나라장터가 아니면 막는다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  // 앱이 없다 — 상시 포트도 hello 도 서지 않는다.
+  w.connectNative.mockImplementation(() => { throw new Error("호스트 없음"); });
+  await vi.advanceTimersByTimeAsync(0);
+  w.native.mockRejectedValue(new Error("호스트 없음"));
+  const result = { title: "시험 화면", sheets: [{ name: "필드", rows: [["번호"], ["001"]] },
+    { name: "수집 정보", rows: [["항목", "내용"], ["범위", "로딩된 자료"]] }], warnings: [] };
+  let active: any = { id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" };
+  w.chrome.tabs.query.mockImplementation(async (filter?: any) => filter?.active ? [active] : []);
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => args.files ? [] : [{ result: { workbook: result } }]);
+  // 페이지에서 온 내보내기 요청은 받지 않는다.
+  expect(await w.ask({ type: "pclm-export" }, { id: "extension", tab: { id: 1 }, url: "https://www.g2b.go.kr/a" })).toBeUndefined();
+
+  popupBody();
+  const create = vi.fn((_blob: Blob) => "blob:export"), revoke = vi.fn();
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revoke });
+  const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    expect(this.download).toMatch(/^시험 화면_.*\.xlsx$/);
+    expect(this.href).toBe("blob:export");
+  });
+  try {
+    const chrome = { runtime: { sendMessage: vi.fn((message: object) => w.ask(message)), openOptionsPage: vi.fn() } };
+    await runUi(chrome, document);
+    expect(text("connection")).toBe("계약 목록에 연결되지 않았습니다");
+    const button = document.getElementById("export") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    button.click(); // 합성 클릭은 내려받지 않는다.
+    expect(download).not.toHaveBeenCalled();
+    await button.onclick!.call(button, { isTrusted: true } as MouseEvent);
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(text("export-status")).toBe("1개 자료 시트의 다운로드를 요청했습니다. 현재 로딩된 범위만 포함합니다.");
+    expect(w.chrome.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 1 }, world: "MAIN", files: ["export.js"] });
+    expect(w.native).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30000); expect(revoke).toHaveBeenCalledWith("blob:export");
+
+    // 그 사이 나라장터가 아닌 탭으로 옮겼으면 막는다.
+    active = { id: 3, windowId: 10, url: "https://other.example/" };
+    await button.onclick!.call(button, { isTrusted: true } as MouseEvent);
+    expect(text("export-status")).toBe("나라장터 업무 화면을 열어 주세요. 다시 시도해 주세요.");
+    expect(button.disabled).toBe(false);
+    chrome.runtime.sendMessage.mockRejectedValueOnce(new Error("연결 끊김"));
+    await button.onclick!.call(button, { isTrusted: true } as MouseEvent);
+    expect(text("export-status")).toContain("연결 끊김");
+    expect(download).toHaveBeenCalledTimes(1);
+  } finally { delete (URL as any).createObjectURL; delete (URL as any).revokeObjectURL; }
+});
+
+// 자료 자리는 확장에서 보지도 옮기지도 않는다. 통로가 저장 구조를 고치는 통로를 겸하면 브라우저 쪽의
+// 실수 하나가 사람의 자료 자리를 바꾼다 — 자리는 계약 목록 앱에서만 다룬다.
+it("확장은 설정 창에서도 자료 자리를 묻거나 옮기지 않는다", async () => {
+  const w = worker();
+  const optionsPage = { id: "extension", url: "chrome-extension://extension/options.html" };
+  for (const action of ["location", "moveLocation"])
+    expect(await w.ask({ type: "pclm-location", action, datasetId: "test", folder: "D:\\" }, optionsPage)).toBeUndefined();
+  expect(w.native).not.toHaveBeenCalled();
+
+  document.body.innerHTML = optionsHtml;
+  const chrome = { storage: { local: { get: async () => ({}), set: vi.fn(async (_: object) => {}) } }, runtime: { sendMessage: vi.fn() } };
+  await new Function("chrome", "document", optionsSource)(chrome, document);
+  expect(document.getElementById("location")).toBeNull();
+  // 설정 창에는 연결 환경 하나만 남았다.
+  expect(document.querySelectorAll("fieldset")).toHaveLength(1);
+  expect(optionsHtml).not.toMatch(/panelMode|단축키|수집기/);
+  (document.getElementById("development") as HTMLInputElement).click();
+  await waitFor(() => expect(chrome.storage.local.set).toHaveBeenCalledWith({ erpDevelopment: true }));
+  expect(text("saved")).toBe("개발 DB에 저장합니다.");
+  expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
 });

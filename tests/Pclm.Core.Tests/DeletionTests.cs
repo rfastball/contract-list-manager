@@ -35,6 +35,58 @@ public class DeletionTests : IDisposable
     }
 
     [Fact]
+    public void 여러_차수의_삭제계획은_겹침없이_실제_계열과_링크_영향을_센다()
+    {
+        _store.UpsertNotice(Notice("000"));
+        _store.UpsertContract(Contract("00") with { Items = [new ContractItemRecord { LineNo = 1, ItemName = "품목" }] });
+        _store.SetOverride(계약, "계약금액", "1");
+        _store.UpsertContract(Contract("01"));
+        _store.SetUserField(계약, "메모", "보존 확인");
+        ReferenceFixture.Contract(_database, 계약, 공고);
+        string[] keys = [계약.Display, (계약 with { Seq = "01" }).Display, 계약.Display];
+        var plan = _store.PlanBatchDeletion(keys, false);
+        Assert.Equal(2, plan.DocumentCount);
+        Assert.Equal(1, plan.SeriesCount);
+        Assert.Equal(1, plan.ChildRows);
+        Assert.Equal(1, plan.UserFields);
+        Assert.Equal(1, plan.Overrides);
+        Assert.Equal(1, plan.Links);
+        Assert.All(plan.Targets, p => Assert.True(p.SeriesGoes));
+        Assert.Equal(2, Count("SELECT COUNT(*) FROM contract;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM project_link;"));
+        _store.SetUserField(계약, "메모", "동시 변경");
+        Assert.Throws<InvalidOperationException>(() => _store.BatchDelete(keys, false, plan.Fingerprint));
+        Assert.Equal(2, Count("SELECT COUNT(*) FROM contract;"));
+        plan = _store.PlanBatchDeletion(keys, false);
+        _store.BatchDelete(keys.Reverse().ToArray(), false, plan.Fingerprint);
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM contract_series;"));
+        Assert.Equal(0, Count("SELECT COUNT(*) FROM project_link;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM notice;"));
+    }
+
+    [Fact]
+    public void 일괄삭제는_중간_오류도_되감고_전차수_대상을_중복제거한다()
+    {
+        _store.UpsertContract(Contract("00"));
+        _store.UpsertContract(Contract("01"));
+        _store.UpsertNotice(Notice("000"));
+        string[] keys = [계약.Display, (계약 with { Seq = "01" }).Display, 공고.Display];
+        var plan = _store.PlanBatchDeletion(keys, true);
+        Assert.Equal(2, plan.Targets.Count);
+        Assert.Equal(3, plan.DocumentCount);
+        using (var connection = _database.Open())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TRIGGER reject_delete BEFORE DELETE ON notice BEGIN SELECT RAISE(ABORT, 'test'); END;";
+            command.ExecuteNonQuery();
+        }
+        Assert.Throws<SqliteException>(() => _store.BatchDelete(keys, true, plan.Fingerprint));
+        Assert.Equal(2, Count("SELECT COUNT(*) FROM contract;"));
+        Assert.Equal(1, Count("SELECT COUNT(*) FROM notice;"));
+        Assert.Throws<InvalidOperationException>(() => new Store(new Database(_path, Access.Read)).PlanBatchDeletion(keys, true));
+    }
+
+    [Fact]
     public void 지우면_계약면에서_사라진다()
     {
         _store.UpsertContract(Contract("00"));
@@ -71,7 +123,7 @@ public class DeletionTests : IDisposable
         _store.UpsertNotice(Notice("000"));
         _store.UpsertContract(Contract("00"));
         _store.SetUserField(계약, "진행상태", "납품");
-        new Linker(_database).Confirm(계약, 공고, 1.0);
+        ReferenceFixture.Contract(_database, 계약, 공고);
 
         _store.Delete(계약, wholeSeries: true);
 
@@ -170,7 +222,7 @@ public class DeletionTests : IDisposable
 
         _store.SetUserField(계약, "진행상태", "납품");
         _store.SetOverride(계약, "계약금액", "164,872,341");
-        new Linker(_database).Confirm(계약, 공고, 1.0);
+        ReferenceFixture.Contract(_database, 계약, 공고);
 
         var plan = _store.PlanDeletion(계약, wholeSeries: true);
 
@@ -216,7 +268,7 @@ public class DeletionTests : IDisposable
     {
         _store.UpsertNotice(Notice("000"));
         _store.UpsertContract(Contract("00"));
-        new Linker(_database).Confirm(계약, 공고, 1.0);
+        ReferenceFixture.Contract(_database, 계약, 공고);
 
         _store.Delete(공고, wholeSeries: true);
 
@@ -251,7 +303,7 @@ public class DeletionTests : IDisposable
         _store.UpsertRequest(Request("000"));
         _store.UpsertNotice(Notice("000"));
 
-        new RequestLinker(_database).Confirm(접수, 공고, 1.0);
+        ReferenceFixture.Request(_database, 접수, 공고);
         _store.AddUserColumn("request", "비고", "text", []);
         _store.SetUserField(접수, "비고", "협의중");
 
@@ -272,7 +324,7 @@ public class DeletionTests : IDisposable
     {
         _store.UpsertRequest(Request("000"));
         _store.UpsertNotice(NoticeWithItem());
-        new RequestLinker(_database).Confirm(접수, 공고, 1.0);
+        ReferenceFixture.Request(_database, 접수, 공고);
 
         Assert.Equal(1, Count("SELECT COUNT(*) FROM request_link;"));
         Assert.Equal(1, Count("SELECT COUNT(*) FROM request_item_link;"));
@@ -290,7 +342,7 @@ public class DeletionTests : IDisposable
     {
         _store.UpsertRequest(Request("000"));
         _store.UpsertNotice(NoticeWithItem());
-        new RequestLinker(_database).Confirm(접수, 공고, 1.0);
+        ReferenceFixture.Request(_database, 접수, 공고);
 
         _store.Delete(공고, wholeSeries: true);
 

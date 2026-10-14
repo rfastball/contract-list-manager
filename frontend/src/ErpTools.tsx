@@ -45,7 +45,11 @@ export function ErpTools({ onChanged, startOpen = false, focusRequest = 0 }: {
   const asked = useRef(false);
   const jsonInput = useRef<HTMLInputElement>(null);
   const focused = useRef(0);
+  /** 일을 시킨 조작부. 처리 중에는 칸 묶음이 잠겨 초점이 빠지므로, 끝나 다시 풀리면 여기로 돌려준다. */
+  const pressed = useRef<HTMLElement | null>(null);
   async function work(fn: () => Promise<void>) {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body) pressed.current = active;
     setBusy(true); setError(""); setMessage("");
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
@@ -81,6 +85,13 @@ export function ErpTools({ onChanged, startOpen = false, focusRequest = 0 }: {
   useEffect(() => {
     if (startOpen && !asked.current) { asked.current = true; void work(load); }
   }, []); // 처음 한 번만 — 펼친 채로 선 때다.
+  useEffect(() => {
+    if (busy) return;
+    const target = pressed.current;
+    pressed.current = null;
+    // 다른 곳으로 이미 옮겨 갔으면 건드리지 않는다 — 잠긴 동안 빠진 초점(body)만 되돌린다.
+    if (target?.isConnected && (!document.activeElement || document.activeElement === document.body)) target.focus();
+  }, [busy]);
   useEffect(() => {
     if (!focusRequest || focusRequest === focused.current || busy) return;
     focused.current = focusRequest;
@@ -126,7 +137,9 @@ export function ErpTools({ onChanged, startOpen = false, focusRequest = 0 }: {
     </fieldset>
     <fieldset disabled={busy}>
       <legend>JSON 자료 검토</legend>
-      <label className="action file">JSON 파일 선택<input ref={jsonInput} type="file" accept=".json" onChange={e => { const f = e.target.files?.[0]; if (f) void work(async () => { setSource(await f.text()); setSourceName(f.name); setSourceScreen(undefined); setMatches({}); invalidate(); }); }}/></label>
+      <label className="action file">JSON 파일 선택<input ref={jsonInput} type="file" accept=".json" onChange={e => {
+        // 고른 뒤 비운다 — 비우지 않으면 같은 파일(고쳐 저장한 것)을 다시 골라도 change 가 나지 않아 옛 내용이 남는다.
+        const f = e.target.files?.[0]; e.target.value = ""; if (f) void work(async () => { setSource(await f.text()); setSourceName(f.name); setSourceScreen(undefined); setMatches({}); invalidate(); }); }}/></label>
       <p className="hint">{sourceName || "선택한 자료 없음"}</p>
       <button className="action" type="button" disabled={!source} onClick={() => void work(inspect)}>활성 매핑으로 미리보기</button>
       {preview && <><h3>{preview.entity} · 품목 {preview.itemCount}행</h3>

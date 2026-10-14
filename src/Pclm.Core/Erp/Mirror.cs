@@ -8,13 +8,13 @@ namespace Pclm.Core.Erp;
 
 /// <summary>
 /// 칸 하나. <paramref name="Kind"/> 는 <c>id</c>(번호 열) · <c>same</c> · <c>changed</c> · <c>new</c>(견줄 차수가 없다) ·
-/// <c>override</c>(사람이 고친 칸의 아래 값이 이번 화면으로 바뀐다).
+/// <c>override</c>(사람이 고친 칸의 아래 값이 이번 화면으로 바뀐다) · <c>blank</c>(있던 값을 화면이 비워 보냈다 — 그대로 두는 것이 기본).
 /// </summary>
-/// <param name="Value">계약면에 찍힐 표기 그대로. 덮개 칸이면 화면의 값(덮개 아래).</param>
+/// <param name="Value">계약면에 찍힐 표기 그대로. 덮개 칸이면 화면의 값(덮개 아래), <c>blank</c> 면 그대로 남는 값.</param>
 /// <param name="Old">견준 차수의 표기. <c>changed</c> 에만.</param>
 /// <param name="Raw">변환 전 화면의 원값이 표기와 다르면(날짜·금액) 그 원값.</param>
 /// <param name="Human">사람이 고친 값. <c>override</c> 에만.</param>
-/// <param name="ChoiceId">가져올 때 고를 자리(<see cref="CaptureChange.Id"/>). <c>override</c> 에만.</param>
+/// <param name="ChoiceId">가져올 때 고를 자리(<see cref="CaptureChange.Id"/>). <c>override</c> · <c>blank</c> 에만.</param>
 /// <param name="Sources">이 열을 채우는 화면의 자리 — 수집 규칙의 source 키, 표에서 오면 <c>table:&lt;대상 표&gt;</c>.
 /// 계약면의 열 정의에서 끌어낸다(<see cref="Views.FaceReferences"/>). 끌어낼 수 없으면 비었다.</param>
 /// <param name="From">그 자리에 화면이 적어 둔 이름표. 화면이 이름표를 보내지 않았으면 빈 문자열.</param>
@@ -28,6 +28,14 @@ public sealed record MirrorField(string Column, string Kind, string Value, strin
 /// <param name="Source">수집 규칙의 source 키. 품목 줄은 <c>table:&lt;대상 표&gt;:&lt;화면의 몇째 줄&gt;</c>, 수집 규칙에 없는
 /// 화면은 빈 문자열.</param>
 public sealed record ScreenRow(string Group, string Label, string Text, string Source);
+
+/// <summary>
+/// 앱이 부른 「현재 화면 엑셀로 내보내기」 의 그 탭 마지막 결과. 확장이 탭 보고에 실어 돌려보낸다 — 앱은 요청 뒤에 온
+/// 결과로 성공·실패를 말한다. 옛 확장(0.10.0 까지)은 싣지 않는다.
+/// </summary>
+/// <param name="At">확장이 결과를 낸 때(밀리초). 앱은 요청할 때 알던 것보다 늦은 것만 그 요청의 답으로 본다.</param>
+/// <param name="Message">실패한 까닭. 성공이면 빈 문자열.</param>
+public sealed record MirrorExport(long At, bool Ok, string Message);
 
 /// <summary>견준 차수의 같은 순번 품목. 수량·단가·금액 중 하나라도 다를 때만 온다.</summary>
 public sealed record MirrorItemBefore(string Quantity, string Unit, string Price, string Amount);
@@ -62,11 +70,25 @@ public sealed record MirrorRound(string Seq, string Amount, string SavedOn, stri
 /// <param name="Rest">이 화면에서 읽지 않아 빈 열의 수.</param>
 /// <param name="ItemRows">스냅샷의 품목 표 행 수.</param>
 /// <param name="ItemsAllRead">미리보기의 품목 수가 스냅샷의 행 수와 같다.</param>
-/// <param name="Blocked">창에서 가져올 수 없는 까닭(대응을 골라야 하는 품목, 지울지 골라야 하는 행). 없으면 null.</param>
+/// <param name="Missing">작업자료에 있는데 이번 화면에 없는 행. 그대로 두는 것이 기본이고, 사람이 고르면 지운다.</param>
+/// <param name="KeptCells">딸린 표의 줄에서 있던 값을 화면이 비워 보내 그대로 두는 칸 수. 고르지 않는다.</param>
+/// <param name="KeptIn">그 칸들이 선 표의 이름(「품목」, 「품목·일정」). 없으면 빈 문자열.</param>
+/// <param name="TotalsWithDefaults">계약만 — 기본으로 가져오면 품목 금액의 합이 계약금액과 맞는가. 계약이 아니면 null.</param>
+/// <param name="TotalsWithoutMissing">계약만 — 화면에 없는 품목 행을 모두 지우고 가져오면 맞는가. 계약이 아니면 null.</param>
 public sealed record MirrorShot(string EntityType, string Kind, string Number, string Base, string Seq, string Title,
     string Status, int Changes, string? CompareSeq, string? LatestSeq, string View, int ViewColumns,
     List<MirrorField> Fields, int Rest, List<MirrorItem> Items, int ItemChanges, int ItemRows, bool ItemsAllRead,
-    List<MirrorPlace> Place, List<MirrorRound> Rounds, string BaseToken, string? Blocked);
+    List<MirrorPlace> Place, List<MirrorRound> Rounds, string BaseToken,
+    List<MirrorMissing> Missing, int KeptCells, string KeptIn, bool? TotalsWithDefaults, bool? TotalsWithoutMissing);
+
+/// <summary>작업자료에 있는데 이번 화면에 없는 행(<c>__row</c>) 하나.</summary>
+/// <param name="Table">업무 표 이름(<c>contract_item</c> 따위).</param>
+/// <param name="TableName">사람이 읽을 표 이름(품목·일정·담당자·첨부·계약상대자).</param>
+/// <param name="Line">그 표의 줄 번호. 품목이면 순번이다.</param>
+/// <param name="Label">그 줄을 알아볼 글 — 품목이면 품명.</param>
+/// <param name="Amount">품목이면 계약면 표기의 금액(없으면 단가). 그 밖에는 빈 문자열.</param>
+/// <param name="ChoiceId">지우기를 고르는 자리(<see cref="CaptureChange.Id"/>).</param>
+public sealed record MirrorMissing(string Table, string TableName, int Line, string Label, string Amount, string ChoiceId);
 
 /// <summary>수집하는 화면 하나(ADR-037) — 「수집 안 함」 이 무엇을 열면 되는지 안내할 때 쓴다.</summary>
 /// <param name="Kind">사람이 읽을 종류 이름(접수·공고·계약).</param>
@@ -122,33 +144,45 @@ public static class Mirror
         _ => new("v_계약품목", "계약번호", "품명", "단가", "금액"),
     };
 
-    /// <summary>있던 값을 빈 값으로 지우는 변경 — 늦게 그려진 탭을 빈 칸으로 읽은 것이 대부분이라 유지가 기본이다(확장의 wipes 와 같다).</summary>
+    /// <summary>있던 값을 빈 값으로 지우는 변경 — 늦게 그려진 탭을 빈 칸으로 읽은 것이 대부분이라 유지가 기본이다.</summary>
     public static bool Wipes(CaptureChange change) =>
         change.Conflict && change.Override is null && change.Field != "__row" &&
         (change.After ?? "") == "" && (change.Before ?? "") != "";
 
     /// <summary>
-    /// 확장과 같은 기본 규칙으로 고른 것. 덮어쓰기는 적용하고, 있던 값이 비게 되는 것은 유지하고, 사람이 고친 칸은
-    /// 사람이 고른 것(<paramref name="restore"/> 에 있으면 복원, 아니면 유지)을 따른다. 행 삭제는 고르지 않는다 —
-    /// 그것이 남으면 창에서는 가져오지 않는다(<see cref="MirrorShot.Blocked"/>).
+    /// 더하고 바꾸는 것은 기본, 지우는 것은 사람이 고를 때만. 있던 값이 다른 값으로 바뀌는 것은 늘 적용한다. 사람이 고친 칸의
+    /// 덮개(<c>__override</c>)·있던 값이 비게 되는 것(<see cref="Wipes"/>)·화면에 없는 행(<c>__row</c>)은 그대로 두고,
+    /// <paramref name="picks"/> 에 있을 때만 적용한다 — 덮개를 걷고, 칸을 비우고, 행을 지운다. 충돌마다 하나를 빠짐없이 낸다:
+    /// 저장은 고르지 않은 충돌이 있으면 거절한다.
     /// </summary>
-    public static Dictionary<string, string> DefaultChoices(CapturePreview preview, IReadOnlySet<string> restore)
+    public static Dictionary<string, string> DefaultChoices(CapturePreview preview, IReadOnlySet<string> picks)
     {
         var choices = new Dictionary<string, string>();
         foreach (var change in preview.Changes.Where(ch => ch.Conflict))
-        {
-            if (change.Field == "__row") continue;
-            choices[change.Id] = change.Field == "__override" ? (restore.Contains(change.Id) ? "apply" : "keep")
-                : Wipes(change) ? "keep" : "apply";
-        }
+            choices[change.Id] = change.Field is "__override" or "__row" || Wipes(change)
+                ? (picks.Contains(change.Id) ? "apply" : "keep")
+                : "apply";
         return choices;
     }
 
-    /// <summary>창에서 가져올 수 없는 까닭. 없으면 null.</summary>
-    public static string? BlockedBy(CapturePreview preview) =>
-        preview.Unmatched.Count > 0 ? "기존 품목과 화면의 품목을 짝지어야 합니다."
-        : preview.Changes.Any(ch => ch.Field == "__row") ? "화면에 없는 품목 행을 지울지 골라야 합니다."
-        : null;
+    /// <summary>
+    /// 창이 가져올 입력. 작업자료에 있는 줄과 짝이 없는 화면의 줄(<see cref="CapturePreview.Unmatched"/>)은 모두 새 줄로 둔다
+    /// (<see cref="CaptureInput.RowMatches"/> 를 0 으로) — 옛 줄과 짝짓는 길은 창에 두지 않는다. 투영과 가져오기가 함께 부른다:
+    /// baseToken 은 RowMatches 까지 셈하므로, 한쪽만 고치면 비춘 것과 가져올 것의 토큰이 갈려 늘 「바뀌었습니다」 가 된다.
+    /// </summary>
+    internal static (CaptureInput Input, CapturePreview Preview) AsNewRows(Func<CaptureInput, CapturePreview> inspect, CaptureInput input)
+    {
+        var preview = inspect(input);
+        if (preview.Unmatched.Count == 0) return (input, preview);
+        var matches = new Dictionary<string, int>(input.RowMatches ?? new(), StringComparer.Ordinal);
+        foreach (var row in preview.Unmatched) matches[row.Id] = 0;
+        var paired = input with { RowMatches = matches };
+        return (paired, inspect(paired));
+    }
+
+    /// <summary>창의 가져오기가 쓸 입력과 그 미리보기(<see cref="AsNewRows"/>).</summary>
+    public static (CaptureInput Input, CapturePreview Preview) Prepare(Database database, CaptureInput input) =>
+        AsNewRows(new ErpCapture(database).Inspect, input);
 
     /// <summary>
     /// 스냅샷 하나를 투영한다. 쓰기 잠금을 짧게 쥐고(BEGIN IMMEDIATE) 그 안의 savepoint 에서만 쓴 뒤 모두 되돌린다.
@@ -162,8 +196,8 @@ public static class Mirror
         using var tx = c.BeginTransaction(deferred: false);
         try
         {
-            var preview = capture.Inspect(c, tx, input);
-            return Project(c, tx, mapping, input, preview, screen ?? []);
+            var (live, preview) = AsNewRows(i => capture.Inspect(c, tx, i), input);
+            return Project(c, tx, mapping, live, preview, screen ?? []);
         }
         finally { tx.Rollback(); }
     }
@@ -179,6 +213,17 @@ public static class Mirror
             if (Text("group") is { } g && Text("label") is { } l && Text("text") is { } t && Text("source") is { } s) rows.Add(new(g, l, t, s));
         }
         return rows;
+    }
+
+    /// <summary>탭 보고 한 탭의 <c>export</c>. 없거나 모양이 틀리면 null — 결과를 모르는 것으로 둔다.</summary>
+    public static MirrorExport? Export(JsonElement tab)
+    {
+        if (tab.ValueKind != JsonValueKind.Object || !tab.TryGetProperty("export", out var e) || e.ValueKind != JsonValueKind.Object ||
+            !e.TryGetProperty("at", out var at) || at.ValueKind != JsonValueKind.Number || !at.TryGetInt64(out var when) ||
+            !e.TryGetProperty("ok", out var ok) || ok.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return null;
+        var message = e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() ?? "" : "";
+        return new(when, ok.GetBoolean(), message);
     }
 
     /// <summary>
@@ -250,6 +295,7 @@ public static class Mirror
         List<MirrorPlace> place;
         var itemSources = new Dictionary<string, string>(StringComparer.Ordinal);
         var columns = 0;
+        bool? withDefaults = null, withoutMissing = null;
         tx.Save(Point);
         try
         {
@@ -268,6 +314,7 @@ public static class Mirror
             var defaults = DefaultChoices(preview, new HashSet<string>());
             ErpCapture.Write(c, tx, input, doc, preview.Changes, ch => ch.Conflict ? defaults.GetValueOrDefault(ch.Id, "keep") : "apply",
                 DateTime.UtcNow.ToString("O"));
+            if (type == "contract") withDefaults = ErpCapture.TotalsMatch(c, tx, doc);
             after = Row(c, tx, face, key, Display(doc.Seq)) ?? [];
             columns = after.Count;
             afterItems = Rows(c, tx, items.View, items.Key, Display(doc.Seq));
@@ -279,6 +326,13 @@ public static class Mirror
                 new { type, doc.Base, doc.Seq, table = type + "_item" }, tx))
                 if (order.TryGetValue(key2, out var n)) itemSources[line.ToString(CultureInfo.InvariantCulture)] = $"table:{type}_item:{n}";
             place = Place(c, tx, type, doc.Base, doc.Seq, Display(doc.Seq));
+            // 화면에 없는 품목 행을 모두 지우면 맞는가 — 맞지 않는 계약에 「모두 지우기」 를 내밀지 가린다. 저장과 같은 셈이다.
+            if (type == "contract")
+            {
+                foreach (var row in preview.Changes.Where(ch => ch.Field == "__row" && ch.Table == "contract_item"))
+                    ErpCapture.RemoveRow(c, tx, doc, row);
+                withoutMissing = ErpCapture.TotalsMatch(c, tx, doc);
+            }
         }
         finally { tx.Rollback(Point); tx.Release(Point); }
         place = place.Select(p => p.State is "ref" or "linked"
@@ -288,6 +342,12 @@ public static class Mirror
         // 칸. 화면의 이름표와 보이는 글은 그 칸을 채우는 자리에서 읽는다.
         var overrides = preview.Changes.Where(ch => ch.Field == "__override" && ch.Override is not null)
             .GroupBy(ch => ch.Override!).ToDictionary(g => g.Key, g => g.First());
+        // 화면이 비워 보낸 머리 칸 — 그 본 표의 열을 재료로 쓰는 면 열에 단다(열 정의에서 끌어낸 재료, SourcesOf 와 같은 길).
+        var wipes = preview.Changes.Where(ch => ch.Table == type && Wipes(ch))
+            .GroupBy(ch => type + "." + ch.Field).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var blanks = new Dictionary<string, CaptureChange>(StringComparer.Ordinal);
+        foreach (var (column, refs) in references)
+            if (refs.Select(r => wipes.GetValueOrDefault(r)).OfType<CaptureChange>().FirstOrDefault() is { } wipe) blanks[column] = wipe;
         var fields = new List<MirrorField>();
         var rest = 0;
         foreach (var (column, value) in after)
@@ -303,6 +363,11 @@ public static class Mirror
             if (overrides.TryGetValue(column, out var o))
             {
                 fields.Add(new(column, "override", o.After ?? "", null, Shown(o.After ?? "", sources, screen), o.Before ?? "", o.Id, sources, from));
+                continue;
+            }
+            if (blanks.TryGetValue(column, out var blank))
+            {
+                fields.Add(new(column, "blank", value, null, null, null, blank.Id, sources, from));
                 continue;
             }
             var old = before?.GetValueOrDefault(column);
@@ -333,6 +398,20 @@ public static class Mirror
         var itemChanges = list.Count(i => i.Before is not null || i.Added);
         var itemRows = ItemRows(mapping, input, type);
 
+        // 화면에 없는 행. 품목은 계약면의 표기로(그 줄은 같은 차수에 서 있다), 그 밖은 지울 줄의 원값에서 알아볼 글을 고른다.
+        var missing = new List<MirrorMissing>();
+        foreach (var row in preview.Changes.Where(ch => ch.Field == "__row"))
+        {
+            var line = row.Line.ToString(CultureInfo.InvariantCulture);
+            if (row.Table == type + "_item" && beforeItems.TryGetValue(line, out var shown))
+                missing.Add(new(row.Table, TableName(row.Table), row.Line, shown.GetValueOrDefault(items.Name, ""),
+                    (items.Amount is null ? null : shown.GetValueOrDefault(items.Amount)) is { Length: > 0 } sum ? sum : shown.GetValueOrDefault(items.Price, ""),
+                    row.Id));
+            else missing.Add(new(row.Table, TableName(row.Table), row.Line, LabelOf(row.Before), "", row.Id));
+        }
+        var keptCells = preview.Changes.Where(ch => ch.Table != type && Wipes(ch)).ToList();
+        var keptIn = string.Join("·", keptCells.Select(ch => TableName(ch.Table)).Distinct());
+
         var changes = fields.Count(f => f.Kind == "changed") + itemChanges;
         var status = stored.Count == 0 ? "새 자료"
             : !exists ? "새 차수"
@@ -346,7 +425,40 @@ public static class Mirror
         return new(type, KindName(type), Display(doc.Seq), doc.Base, doc.Seq, after.GetValueOrDefault(TitleColumn(type), ""),
             status, changes, compare, latest, face, columns - users.Count(after.ContainsKey),
             fields, rest, list, itemChanges, itemRows, itemRows > 0 && preview.ItemCount == itemRows,
-            place, rounds, preview.BaseToken, BlockedBy(preview));
+            place, rounds, preview.BaseToken, missing, keptCells.Count, keptIn, withDefaults, withoutMissing);
+    }
+
+    /// <summary>딸린 표의 사람이 읽을 이름.</summary>
+    private static string TableName(string table) =>
+        table.EndsWith("_item", StringComparison.Ordinal) ? "품목"
+        : table == "notice_schedule" ? "일정"
+        : table == "notice_officer_contact" ? "담당자"
+        : table.EndsWith("_attachment", StringComparison.Ordinal) ? "첨부"
+        : table == "erp_partner" ? "계약상대자"
+        : table;
+
+    /// <summary>지울 줄의 원값(<see cref="CaptureChange.Before"/> 의 JSON)에서 그 줄을 알아볼 글 하나. 없으면 빈 문자열.</summary>
+    private static string LabelOf(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return "";
+        try
+        {
+            using var parsed = JsonDocument.Parse(json);
+            if (parsed.RootElement.ValueKind != JsonValueKind.Object) return "";
+            string? Text(JsonElement v) => v.ValueKind switch
+            {
+                JsonValueKind.String => v.GetString(),
+                JsonValueKind.Number => v.GetRawText(),
+                _ => null,
+            };
+            var values = parsed.RootElement.EnumerateObject()
+                .Where(p => p.Name is not ("seq" or "line_no") && !p.Name.EndsWith("_base", StringComparison.Ordinal))
+                .Select(p => (p.Name, Text: Text(p.Value))).Where(p => !string.IsNullOrWhiteSpace(p.Text)).ToList();
+            foreach (var name in new[] { "item_name", "name", "file_name", "officer", "document_type", "department", "demand_agency" })
+                if (values.FirstOrDefault(v => v.Name == name).Text is { } found) return found;
+            return values.Select(v => v.Text!).FirstOrDefault() ?? "";
+        }
+        catch (JsonException) { return ""; }
     }
 
     private static MirrorItem Item(Dictionary<string, string> row, ItemView view, MirrorItemBefore? before, bool added) =>

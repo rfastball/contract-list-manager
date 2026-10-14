@@ -10,13 +10,24 @@ import mappingJson from "../../src/Pclm.Core/Erp/mapping.json?raw";
  */
 
 import type {
-  CaptureDay, CaptureEntry, Candidate, DeletionPlan, ExtensionStatus, EntityType, ImportResult, LinkContract, LinkFacet, LinkRequest, MergeResult,
-  ExtensionProblem, ExtensionSettings, MirrorField, MirrorItem, MirrorShot, MirrorState, MirrorTab, ScreenRow, SupportedScreen,
-  NoticeChoice, Outline, OutlineContract, OutlineNotice, OutlineNoticeGroup, OutlineRequest,
+  BatchChange, BatchDeletionPlan, CaptureDay, CaptureEntry, DashboardReport, DashboardRow, DashboardStage, DeletionPlan, ExtensionStatus, EntityType, ImportResult, MergeResult,
+  ExtensionSettings, MirrorField, MirrorItem, MirrorShot, MirrorState, MirrorTab, ScreenRow, SupportedScreen,
+  Outline, OutlineContract, OutlineNotice, OutlineNoticeGroup, OutlineRequest,
   PlanImportResult, PlanPick,
-  RequestCandidate, RequestLinkFacet, Row, Session, Settings, Sheet, StatusReport, SubmitResult, Summary,
-  SwitchResult, UserColumn, WindowPrefs, WorkfilePlan,
+  Row, Session, Settings, Sheet, StatusReport, SubmitResult, Summary,
+  SwitchResult, UserColumn, WindowPrefs, WorkfilePlan, ColumnAvailable, ColumnContext, ColumnTrace, FreezePlan, SqlCheck,
+  UserView, UserViewColumn, UserViewContext, UserViewPreview, UserViewSample,
 } from "./types";
+import type { Flow, FlowEnv, FormulaV2 } from "./flow/ast";
+import type { ViewPackage, ViewPackagePick, ViewPackagePreview } from "./views/packageTypes";
+// 서식용 예시 보기 — 진짜 다리가 exe 에서 꺼내는 그 파일 한 벌을 그대로 읽는다.
+import 예시보기 from "../../src/Pclm.Core/Storage/Presets/builtin-views.json?raw";
+import { clausesOf, docWord, qualified } from "./flow/ast";
+import { checkFlow } from "./flow/check";
+import { evaluate, type EvalInput } from "./flow/evaluate";
+import { toV2 } from "./flow/migrate";
+import { 받침 } from "./flow/josa";
+import { checkSqlMock, compileFlow } from "./flow/sql";
 
 /**
  * 가짜 다리의 갈림 스위치. <code>열람</code> 이면 열람 창처럼 답한다 — 띠가 서고 고치는 요청이 거절된다.
@@ -38,6 +49,13 @@ export const 스위치 = {
    * 동시에 나가는 요청이 엿듣개를 비껴가 위의 꼴이 먼저 서는 일이 있다.
    */
   확장상태: null as ExtensionStatus | null,
+  /**
+   * 내 보기의 열과 미리보기 자료(userViewContext)를 이 까닭으로 거절한다. 보기는 처음 뜰 때 이것을 보기 목록과 동시에
+   * 부르므로 응답을 가로채는 엿듣개를 비껴간다 — 시험은 여기서 실패를 짓는다.
+   */
+  뷰맥락오류: null as string | null,
+  /** 설정 읽기(settings)를 이 횟수만큼 거절한다. 처음 뜰 때 동시에 나가는 부름이라 엿듣개를 비껴간다 — 시험은 여기서 실패를 짓는다. */
+  설정오류: 0,
 };
 
 /** 지금 로컬 날짜의 그 시각을 다리가 내는 꼴(<code>yyyy-MM-ddTHH:mm:ss</code>)로. */
@@ -72,19 +90,22 @@ export { 수집줄 };
 const 고치는요청 = new Set([
   "addColumn", "updateColumn", "removeColumn", "moveColumn",
   "setField", "setOverride", "clearOverride", "deleteEntity",
-  "saveSettings", "relinkExplicit",
-  "confirmLink", "rejectLink", "unlink",
-  "confirmRequestLink", "rejectRequestLink", "unlinkRequest",
-  "pickPlanExcel", "importPlan", "submit", "merge",
+  "batchEdit", "batchDeletionPlan", "batchDelete", "saveComputedColumn", "freezeColumn",
+  "saveSettings", "pickPlanExcel", "importPlan", "submit", "merge",
   "prepareExtension", "openExtensionSetup", "erpTools",
   "pickWorkfile", "moveWorkfile", "switchWorkfile", "newWorkfile", "backupWorkfile",
-  "importShot", "mirrorCommand", "extensionCommand",
+  "importShot", "mirrorCommand",
   "windowPrefs", "saveWindowPrefs",
+  "saveUserView", "deleteUserView", "pickViewPackage", "builtinViewPackage", "previewViewPackage", "importViewPackage",
 ]);
+
+/** 압축 안에서 켠 창이 자동 실행용으로 exe 를 복사해 둘 자리(지어낸 사람). 미리보기는 주소에 <code>?압축</code> 을 붙여 본다. */
+export const 복사자리 = "C:\\Users\\홍길동\\AppData\\Local\\Programs\\계약목록\\계약목록.exe";
 
 /** 가짜 다리의 창 몸가짐. 진짜 다리는 홈의 window.json 에 적는다. 시험이 처음 꼴로 되돌린다. */
 export const 창 = {
-  몸가짐: { closeToTray: false, autostart: false, autostartAvailable: true, autostartReason: null } as WindowPrefs,
+  몸가짐: { closeToTray: false, autostart: false, autostartAvailable: true, autostartReason: null,
+    autostartCopyTarget: typeof location !== "undefined" && new URLSearchParams(location.search).has("압축") ? 복사자리 : null } as WindowPrefs,
 };
 
 /** 가짜 다리의 확장. 판과 폴더는 지어낸 것이다. */
@@ -96,7 +117,7 @@ const 작업자료 = "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\계약자료.p
 
 const 통합열 = [
   "계약번호", "계약본번호", "차수", "계약건명", "계약일자", "계약방법", "계약구분",
-  "품명", "수량", "단위", "계약금액", "수수료", "지체상금률", "하자보수보증금률",
+  "품명", "수량", "단위", "계약금액", "계약보증금률(%)", "계약보증금(원)", "수수료", "지체상금률", "하자보수보증금률",
   "하자담보책임기간", "계약기간", "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
   "수요기관", "검사기관", "검수기관", "계약상대자", "대표자", "사업자등록번호",
   "상대자주소", "상대자전화", "상대자팩스",
@@ -116,14 +137,12 @@ const 공고열 = [
   // 관련공고는 적힌 그대로이고, 뒤의 둘은 그것을 타고 지어진 파생값이다 —
   // 「공고건」은 갈린 본번호를 묶은 이름, 「현행공고」는 그 건에서 지금 서 있는 한 장.
   "관련공고", "공고건", "현행공고",
-  // 계약방법·계약구분을 줄여 이은 것. 어느 한쪽이라도 줄임표에 없으면 빈칸이다.
-  "입찰방법",
   "검토여부", "메모",
 ];
 
 const 계약열 = [
   "계약번호", "계약본번호", "차수", "계약건명", "계약일자", "계약방법", "계약구분",
-  "품명", "수량", "단위", "계약금액", "수수료", "지체상금률", "하자보수보증금률",
+  "품명", "수량", "단위", "계약금액", "계약보증금률(%)", "계약보증금(원)", "수수료", "지체상금률", "하자보수보증금률",
   "하자담보책임기간", "계약기간", "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
   "수요기관", "검사기관", "검수기관", "계약상대자", "대표자", "사업자등록번호",
   "상대자주소", "상대자전화", "상대자팩스",
@@ -343,6 +362,8 @@ function 통합행(i: number, columns: string[] = 통합열): Row {
     수량: "1",
     단위: "대",
     계약금액: 돈(s.금액),
+    "계약보증금률(%)": "10",
+    "계약보증금(원)": 돈(s.금액 * 0.1),
     지체상금률: "0.075",
     하자보수보증금률: "3",
     하자담보책임기간: "3년",
@@ -548,7 +569,6 @@ const sheets: Record<string, Sheet> = {
         // 갈리지 않은 건은 제 본번호가 곧 건 이름이고, 제가 그 건의 현행이다.
         공고건: `R26BK090170${String(i + 1).padStart(2, "0")}`,
         현행공고: `R26BK090170${String(i + 1).padStart(2, "0")}-000`,
-        입찰방법: "제한(총액)",
         검토여부: ["미검토", "검토중", "참여", "불참"][i % 4],
       }),
     ), 갈린공고[2]],
@@ -613,6 +633,10 @@ const userColumns: Record<Entity, UserColumn[]> = {
   notice: [
     { entityType: "notice", fieldName: "검토여부", kind: "text", choices: [] },
     { entityType: "notice", fieldName: "메모", kind: "text", choices: [] },
+    // 앞 판(v1)에 저장된 가공열. 읽을 때 v2 로 옮겨 여는지 보는 자리다.
+    { entityType: "notice", fieldName: "품명 모음", kind: "computed", choices: [], formula: { version: 1, id: "c0ffee00-0000-4000-8000-000000000001", steps: [
+      { op: "pick", fields: ["세부품명"] }, { op: "distinct" }, { op: "format", text: "{세부품명}" }, { op: "join", text: ", " },
+    ] } },
   ],
   request: [
     { entityType: "request", fieldName: "확인여부", kind: "text", choices: [] },
@@ -620,7 +644,10 @@ const userColumns: Record<Entity, UserColumn[]> = {
   ],
 };
 
-const 모든열 = () => [...userColumns.contract, ...userColumns.notice, ...userColumns.request];
+const 모든열 = () => [...userColumns.contract, ...userColumns.notice, ...userColumns.request].map(열내기);
+
+/** 다리가 내는 열 — 그 열을 쓰는 맞춤 뷰 수(viewReaders)가 붙는다. 진짜 다리(Bridge.UserColumns)와 같다. */
+const 열내기 = (c: UserColumn): UserColumn => ({ ...c, viewReaders: 뷰가읽는수(c.entityType, c.fieldName) });
 
 /**
  * v_통합차수 가 내는 열. v_통합 끝에 <b>둘만 더한 것</b>이다 — 실제 뷰도 그렇고, 계약면 시험이
@@ -707,6 +734,557 @@ const 시트 = (entityType: Entity) => ({
   request: ["v_접수"],
 }[entityType]);
 
+const computedFields: Record<Entity, string[]> = {
+  contract: ["품명", "물품분류번호", "물품식별번호", "규격", "수요기관", "단위", "수량", "단가", "금액", "인도조건"],
+  notice: ["세부품명", "세부품명번호", "물품식별번호", "규격", "수요기관", "단위", "수량", "추정단가", "납품장소", "인도조건"],
+  request: ["세부품명", "세부품명번호", "물품식별번호", "규격", "단위", "수량", "조달요구번호", "단가", "금액", "납품장소", "인도조건"],
+};
+/**
+ * 표본 문서 셋의 품목. 이름·번호·값은 모두 지어낸 것이다. 가는 꼴을 일부러 섞었다 —
+ * A 는 겹친 책상 한 줄(고유가 「1행 겹쳐 빠짐」을 보일 자리), B 는 번호가 빈 품목, C 는 넉 줄.
+ */
+type 품목씨앗 = { 이름: string; 번호: string; 식별: string; 규격: string; 수량: number; 단가: number };
+export const 품목표본: 품목씨앗[][] = [
+  [
+    { 이름: "책상", 번호: "001", 식별: "1000000001", 규격: "A", 수량: 2, 단가: 150_000 },
+    { 이름: "책상", 번호: "001", 식별: "1000000001", 규격: "A", 수량: 3, 단가: 150_000 },
+    { 이름: "의자", 번호: "002", 식별: "1000000002", 규격: "B", 수량: 5, 단가: 80_000 },
+  ],
+  [
+    { 이름: "의자", 번호: "", 식별: "", 규격: "B", 수량: 4, 단가: 80_000 },
+  ],
+  [
+    { 이름: "모니터", 번호: "003", 식별: "1000000003", 규격: "27형", 수량: 2, 단가: 310_000 },
+    { 이름: "키보드", 번호: "004", 식별: "1000000004", 규격: "유선", 수량: 10, 단가: 25_000 },
+    { 이름: "마우스", 번호: "005", 식별: "1000000005", 규격: "유선", 수량: 10, 단가: 12_000 },
+    { 이름: "책상", 번호: "001", 식별: "1000000001", 규격: "A", 수량: 1, 단가: 150_000 },
+  ],
+];
+
+/** 표본 품목을 그 자료 종류의 품목 필드로 편다. */
+export function 품목행(entity: Entity, set: number): Row[] {
+  return 품목표본[set % 품목표본.length].map(s => {
+    const 값: Row = {
+      품명: s.이름, 세부품명: s.이름, 물품분류번호: s.번호, 세부품명번호: s.번호, 물품식별번호: s.식별, 규격: s.규격,
+      수요기관: "가람군수지원단", 단위: "개", 수량: String(s.수량), 단가: 돈(s.단가), 추정단가: 돈(s.단가),
+      금액: 돈(s.수량 * s.단가), 조달요구번호: "MPKPLA26900001", 납품장소: "수요처 지정 창고", 인도조건: "지정장소도착도",
+    };
+    return Object.fromEntries(computedFields[entity].map(f => [f, 값[f] ?? ""]));
+  });
+}
+
+/** 계약면의 품목 뷰. views.txt 와 같은 열이다. SQL 자동완성의 재료. */
+const 품목뷰열: Record<string, string[]> = {
+  v_공고품목: ["입찰공고번호", "공고명", "순번", "수요기관", "세부품명", "세부품명번호", "물품식별번호", "규격", "수량", "단위", "추정단가", "납품기한", "납품장소", "인도조건", "담당부서", "담당자", "담당자전화", "담당자팩스"],
+  v_계약품목: ["계약번호", "계약건명", "순번", "품명", "규격", "물품분류번호", "물품식별번호", "수량", "단위", "단가", "금액", "수요기관", "납품기한", "인도조건"],
+  v_접수품목: ["접수번호", "요청명", "순번", "조달요구번호", "국방조달계획년도", "변경차수", "세부품명", "세부품명번호", "물품식별번호", "규격", "검사형태", "취소여부", "수량", "단위", "단가", "금액", "면수", "인도조건", "납품일수", "납품기한", "납품장소", "재고번호", "규격번호", "지출요청번호", "입찰공고번호", "공고순번"],
+};
+const 종류뷰: Record<Entity, string> = { contract: "v_계약", notice: "v_공고", request: "v_접수" };
+
+/** 원천으로 쓸 수 있는 것. 연결 문서의 사용자 열은 넣지 않는다(§4.1). */
+function 쓸것(entity: Entity): ColumnAvailable {
+  const others = (["notice", "request", "contract"] as Entity[]).filter(k => k !== entity);
+  const schema: Record<string, string[]> = {
+    v_통합: 기계열["v_통합"].columns, v_통합차수: 통합차수열,
+    v_접수: 기계열["v_접수"].columns, v_공고: 기계열["v_공고"].columns, v_계약: 기계열["v_계약"].columns,
+    v_공고차수: 기계열["v_공고"].columns, v_계약차수: 기계열["v_계약"].columns, ...품목뷰열,
+  };
+  return {
+    view: 종류뷰[entity], base: 기계열[종류뷰[entity]].columns, items: computedFields[entity],
+    // 공고·접수에서 연결계약은 여러 건이다(§11.1-2) — 진짜 다리의 Flow.EnvFor 와 같다.
+    linked: others.map(kind => ({ kind, fields: 기계열[종류뷰[kind]].columns, items: computedFields[kind], ...(kind === "contract" ? { many: true } : {}) })),
+    schema,
+  };
+}
+const 재료 = (entity: Entity): FlowEnv => {
+  const a = 쓸것(entity);
+  return { base: a.base, items: a.items, linked: Object.fromEntries(a.linked.map(l => [l.kind, { fields: l.fields, items: l.items, ...(l.many ? { many: true } : {}) }])) };
+};
+
+/** 이 줄과 사람이 이은 문서. 통합 줄을 거쳐 찾는다 — 진짜 앱은 확정된 연결(ADR-004·021)을 따른다. */
+function 연결(entity: Entity, row: Row, set: number): EvalInput["linked"] {
+  const 키 = { contract: "계약번호", notice: "입찰공고번호", request: "접수번호" } as const;
+  const 통합 = sheets["v_통합"].rows.find(r => r[키[entity]] && r[키[entity]] === row[키[entity]]);
+  const out: EvalInput["linked"] = {};
+  for (const kind of ["notice", "request", "contract"] as Entity[]) {
+    if (kind === entity) continue;
+    const key = 통합?.[키[kind]];
+    const found = key ? sheets[종류뷰[kind]].rows.find(r => r[키[kind]] === key) : undefined;
+    out[kind] = found ? { row: found, items: 품목행(kind, set) } : null;
+  }
+  return out;
+}
+
+function columnContextExample(entity: Entity): ColumnContext {
+  const spec = 어느것.find(s => s.entityType === entity);
+  if (!spec) throw new Error("가공열의 자료 종류가 올바르지 않습니다.");
+  const sheet = sheets[spec.view];
+  const rows = [...sheet.rows].sort((a, b) => 줄키(a).localeCompare(줄키(b))).slice(0, 5);
+  return { columns: sheet.columns, rows, fields: computedFields[entity], available: 쓸것(entity), sources: rows.map((row, i) => {
+    const key = 줄키(row);
+    const items = 품목행(entity, i);
+    return { base: key.slice(0, -(spec.차수길이 + (entity === "contract" ? 0 : 1))), revision: key.slice(-spec.차수길이),
+      title: row[spec.제목열] ?? "", rows: items, totalRows: items.length };
+  }) };
+}
+
+/** 단계마다의 값. 표본 문서 셋을 TS 평가기로 돈다 — 진짜 앱은 같은 식을 SQL 로 돈다(§9). */
+type 표본줄 = { row: Row; set: number; sample: ColumnTrace["samples"][number] };
+function 추적(entity: Entity, formula: FormulaV2, env: FlowEnv = 재료(entity), link: typeof 연결 = 연결, picks?: 표본줄[]): ColumnTrace {
+  const context = columnContextExample(entity);
+  const chosen = picks ?? context.rows.slice(0, 3).map((row, i) => {
+    const { base, revision, title } = context.sources[i];
+    return { row, set: i, sample: { base, revision, title } };
+  });
+  const samples = chosen.map(p => p.sample);
+  if (formula.source === "sql") {
+    const issues = checkSqlMock(formula.sql);
+    return { samples, sql: formula.sql, final: samples.map(() => ""), note: "시안의 목업은 SQL 을 돌리지 않습니다. 앱에서는 표본에서 실제로 돌려 봅니다.",
+      steps: [{ shape: "value", values: samples.map(() => ({ kind: "value", text: "", blank: true })), ...(issues.length ? { error: issues[0].message } : {}) }] };
+  }
+  const checked = checkFlow(formula.flow, env);
+  const runs = chosen.map(({ row, set }) => evaluate(formula.flow, env, { row, items: 품목행(entity, set), linked: link(entity, row, set) }));
+  const firstError = checked.errors.find(e => !e.final)?.index ?? runs.find(r => r.error)?.error?.index ?? Infinity;
+  const steps = Array.from({ length: formula.flow.steps.length + 1 }, (_, k) => {
+    const issue = checked.errors.find(e => e.index === k) ?? runs.find(r => r.error?.index === k)?.error;
+    return {
+      shape: checked.shapes[k],
+      values: runs.map(r => r.values[k] ?? { kind: "value" as const, text: "" }),
+      ...(issue ? { error: issue.message } : {}),
+      ...(k > firstError ? { blocked: true } : {}),
+    };
+  });
+  return { samples, steps, final: runs.map(r => r.final), sql: compileFlow(formula.flow, env, entity) };
+}
+
+// ── 맞춤 뷰(docs/user-views.md) ─────────────────────────────────
+// 목업 다리. 정의를 들고 위의 TS 평가기로 미리보기·보표를 낸다 — 진짜 다리(Store 의 맞춤 뷰)와 같은 이름과 꼴이다.
+// 한 줄은 조달 건(사슬)이다. 통합 표의 줄이 곧 사슬이고, 덧연결 하나와 통합에 없는 공고·접수가 제 줄로 선다.
+
+const 번호열 = { contract: "계약번호", notice: "입찰공고번호", request: "접수번호" } as const;
+
+/**
+ * 한 공고에 계약이 둘인 건(분할 낙찰). 통합 표는 계약마다 한 줄이라 거기 적힌 연결은 1:1 뿐이다 —
+ * 「계약 여럿」 과 모으기가 찾을 건을 여기 하나 더 잇는다. 번호는 지어낸 것이다.
+ */
+const 덧연결: { notice: string; contract: string }[] = [{ notice: "R26BK09017003-000", contract: "R26TA0911050800" }];
+
+/** 조달 건 하나. 문서가 없는 자리는 null 이다. set 은 그 건의 품목 표본 차례다. */
+type 사슬 = { key: string; request: Row | null; notice: Row | null; contract: Row | null; set: number };
+/** 맞춤 뷰의 한 줄 — 계약마다 한 줄이면 사슬 하나, 모으기면 그 건의 사슬 모두(계약번호 차례). */
+type 뷰줄 = { key: string; chains: 사슬[] };
+
+const 문서들: Entity[] = ["request", "notice", "contract"];
+const 사슬열쇠 = (c: Omit<사슬, "key" | "set">) =>
+  `${c.request?.접수번호 ?? ""}|${c.notice?.입찰공고번호 ?? ""}|${c.contract?.계약번호 ?? ""}`;
+
+/** 그 문서의 면 뷰 한 줄. 통합 줄이 가리키는데 면 뷰에 없으면(지어낸 자료의 빈 곳) 통합 줄을 그 문서로 읽는다. */
+function 문서(kind: Entity, key: string | undefined, fallback?: Row): Row | null {
+  if (!key) return null;
+  return sheets[종류뷰[kind]].rows.find(r => r[번호열[kind]] === key) ?? fallback ?? null;
+}
+
+/** 모든 조달 건 — 진짜 다리의 Views.사슬 과 같은 규칙(공고가 선 건 · 공고 없는 접수 · 매달리지 못한 계약)을 지어낸 자료로 편다. */
+function 사슬들(): 사슬[] {
+  const out: Omit<사슬, "key" | "set">[] = sheets["v_통합"].rows.map(r => ({
+    request: 문서("request", r.접수번호, r), notice: 문서("notice", r.입찰공고번호, r), contract: 문서("contract", r.계약번호, r),
+  }));
+  for (const d of 덧연결) {
+    const notice = 문서("notice", d.notice);
+    out.push({ request: out.find(c => c.notice === notice)?.request ?? null, notice, contract: 문서("contract", d.contract) });
+  }
+  for (const kind of ["notice", "request"] as const)
+    for (const row of sheets[종류뷰[kind]].rows)
+      if (!out.some(c => c[kind]?.[번호열[kind]] === row[번호열[kind]]))
+        out.push({ request: kind === "request" ? row : null, notice: kind === "notice" ? row : null, contract: null });
+  return out.map((c, set) => ({ ...c, key: 사슬열쇠(c), set }));
+}
+
+/** 접수·공고의 건 — 공고가 있는 사슬은 (접수, 공고)로 묶는다. 공고가 없으면 사슬 하나가 제 건이다. */
+const 건열쇠 = (c: 사슬) => c.notice ? `${c.request?.접수번호 ?? ""}|${c.notice.입찰공고번호}|` : c.key;
+const 계약번호차례 = (a: 사슬, b: 사슬) => (a.contract?.계약번호 ?? "").localeCompare(b.contract?.계약번호 ?? "");
+
+/** 흐름식이 읽는 문서 종류 — 원천 linked 와 단계가 읽는 행의 열(공고.공고명). 진짜 다리의 UserViewBuilder.Kinds 와 같다. */
+const 행열단계 = new Set(["ifEmpty", "add", "sub", "mul", "div", "dateDiff"]);
+function 읽는종류(formula: unknown): Set<Entity> {
+  const out = new Set<Entity>();
+  let f: FormulaV2;
+  try { f = toV2({ id: "", ...(formula as object) }); } catch { return out; }
+  if (f.source !== "flow") return out;
+  if (f.flow.from.kind === "linked") out.add(f.flow.from.link);
+  for (const s of f.flow.steps) {
+    const q = s.field !== undefined && 행열단계.has(s.op) ? qualified(s.field) : null;
+    if (q) out.add(q.link);
+    for (const c of clausesOf(s)) { const k = qualified(c.field); if (k) out.add(k.link); }
+  }
+  return out;
+}
+
+/** 그 뷰의 줄 — 거르기(담긴 흐름식이 읽는 종류가 하나도 없는 건은 빠진다)와 모으기 뒤. */
+function 뷰줄들(columns: { formula: unknown }[], fold: boolean): 뷰줄[] {
+  const kinds = new Set(columns.flatMap(c => [...읽는종류(c.formula)]));
+  const rows: 뷰줄[] = [];
+  const groups = new Map<string, 뷰줄>();
+  for (const c of 사슬들()) {
+    const key = fold && c.notice ? 건열쇠(c) : c.key;
+    const at = groups.get(key);
+    if (at) { at.chains.push(c); continue; }
+    const row = { key, chains: [c] };
+    groups.set(key, row);
+    rows.push(row);
+  }
+  for (const r of rows) {
+    r.chains.sort(계약번호차례);
+    // 계약이 하나뿐인 건은 계약마다 한 줄과 같은 열쇠다(진짜 다리도 그 계약을 들고 간다).
+    if (r.chains.length === 1) r.key = r.chains[0].key;
+  }
+  return !kinds.size ? rows : rows.filter(r => [...kinds].some(k => r.chains.some(c => !!c[k])));
+}
+
+/** 계약이 여럿인 건 수. */
+const 계약여럿 = () => 뷰줄들([], true).filter(r => r.chains.filter(c => c.contract).length >= 2).length;
+
+/** 접수·공고·계약의 사람 열·가공열(§3). 맞춤 뷰는 면 뷰 위층이라 읽을 수 있다. */
+const 자기열 = (kind: Entity) => userColumns[kind].map(c => c.fieldName).filter(n => !기계열[종류뷰[kind]].columns.includes(n));
+const 문서열 = (kind: Entity) => [...기계열[종류뷰[kind]].columns, ...자기열(kind)];
+const 뷰재료 = (): FlowEnv => ({
+  base: [], items: [], view: true,
+  linked: Object.fromEntries(문서들.map(k => [k, { fields: 문서열(k), items: computedFields[k] }])),
+});
+
+function 뷰맥락(): UserViewContext {
+  const available = 쓸것("notice");
+  return {
+    columns: [], rows: [], fields: [], sources: [],
+    available: { ...available, view: "", base: [], items: [], linked: 문서들.map(kind => ({ kind, fields: 문서열(kind), items: computedFields[kind] })) },
+    total: 사슬들().length, manyContracts: 계약여럿(),
+  };
+}
+
+/** 사슬 하나를 평가기 입력으로 — 행의 열은 「공고.공고명」 꼴로 펴고, 문서마다 그 품목을 단다. */
+function 사슬입력(c: 사슬): EvalInput {
+  const row: Row = {};
+  const linked: EvalInput["linked"] = {};
+  for (const kind of 문서들) {
+    const doc = c[kind];
+    for (const f of 문서열(kind)) row[`${docWord[kind]}.${f}`] = doc?.[f] ?? "";
+    linked[kind] = doc ? { row: doc, items: 품목행(kind, c.set) } : null;
+  }
+  return { row, items: [], linked };
+}
+
+/** 줄 하나에 찍힐 값. 모으기에서 계약을 읽는 필드는 계약마다 셈해 계약번호 차례로 ", " 로 잇는다. */
+function 줄값(flow: Flow, env: FlowEnv, r: 뷰줄, fold: boolean): string {
+  const each = (c: 사슬) => evaluate(flow, env, 사슬입력(c)).final;
+  const many = r.chains.filter(c => c.contract);
+  if (fold && many.length >= 2 && 읽는종류({ version: 2, source: "flow", flow }).has("contract")) return many.map(each).join(", ");
+  return each(r.chains[0]);
+}
+
+const 보이는번호 = (r: 뷰줄) => {
+  const c = r.chains[0], one = r.chains.length === 1;
+  return c.notice?.입찰공고번호 || c.request?.접수번호 || (one ? c.contract?.계약번호 ?? "" : "");
+};
+const 보이는제목 = (r: 뷰줄) => {
+  const c = r.chains[0];
+  return c.notice?.공고명 || c.request?.요청명 || c.contract?.계약건명 || "";
+};
+const 표본꼴 = (r: 뷰줄): UserViewSample => ({ key: r.key, number: 보이는번호(r), title: 보이는제목(r) });
+
+type 뷰가장자리 = "manyContracts" | "unlinked";
+type 뷰꼴 = { name: string; definition: { version: 2; contracts?: string; columns: { id?: string; name: string; formula: unknown }[] } };
+const 모으기 = (view: 뷰꼴) => {
+  const c = view.definition?.contracts ?? "split";
+  if (c !== "split" && c !== "fold") throw new Error(`계약이 여럿인 건의 처리가 올바르지 않습니다: ${c}`);
+  return c === "fold";
+};
+
+function 뷰표본(view: 뷰꼴, query: string, edge: 뷰가장자리 | null): UserViewSample[] {
+  if (edge && edge !== "manyContracts" && edge !== "unlinked") throw new Error(`모르는 표본 가장자리입니다: ${edge}`);
+  const q = query.trim().toLocaleLowerCase();
+  const fold = 모으기(view);
+  const all = 뷰줄들(view.definition.columns, fold);
+  return all.filter(r => {
+    const s = 표본꼴(r);
+    if (q && !s.number.toLocaleLowerCase().includes(q) && !s.title.toLocaleLowerCase().includes(q)) return false;
+    const c = r.chains[0];
+    const contracts = fold ? r.chains.filter(x => x.contract).length
+      : 사슬들().filter(x => c.notice && x.notice === c.notice && x.contract).length;
+    if (edge === "manyContracts" && contracts < 2) return false;
+    if (edge === "unlinked" && c.request && c.notice && (fold ? contracts > 0 : !!c.contract)) return false;
+    return true;
+  }).map(표본꼴);
+}
+
+/** 필드마다 그 뷰의 줄을 돌아 이 표본의 값과 빈 값 수를 낸다. 진짜 다리는 같은 SELECT 를 읽기 전용 연결에서 돌린다. */
+function 뷰미리보기(view: 뷰꼴, sampleKey: string): UserViewPreview {
+  const fold = 모으기(view);
+  const rows = 뷰줄들(view.definition.columns, fold);
+  const env = 뷰재료();
+  const at = rows.findIndex(r => r.key === sampleKey);
+  return {
+    sample: at < 0 ? null : 표본꼴(rows[at]),
+    total: rows.length,
+    columns: view.definition.columns.map(c => {
+      const id = c.id ?? "";
+      const f = toV2({ id: "", ...(c.formula as object) });
+      // 목업은 SQL 을 돌리지 않는다 — 값은 비워 두고 깨진 것으로 치지 않는다. 앱에서는 표본에서 실제로 돌린다.
+      if (f.source === "sql") return { id, value: "", blank: 0 };
+      const checked = checkFlow(f.flow, env);
+      if (!checked.ok) return { id, value: "", blank: 0, error: checked.errors[0].message };
+      const values = rows.map(r => 줄값(f.flow, env, r, fold));
+      return { id, value: at < 0 ? "" : values[at], blank: values.filter(v => v === "").length };
+    }),
+  };
+}
+
+/**
+ * 필드 하나의 보표 — 표본은 준 열쇠(미리보기가 보는 표본이 처음)이고, 없으면 처음 조달 건 셋이다. 단계는 계약 한 건을 본다 —
+ * 모은 건이면 계약번호가 가장 앞선 계약이다. 열에 찍힐 값은 뷰가 낼 값(모았으면 이어 붙인 것)이다.
+ */
+function 뷰추적(formula: FormulaV2, keys: string[] | null | undefined): ColumnTrace {
+  const env = 뷰재료();
+  const split = 뷰줄들([], false), folded = 뷰줄들([], true);
+  const picks = (keys?.length ? keys : split.slice(0, 3).map(r => r.key)).flatMap(key => {
+    const inSplit = split.find(r => r.key === key);
+    const row = inSplit ?? folded.find(r => r.key === key);
+    return row ? [{ row, fold: !inSplit }] : [];
+  });
+  const items = formula.source === "flow" && formula.flow.from.kind === "linked" ? formula.flow.from.link : null;
+  const samples = picks.map(({ row }) => ({ base: 보이는번호(row), revision: "", title: 보이는제목(row),
+    rows: items && row.chains[0][items] ? 품목행(items, row.chains[0].set).length : 0 }));
+  if (formula.source === "sql") {
+    const issues = checkSqlMock(formula.sql);
+    return { samples, sql: formula.sql, final: samples.map(() => ""), note: "시안의 목업은 SQL 을 돌리지 않습니다. 앱에서는 표본에서 실제로 돌려 봅니다.",
+      steps: [{ shape: "value", values: samples.map(() => ({ kind: "value", text: "", blank: true })), ...(issues.length ? { error: issues[0].message } : {}) }] };
+  }
+  const checked = checkFlow(formula.flow, env);
+  const runs = picks.map(({ row }) => evaluate(formula.flow, env, 사슬입력(row.chains[0])));
+  const firstError = checked.errors.find(e => !e.final)?.index ?? runs.find(r => r.error)?.error?.index ?? Infinity;
+  const steps = Array.from({ length: formula.flow.steps.length + 1 }, (_, k) => {
+    const issue = checked.errors.find(e => e.index === k) ?? runs.find(r => r.error?.index === k)?.error;
+    return {
+      shape: checked.shapes[k],
+      values: runs.map(r => r.values[k] ?? { kind: "value" as const, text: "" }),
+      ...(issue ? { error: issue.message } : {}),
+      ...(k > firstError ? { blocked: true } : {}),
+    };
+  });
+  const final = checked.ok ? picks.map(({ row, fold }) => 줄값(formula.flow, env, row, fold)) : picks.map(() => "");
+  return { samples, steps, final, sql: compileFlow(formula.flow, env, "notice") };
+}
+
+const 뷰열 = (id: string, name: string, flow: Flow): UserViewColumn => ({ id, name, formula: { version: 2, id: "", source: "flow", flow } });
+const 문서필드 = (link: Entity, field: string): Flow => ({ from: { kind: "linked", link, field }, steps: [] });
+const 뷰씨앗 = (): UserView[] => [
+  { id: "uv-0001", name: "공고문서", broken: {}, definition: { version: 2, contracts: "fold", columns: [
+    뷰열("c-0001", "접수번호", 문서필드("request", "접수번호")),
+    뷰열("c-0002", "공고번호", 문서필드("notice", "입찰공고번호")),
+    뷰열("c-0003", "계약번호", 문서필드("contract", "계약번호")),
+    뷰열("c-0004", "공고명", 문서필드("notice", "공고명")),
+    뷰열("c-0005", "대표품명", { from: { kind: "linked", link: "notice", items: true }, steps: [{ op: "get", field: "세부품명" }, { op: "distinct" }, { op: "abbrev", n: 1, text: "{앞} 외 {나머지}종" }] }),
+    뷰열("c-0006", "진행", 문서필드("notice", "검토여부")),
+  ] } },
+  // 깨진 필드 하나 — 계약의 사람 열 이름이 바뀐 뒤 그 열을 읽던 식(§5). 목록과 줄에서 그 까닭이 보이는 자리다.
+  { id: "uv-0002", name: "계약서류", broken: {}, definition: { version: 2, contracts: "split", columns: [
+    뷰열("c-0101", "계약번호", 문서필드("contract", "계약번호")),
+    뷰열("c-0102", "계약건명", 문서필드("contract", "계약건명")),
+    뷰열("c-0103", "계약일자", 문서필드("contract", "계약일자")),
+    뷰열("c-0104", "계약금액", 문서필드("contract", "계약금액")),
+    뷰열("c-0105", "계약상대자", 문서필드("contract", "계약상대자")),
+    뷰열("c-0106", "공고번호", 문서필드("notice", "입찰공고번호")),
+    뷰열("c-0107", "접수번호", 문서필드("request", "접수번호")),
+    뷰열("c-0108", "품목 수", { from: { kind: "linked", link: "contract", items: true }, steps: [{ op: "count" }] }),
+    뷰열("c-0109", "진행", 문서필드("contract", "진행단계")),
+  ] } },
+  // 서식용 예시 — 진짜 작업자료가 처음부터 들고 서는 그 보기(exe 에 실린 같은 파일 한 벌).
+  ...(JSON.parse(예시보기) as ViewPackage).views.map((v, i): UserView => ({
+    id: `uv-01${String(i).padStart(2, "0")}`, name: v.name, broken: {}, definition: structuredClone(v.definition) })),
+];
+
+/**
+ * 흐름식에서 kind 문서의 열 field 를 읽는 자리를 찾고, to 가 있으면 고친다 — 원천 linked(kind) field, 단계가 읽는 「공고.f」,
+ * 원천이 그 문서 한 행일 때 첫 단계가 짚는 필드. 진짜 다리의 UserViewBuilder.Touch 와 같다.
+ */
+function 열자리(formula: unknown, kind: Entity, field: string, to?: string): boolean {
+  const f = formula as { source?: string; flow?: { from?: { kind?: string; link?: string; field?: string; items?: boolean }; steps?: { op?: string; field?: string; text?: string; cond?: { field: string }[] }[] } } | null;
+  if (f?.source !== "flow" || !f.flow) return false;
+  let found = false;
+  const from = f.flow.from, steps = f.flow.steps ?? [];
+  const linked = from?.kind === "linked" && from.link === kind;
+  if (linked && from!.field === field) { found = true; if (to !== undefined) from!.field = to; }
+  const word = `${docWord[kind]}.`;
+  for (const s of steps) {
+    if (s.op && 행열단계.has(s.op) && s.field === word + field) { found = true; if (to !== undefined) s.field = word + to; }
+    // 값 하나를 견주는 조건의 마디도 그 자리를 읽는다(만약 공고.f = …).
+    for (const c of clausesOf(s)) if (c.field === word + field) { found = true; if (to !== undefined) c.field = word + to; }
+  }
+  const first = steps[0];
+  if (linked && from!.field === undefined && !from!.items && first) {
+    if (first.op === "get" && first.field === field) { found = true; if (to !== undefined) first.field = to; }
+    if (first.op === "if") for (const c of first.cond ?? []) if (c.field === field) { found = true; if (to !== undefined) c.field = to; }
+    if (first.op === "format" && (first.text ?? "").includes(`{${field}}`)) { found = true; if (to !== undefined) first.text = first.text!.split(`{${field}}`).join(`{${to}}`); }
+  }
+  return found;
+}
+/** 그 종류의 사람 열을 쓰는 맞춤 뷰 수 — 열을 지우는 확인 문구가 센다. */
+function 뷰가읽는수(kind: Entity, name: string): number {
+  return 사용자뷰.filter(v => v.definition.columns.some(c => 열자리(c.formula, kind, name))).length;
+}
+/** 사람 열 이름이 바뀌면 그 열을 읽던 맞춤 뷰 필드를 새 이름으로 고쳐 쓴다. */
+function 뷰열이름바꾸기(kind: Entity, from: string, to: string) {
+  for (const v of 사용자뷰) for (const c of v.definition.columns) 열자리(c.formula, kind, from, to);
+}
+
+/** 가짜 다리의 맞춤 뷰. 시험이 사용자뷰초기화() 로 처음 꼴로 되돌린다. */
+const 사용자뷰: UserView[] = 뷰씨앗();
+/** Test seam: real browser mode downloads/opens JSON; tests can supply a chosen fixture. */
+export const 보기구성파일 = { picked: null as { name: string; json: string } | null, exported: null as string | null };
+
+function 구성내보내기(ids: string[]): ViewPackage {
+  const chosen = 사용자뷰.filter(v => ids.includes(v.id));
+  if (!chosen.length || new Set(ids).size !== chosen.length) throw new Error("내보낼 보기를 하나 이상 고르세요.");
+  const all = Object.values(userColumns).flat();
+  const needed = new Set<UserColumn>();
+  const formulas = chosen.flatMap(v => v.definition.columns.map(c => c.formula));
+  let sql = false;
+  for (let i = 0; i < formulas.length; i++) {
+    const f = formulas[i];
+    if (f.source === "sql") sql = true;
+    for (const c of all) if (!needed.has(c) && (f.source === "sql" || 열자리(f, c.entityType, c.fieldName))) {
+      needed.add(c);
+      if (c.kind === "computed" && c.formula) formulas.push(toV2(c.formula));
+    }
+  }
+  return { format: "pclm-view-config", version: 1, includesAllColumnsForSql: sql,
+    views: structuredClone(chosen.map(v => ({ name: v.name, definition: v.definition }))),
+    columns: structuredClone(all.filter(c => needed.has(c)).map(c => ({ entityType: c.entityType, fieldName: c.fieldName, kind: c.kind, choices: c.choices,
+      ...(c.kind === "computed" && c.formula ? { formula: toV2(c.formula) } : {}) }))) };
+}
+
+function 구성미리보기(json: string, applyToken?: string): ViewPackagePreview {
+  if (json.length > 2_000_000) throw new Error("보기 구성 파일은 2MB까지 가져올 수 있습니다.");
+  const p = JSON.parse(json) as ViewPackage;
+  if (p.format !== "pclm-view-config" || p.version !== 1 || !Array.isArray(p.views) || !p.views.length || !Array.isArray(p.columns)) throw new Error("지원하는 보기 구성 파일이 아닙니다(구성 판 1).");
+  const oldColumns = structuredClone(userColumns), oldViews = structuredClone(사용자뷰);
+  const preview: ViewPackagePreview = { views: [], columns: [], errors: [], includesAllColumnsForSql: p.includesAllColumnsForSql, token: "" };
+  const normalized = (c: Pick<UserColumn, "kind" | "choices" | "formula">) => JSON.stringify({ kind: c.kind, choices: c.kind === "choice" ? c.choices : [],
+    formula: c.kind === "computed" && c.formula ? { ...toV2(c.formula), id: "" } : null });
+  try {
+    const seen = new Set<string>();
+    for (const c of p.columns) {
+      try {
+        if (!(["notice", "contract", "request"] as string[]).includes(c.entityType) || !c.fieldName?.trim() || c.fieldName.length > 20 || /['"\\\x00-\x1f]/.test(c.fieldName) || !Array.isArray(c.choices)) throw new Error("맞춤 열 형식이 올바르지 않습니다.");
+        const key = `${c.entityType}.${c.fieldName}`;
+        if (seen.has(key)) throw new Error("구성 안에서 열이 겹칩니다.");
+        seen.add(key);
+        if (c.kind === "computed") {
+          if (!c.formula) throw new Error("가공식이 없습니다.");
+          const f = toV2(c.formula);
+          const problem = f.source === "sql" ? checkSqlMock(f.sql)[0] : checkFlow(f.flow, 재료(c.entityType)).errors[0];
+          if (problem) throw new Error(problem.message);
+        } else if (!["text", "choice", "date", "number"].includes(c.kind) || c.formula) throw new Error("입력열 형식이 올바르지 않습니다.");
+        const old = userColumns[c.entityType].find(x => x.fieldName.toLowerCase() === c.fieldName.toLowerCase());
+        if (old && (old.fieldName !== c.fieldName || normalized(old) !== normalized(c))) {
+          preview.columns.push({ entityType: c.entityType, fieldName: c.fieldName, action: "conflict" });
+          const kind = { request: "접수", notice: "공고", contract: "계약" }[c.entityType as "request" | "notice" | "contract"];
+          preview.errors.push(`내 ${kind} 열 「${old.fieldName}」 ${받침(old.fieldName) ? "과" : "와"} 정의가 다릅니다. 열 관리에서 내 열 이름을 바꾸면 이 구성을 가져올 수 있습니다. 보낸 사람에게 열 이름을 바꿔 다시 내보내 달라고 해도 됩니다.`);
+          continue;
+        }
+        if (!old && 쓰이는가(c.entityType, c.fieldName)) throw new Error("표가 이미 쓰는 이름입니다.");
+        preview.columns.push({ entityType: c.entityType, fieldName: c.fieldName, action: old ? "reuse" : "add" });
+        if (!old) userColumns[c.entityType].push(structuredClone({ ...c,
+          ...(c.kind === "computed" && c.formula ? { formula: { ...toV2(c.formula), id: crypto.randomUUID() } } : {}) }));
+      } catch (e) { preview.errors.push(`${c.entityType}.${c.fieldName}: ${(e as Error).message}`); }
+    }
+    for (const v of p.views) {
+      try {
+        if (v.definition.version !== 2 || !["split", "fold"].includes(v.definition.contracts) || !v.name?.trim() || v.name.length > 40) throw new Error("보기 정의 형식이 올바르지 않습니다.");
+        let name = v.name.trim();
+        for (let i = 1; 사용자뷰.some(x => x.name.toLowerCase() === name.toLowerCase()); i++) {
+          const suffix = i === 1 ? " (복사본)" : ` (복사본 ${i})`;
+          name = v.name.slice(0, 40 - suffix.length) + suffix;
+        }
+        뷰저장({ ...v, name }, null);
+        preview.views.push({ name: v.name, importName: name });
+      } catch (e) { preview.errors.push(`${v.name}: ${(e as Error).message}`); }
+    }
+    // Token binds the displayed plan; the backend additionally validates real SQLite execution.
+    preview.token = JSON.stringify({ p, views: preview.views, columns: preview.columns, errors: preview.errors });
+    if (applyToken !== undefined) {
+      if (preview.errors.length) throw new Error(preview.errors.join("\n"));
+      if (preview.token !== applyToken) throw new Error("미리보기 뒤 구성이 바뀌었습니다. 파일을 다시 골라 확인하세요.");
+      for (const e of ["notice", "contract", "request"] as Entity[]) 열맞추기(e);
+      return preview;
+    }
+    return preview;
+  } finally {
+    if (applyToken === undefined || preview.errors.length || preview.token !== applyToken) {
+      for (const e of ["notice", "contract", "request"] as Entity[]) userColumns[e].splice(0, userColumns[e].length, ...oldColumns[e]);
+      사용자뷰.splice(0, 사용자뷰.length, ...oldViews);
+    }
+  }
+}
+
+async function 구성파일고르기(): Promise<ViewPackagePick | null> {
+  let picked = 보기구성파일.picked;
+  if (!picked) picked = await new Promise<{ name: string; json: string } | null>((resolve, reject) => {
+    const input = document.createElement("input"); input.type = "file"; input.accept = ".json,application/json";
+    input.oncancel = () => resolve(null);
+    input.onchange = () => { const file = input.files?.[0]; if (!file) resolve(null); else file.text().then(json => resolve({ name: file.name, json })).catch(reject); };
+    input.click();
+  });
+  return picked ? { ...picked, preview: 구성미리보기(picked.json) } : null;
+}
+export function 사용자뷰초기화() { 사용자뷰.splice(0, 사용자뷰.length, ...뷰씨앗()); }
+
+function 뷰목록(): UserView[] {
+  const env = 뷰재료();
+  return 사용자뷰.map(v => {
+    const broken: Record<string, string> = {};
+    for (const c of v.definition.columns) {
+      if (c.formula.source !== "flow") continue;
+      const problem = checkFlow(c.formula.flow, env).errors[0];
+      if (problem) broken[c.id] = problem.message;
+    }
+    return structuredClone({ ...v, broken });
+  });
+}
+
+function 뷰저장(view: 뷰꼴, previousId: string | null): UserView[] {
+  const name = view.name.trim();
+  if (!name) throw new Error("뷰 이름이 비었습니다.");
+  const fold = 모으기(view);
+  if (!view.definition.columns.length) throw new Error("필드를 하나 이상 추가하세요.");
+  if (사용자뷰.some(v => v.name.toLowerCase() === name.toLowerCase() && v.id !== previousId)) throw new Error(`‘${name}’ 맞춤 뷰가 이미 있습니다.`);
+  const env = 뷰재료();
+  const seen = new Set<string>();
+  const columns = view.definition.columns.map((c): UserViewColumn => {
+    const col = c.name.trim();
+    if (!col) throw new Error("이름이 빈 필드가 있습니다.");
+    if (seen.has(col.toLowerCase())) throw new Error(`필드 이름이 겹칩니다: ${col}`);
+    seen.add(col.toLowerCase());
+    const f = toV2({ id: "", ...(c.formula as object) });
+    const problem = f.source === "flow" ? checkFlow(f.flow, env).errors[0] : checkSqlMock(f.sql)[0];
+    if (problem) throw new Error(`‘${col}’ 필드를 세울 수 없습니다: ${problem.message}`);
+    return { id: c.id || `c-${crypto.randomUUID()}`, name: col, formula: f };
+  });
+  const saved: UserView = { id: previousId ?? `uv-${crypto.randomUUID()}`, name, broken: {},
+    definition: { version: 2, contracts: fold ? "fold" : "split", columns } };
+  const at = 사용자뷰.findIndex(v => v.id === previousId);
+  if (at >= 0) 사용자뷰.splice(at, 1, saved);
+  else 사용자뷰.push(saved);
+  return 뷰목록();
+}
+
+/** 표에 찍을 값. 가공열은 값을 저장하지 않는다 — 읽을 때마다 식이 낸다. */
+function 가공값(c: UserColumn, entity: Entity, row: Row, i: number): string {
+  if (!c.formula) return "";
+  const f = toV2(c.formula);
+  if (f.source === "sql") return "";
+  return evaluate(f.flow, 재료(entity), { row, items: 품목행(entity, i), linked: 연결(entity, row, i) }).final;
+}
+
 function 열맞추기(entityType: Entity) {
   const names = userColumns[entityType].map((c) => c.fieldName);
 
@@ -715,11 +1293,20 @@ function 열맞추기(entityType: Entity) {
     const base = 기계열[key];
 
     sheet.columns = [...base.columns.slice(0, base.at), ...names, ...base.columns.slice(base.at)];
-    sheet.editable = names;
+    sheet.editable = userColumns[entityType].filter(c => c.kind !== "computed").map(c => c.fieldName);
 
-    for (const row of sheet.rows) for (const n of names) row[n] ??= "";
+    sheet.rows.forEach((row, i) => {
+      for (const c of userColumns[entityType]) {
+        // 굳힌 입력열은 식을 비활성으로 들고 있다 — 값은 굳힐 때 적힌 그대로다.
+        if (c.kind === "computed" && c.formula) row[c.fieldName] = 가공값(c, entityType, row, i);
+        else row[c.fieldName] ??= "";
+      }
+    });
   }
 }
+
+// 처음부터 가공열이 서 있는 공고 표 — 위의 v1 열을 얹는다.
+열맞추기("notice");
 
 /** 표가 이미 쓰는 이름인가. 진짜 앱은 뷰의 열을 읽어 견주는데, 여기서는 기계 열로 견준다. */
 function 쓰이는가(entityType: Entity, name: string) {
@@ -739,119 +1326,6 @@ function 열고치기(entityType: Entity, work: () => void): Promise<unknown> {
 function 후보(packed: string | null): string[] {
   return packed ? packed.split("|").filter((c) => c.length > 0) : [];
 }
-
-function facets(같은건명: boolean, 같은기관: boolean): LinkFacet[] {
-  return [
-    { name: "건명", contract: "26년 가람 절단기 구매", notice: "26년 가람 절단기 구매", agrees: 같은건명 },
-    { name: "세부품명", contract: "플라즈마절단기", notice: "플라즈마절단기", agrees: true },
-    { name: "물품식별번호", contract: "29077509", notice: "29077509", agrees: true },
-    { name: "수요기관", contract: "가람군수지원단", notice: 같은기관 ? "가람군수지원단" : "한별군수지원단", agrees: 같은기관 },
-    { name: "계약일 / 게시일", contract: "", notice: "2026-07-03", agrees: null },
-  ];
-}
-
-let candidates: Candidate[] = [
-  {
-    contractKey: "R26TA0999000100", contractTitle: "26년 가람 절단기 구매",
-    noticeKey: "R26BK09017030-001", noticeTitle: "26년 가람 절단기 구매",
-    confidence: 0.9, reason: "건명 일치", noticeContractCount: 0,
-    titleMatched: true, blocker: "같은 이름 공고가 2건입니다", facets: facets(true, true),
-  },
-  {
-    contractKey: "R26TA0999000100", contractTitle: "26년 가람 절단기 구매",
-    noticeKey: "R26BK09017099-000", noticeTitle: "26년 가람 절단기 구매",
-    confidence: 0.9, reason: "건명 일치", noticeContractCount: 1,
-    titleMatched: true, blocker: "같은 이름 공고가 2건입니다", facets: facets(true, false),
-  },
-  {
-    contractKey: "R26TA0999000200", contractTitle: "26년 누림 항공유 분석장비 구매",
-    noticeKey: "R26BK09017050-000", noticeTitle: "26년 누림 유분석장비 구매",
-    confidence: 0.62, reason: "물품식별번호 일치 · 건명 유사 40%", noticeContractCount: 0,
-    titleMatched: false, blocker: null, facets: facets(false, true),
-  },
-];
-
-/** 이어진 줄을 둘 섞어 둔다 — 끊고 다시 잇는 길이 화면에 서는지 여기서 본다. */
-let 계약줄: LinkContract[] = [
-  { key: "R26TA0999000100", title: "26년 가람 절단기 구매", candidateCount: 2,
-    noticeKey: null, noticeTitle: "", decidedBy: null },
-  { key: "R26TA0999000200", title: "26년 누림 항공유 분석장비 구매", candidateCount: 1,
-    noticeKey: null, noticeTitle: "", decidedBy: null },
-  { key: "R26TA0999000300", title: "26년 한별 소나 부품 구매", candidateCount: 0,
-    noticeKey: null, noticeTitle: "", decidedBy: null },
-  { key: "R26TA0999000400", title: "26년 한별 공압식승강판 20톤 구매", candidateCount: 0,
-    noticeKey: "R26BK09017040-000", noticeTitle: "26년 한별 공압식승강판 20톤 구매", decidedBy: "auto" },
-  { key: "R26TA0999000500", title: "26년 가람 수질측정기 조달", candidateCount: 0,
-    noticeKey: "R26BK09017060-000", noticeTitle: "26년 가람 수질측정기 조달", decidedBy: "human" },
-];
-
-/** 「직접 찾기」가 훑을 자리. 추천에 오르지 않은 공고도 섞어 둔다. */
-const noticeChoices: NoticeChoice[] = [
-  { key: "R26BK09017030-001", title: "26년 가람 절단기 구매", postedAt: "2026-07-02", linked: 0 },
-  { key: "R26BK09017099-000", title: "26년 가람 절단기 구매", postedAt: "2026-07-01", linked: 1 },
-  { key: "R26BK09017050-000", title: "26년 누림 유분석장비 구매", postedAt: "2026-06-30", linked: 0 },
-  { key: "R26BK09017040-000", title: "26년 한별 공압식승강판 20톤 구매", postedAt: "2026-06-29", linked: 1 },
-  { key: "R26BK09017060-000", title: "26년 가람 수질측정기 조달", postedAt: "2026-06-28", linked: 1 },
-  { key: "R26BK09017070-000", title: "26년 누림 항공기 부품 구매", postedAt: "2026-06-27", linked: 0 },
-];
-
-/** 아직 이어지지 않은 줄이 몇인가. 머리의 배지가 이 수를 그대로 받는다. */
-const 미연결수 = () => 계약줄.filter((c) => c.noticeKey === null).length;
-
-// ── 접수 ↔ 공고 ──────────────────────────────────────
-// 계약 쪽과 얼개는 같고 판정만 다르다 — 건명이 아니라 품목 줄 수로 좁히고, 수량·단가
-// 다중집합이 완전히 같을 때만 통과한다. 통과 후보가 둘이면 둘 다 「여럿입니다」를 단다.
-
-/** 접수 쪽 견줌. 세부품명번호는 <b>어긋나도 막지 않는다</b> — 협의·요청 누락으로 다를 수 있다. */
-function 접수견줌(요청명: string, 공고명: string): RequestLinkFacet[] {
-  return [
-    { name: "건명", request: 요청명, notice: 공고명, agrees: 요청명 === 공고명 },
-    { name: "품목수", request: "3", notice: "3", agrees: true },
-    { name: "수량·단가", request: "3줄 전부 일치", notice: "3줄 전부 일치", agrees: true },
-    { name: "세부품명", request: "플라즈마절단기", notice: "플라즈마절단기", agrees: true },
-    { name: "세부품명번호", request: "29077509", notice: "29077511", agrees: false },
-    { name: "품대 / 사업금액", request: "29,512,000", notice: "29,512,000", agrees: true },
-    { name: "예산금액 / 배정예산", request: "35,709,520", notice: "36,299,760", agrees: false },
-    { name: "수요기관", request: "가람군수지원단", notice: "가람군수지원단", agrees: true },
-    { name: "접수일자 / 게시일시", request: "2026/06/24", notice: "2026/07/02", agrees: true },
-  ];
-}
-
-let 접수줄: LinkRequest[] = [
-  { key: "MPKPLA26910286", title: "26년한별윈치8종구매", candidateCount: 0,
-    noticeKey: "R26BK09018047-000", noticeTitle: "26년한별윈치8종구매", decidedBy: "auto" },
-  { key: "MPKPLA26910301", title: "26년가람수질측정기구매", candidateCount: 0,
-    noticeKey: "R26BK09017060-000", noticeTitle: "26년 가람 수질측정기 조달", decidedBy: "human" },
-  { key: "MPKPLA26910412", title: "26년가람절단기구매", candidateCount: 2,
-    noticeKey: null, noticeTitle: "", decidedBy: null },
-];
-
-let requestCandidates: RequestCandidate[] = [
-  {
-    requestKey: "MPKPLA26910412", requestTitle: "26년가람절단기구매",
-    noticeKey: "R26BK09017030-001", noticeTitle: "26년 가람 절단기 구매",
-    confidence: 0.95, reason: "품목 3줄 · 수량·단가 전부 일치", noticeLinkedCount: 0,
-    // 줄 수가 같은 공고는 둘이지만 뒤엣것은 이미 임자가 있다 — 통과한 후보가 하나뿐이라
-    // 막을 까닭이 없다. 유일성을 통과 후보 사이에서 세는 규칙이 그대로 비치는 자리다.
-    titleMatched: false, blocker: null,
-    facets: 접수견줌("26년가람절단기구매", "26년 가람 절단기 구매"),
-  },
-  {
-    requestKey: "MPKPLA26910412", requestTitle: "26년가람절단기구매",
-    noticeKey: "R26BK09017099-000", noticeTitle: "26년 가람 절단기 구매",
-    confidence: 0.95, reason: "품목 3줄 · 수량·단가 전부 일치", noticeLinkedCount: 1,
-    titleMatched: false, blocker: "그 공고에 이미 다른 접수가 붙어 있습니다",
-    facets: 접수견줌("26년가람절단기구매", "26년 가람 절단기 구매"),
-  },
-];
-
-/** 접수 쪽 「직접 찾기」가 훑을 자리. 계약 쪽이 훑는 것에 접수가 붙은 공고를 더한다. */
-const 접수쪽공고: NoticeChoice[] = [
-  { key: "R26BK09018047-000", title: "26년한별윈치8종구매", postedAt: "2026-07-18", linked: 1 },
-  ...noticeChoices,
-];
-
-const 미연결접수수 = () => 접수줄.filter((r) => r.noticeKey === null).length;
 
 let settings: Settings = {
   submitterName: "홍길동",
@@ -1006,6 +1480,54 @@ const summary: Summary = {
   unlinkedContracts: 3, unlinkedRequests: 1,
 };
 
+/** 실제 미리보기 표의 문서를 같은 분모로 묶는다. 실제 분류는 Core Reports.Dashboard가 소유한다. */
+function dashboardFixture(): DashboardReport {
+  const labels: [DashboardStage, string][] = [["requestOnly", "공고 대기"], ["open", "공고중"], ["awaitingContract", "계약 대기"], ["contracted", "계약 완료"]];
+  const requests = sheets["v_접수"].rows, notices = sheets["v_공고"].rows, contracts = sheets["v_계약"].rows;
+  const linked = sheets["v_통합"].rows;
+  const usedRequests = new Set<string>(), usedContracts = new Set<string>();
+  const make = (key: string, request: Row | undefined, notice: Row | undefined, captured: Row[]): DashboardRow => {
+    if (request) usedRequests.add(request.접수번호);
+    captured.forEach(contract => usedContracts.add(contract.계약번호));
+    const items = captured.map(contract => ({ number: contract.계약번호, title: contract.계약건명, date: contract.계약일자,
+      amount: contract.계약금액 ? Number(contract.계약금액.replaceAll(",", "")) : null, draft: !contract.계약일자, terminated: false }));
+    const known = items.flatMap(contract => contract.amount === null ? [] : [contract.amount]);
+    const stage: DashboardStage = items.some(contract => contract.draft) ? "awaitingContract" : items.length ? "contracted" : notice ? "awaitingContract" : "requestOnly";
+    return { key, title: request?.요청명 || notice?.공고명 || items[0]?.title || "건명 미확인", stage,
+      requestNumber: request?.접수번호 ?? "", noticeNumber: notice?.입찰공고번호 ?? "", noticeNumbers: notice ? [notice.입찰공고번호] : [],
+      noticeKind: notice?.공고종류 ?? "", requestDate: request?.접수일자 ?? "", postedAt: notice?.게시일시 ?? "",
+      bidStartsAt: "", bidClosesAt: notice?.입찰마감일시 ?? "", openingAt: notice?.개찰일시 ?? "",
+      agency: request?.수요기관 || notice?.수요기관 || captured[0]?.수요기관 || "", contracts: items,
+      contractAmount: known.length ? known.reduce((sum, amount) => sum + amount, 0) : null,
+      issues: request ? [] : ["연결된 접수 문서가 DB에 없습니다."], draftContracts: items.filter(contract => contract.draft).length, noticeCancelled: false, terminatedContracts: 0 };
+  };
+  const rows = notices.map(notice => {
+    const relations = linked.filter(row => row.입찰공고번호 === notice.입찰공고번호);
+    const request = requests.find(request => relations.some(row => row.접수번호 === request.접수번호));
+    return make(notice.입찰공고번호, request, notice, contracts.filter(contract => relations.some(row => row.계약번호 === contract.계약번호)));
+  });
+  for (const request of requests) if (!usedRequests.has(request.접수번호)) rows.push(make(request.접수번호, request, undefined, []));
+  for (const contract of contracts) if (!usedContracts.has(contract.계약번호)) {
+    const row = make(contract.계약번호, undefined, undefined, [contract]);
+    if (linked.some(source => source.계약번호 === contract.계약번호 && source.입찰공고번호)) row.issues.push("계약에 적힌 공고 문서가 DB에 없습니다.");
+    rows.push(row);
+  }
+  const due = (raw: string) => {
+    const date = /^\d{4}[/-]\d{2}[/-]\d{2}$/.test(raw) ? raw.replaceAll("/", "-") : null;
+    return { raw, date, daysRemaining: date ? Math.round((Date.parse(date) - Date.parse("2026-10-09")) / 86400000) : null };
+  };
+  const deliveries = contracts.map((contract, index) => ({ number: contract.계약번호, title: contract.계약건명, contractDate: contract.계약일자,
+    party: contract.계약상대자, agency: contract.수요기관, terminated: false, draft: !contract.계약일자, due: due(contract.납품기한 ?? ""),
+    items: 품목행("contract", index).map((item, line) => ({ lineNo: line + 1, name: item.품명, specification: item.규격, agency: item.수요기관,
+      quantity: item.수량, unit: item.단위, due: due(item.납품기한 ?? "") })), issues: [] }));
+  return { dataCheckCount: rows.filter(row => row.stage === null).length, deliveries, asOf: "2026-10-09T09:00:00+09:00", totalCases: rows.length, rows,
+    stages: labels.map(([key, label]) => ({ key, label, count: rows.filter(row => row.stage === key).length })),
+    documents: { requests: requests.length, notices: notices.length, contracts: contracts.length,
+      requestRevisions: requests.length, noticeRevisions: sheets["v_공고차수"].rows.length, contractRevisions: sheets["v_계약차수"].rows.length },
+    contractAmount: rows.reduce((sum, row) => sum + (row.contractAmount ?? 0), 0),
+    contractsWithAmount: rows.flatMap(row => row.contracts).filter(contract => contract.amount !== null).length };
+}
+
 /**
  * 줄 하나를 가리키는 키. 시트마다 어느 열이 키인지 다르다.
  *
@@ -1057,6 +1579,15 @@ function 계획(key: string, whole: boolean): DeletionPlan {
   };
 }
 
+// 예시 자료의 삭제 계획. 실제 합집합 영향과 원자성은 Core의 synthetic DB 테스트가 검증한다.
+function batchPlan(keys: string[], whole: boolean): BatchDeletionPlan {
+  const targets = [...new Set(keys)].map(key => 계획(key, whole));
+  return { targets, fingerprint: JSON.stringify([targets, keys.map(key => Object.values(sheets).flatMap(s => s.rows.filter(r => 줄키(r) === key)))]),
+    documentCount: targets.length, seriesCount: targets.filter(t => t.seriesGoes).length,
+    childRows: targets.reduce((n, t) => n + t.childRows, 0), userFields: targets.reduce((n, t) => n + t.userFields, 0),
+    overrides: targets.reduce((n, t) => n + t.overrides, 0), links: targets.filter(t => t.linked).length };
+}
+
 /**
  * 지어낸 계획 엑셀의 머리글. 서식이 표본에 고정된 뒤로(ADR-023 개정) 진짜 다리도 이 열두 개를
  * 이름 그대로 잡는다 — 여기서는 <b>표본 그대로인 파일</b>을 골랐다고 본다.
@@ -1097,7 +1628,8 @@ const 현황: StatusReport = {
 /** 미리보기의 오늘 수집. 표본의 번호·건명을 그대로 쓴다 — 모두 지어낸 것이다. */
 
 // ── 지금 보는 화면(ADR-036) ─────────────────────────────
-// Chrome 에 열린 나라장터 탭 셋 — 새 차수인 계약, 사람이 고친 칸이 화면과 다른 계약, 수집 규칙에 없는 화면.
+// Chrome 에 열린 나라장터 탭 셋 — 새 차수인 계약, 사람이 고친 칸이 화면과 다르고 화면이 비우거나 빠뜨린 것이 있는 계약,
+// 수집 규칙에 없는 화면.
 // 번호·건명·금액은 모두 지어낸 것이다. 시험은 <code>지금화면</code> 의 값을 바꾼다.
 
 const 칸 = (column: string, kind: MirrorField["kind"], value: string, extra: Partial<MirrorField> = {}): MirrorField =>
@@ -1141,7 +1673,7 @@ const 새차수화면 = (): MirrorShot => ({
     { seq: "00", amount: "30,400,000", savedOn: "09/16", state: "stored" },
     { seq: "01", amount: "34,400,000", savedOn: "", state: "ghost" },
   ],
-  baseToken: "mock-새차수", blocked: null,
+  baseToken: "mock-새차수", missing: [], keptCells: 0, keptIn: "", totalsWithDefaults: true, totalsWithoutMissing: true,
 });
 
 const 검토화면 = (): MirrorShot => ({
@@ -1153,9 +1685,12 @@ const 검토화면 = (): MirrorShot => ({
     칸("납품장소", "override", "시험동 지하 기계실", { human: "시험동 B1 기계실", choiceId: "override/납품장소" }),
     칸("계약상대자", "override", "주식회사 바른시험", { human: "(주)바른시험", choiceId: "override/계약상대자" }),
     칸("대표자", "same", "홍길동"),
+    // 화면이 비워 보낸 칸 — 있던 값을 그대로 두는 것이 기본이다.
+    칸("납품기한", "blank", "2026/11/30", { choiceId: "contract/R26TA00000102-01/delivery_due" }),
   ],
-  rest: 23,
-  items: [품목("1", "배기팬 교체", "1", "식", "31,200,000", "31,200,000")],
+  rest: 22,
+  // 2행은 작업자료에만 있고 이번 화면에는 없다 — 그대로 두므로 품목 전체에는 남는다.
+  items: [품목("1", "배기팬 교체", "1", "식", "31,200,000", "31,200,000"), { ...품목("2", "배기 덕트 보강", "1", "식", "2,400,000", "2,400,000"), source: "" }],
   itemChanges: 0, itemRows: 1, itemsAllRead: true,
   place: [
     { kind: "접수", state: "missing", number: "", collected: false, source: null },
@@ -1166,13 +1701,17 @@ const 검토화면 = (): MirrorShot => ({
     { seq: "00", amount: "29,800,000", savedOn: "09/24", state: "stored" },
     { seq: "01", amount: "31,200,000", savedOn: "09/30", state: "current" },
   ],
-  baseToken: "mock-검토", blocked: null,
+  baseToken: "mock-검토",
+  missing: [{ table: "contract_item", tableName: "품목", line: 2, label: "배기 덕트 보강", amount: "2,400,000", choiceId: "remove/contract_item/2" }],
+  keptCells: 1, keptIn: "품목",
+  // 머리 총액은 화면의 품목에서 셈한다 — 빠진 행을 남기면 맞지 않고, 지우면 맞는다.
+  totalsWithDefaults: false, totalsWithoutMissing: true,
 });
 
 const 탭 = (tabId: number, screen: string, state: MirrorTab["state"], shot: MirrorShot | null, front = false,
   screenRows: ScreenRow[] = [], menu = ""): MirrorTab => ({
   id: `4242:${tabId}`, pid: 4242, tabId, browser: "Chrome", title: "나라장터", screen, menu, state,
-  readAt: 오늘의("09:20"), message: "", front, shot, error: null, screenRows,
+  readAt: 오늘의("09:20"), message: "", front, shot, error: null, screenRows, export: null,
 });
 
 /** 화면 그대로 — 확장이 읽어 보낸 이름표와 보이는 글. 화면의 서식 그대로다(날짜의 줄표, 금액의 쉼표 없음). */
@@ -1196,17 +1735,16 @@ const 개찰줄 = (): ScreenRow[] => [
 /** 가짜 다리의 Chrome 탭. 시험은 <code>탭</code> 을 갈아 끼우고, <code>낡음</code> 이면 가져오기가 낡은 baseToken 으로 답한다. */
 export const 지금화면 = {
   탭: [] as MirrorTab[],
-  /** 확장의 설정. null 이면 옛 확장처럼 알리지 않는다. */
-  설정: { pid: 4242, browser: "Chrome", panelMode: "always", shortcut: "Alt+Shift+S", siteAccess: true } as ExtensionSettings | null,
-  /** 오늘의 오류와 오늘 전의 마지막 오류. */
-  오류: [] as ExtensionProblem[],
-  지난오류: null as ExtensionProblem | null,
+  /** 확장이 알린 설정. null 이면 옛 확장처럼 알리지 않는다. */
+  설정: { pid: 4242, browser: "Chrome", siteAccess: true } as ExtensionSettings | null,
   앞: "4242:1" as string | null,
   낡음: false,
+  /** 가져오려는 탭의 화면이 보고에 없다(닫힘 · 끊김). */
+  사라짐: false,
   /** 앱이 보낸 명령. */
   명령: [] as { tabId: number; command: string }[],
-  /** 가져온 요청. */
-  가져옴: [] as { tabId: number; baseToken: string; restore: string[]; captureId: string }[],
+  /** 가져온 요청. <code>picks</code> 는 사람이 고른 자리 — 복원할 덮개, 비울 칸, 지울 행. */
+  가져옴: [] as { tabId: number; baseToken: string; picks: string[]; captureId: string }[],
   /** 수집하는 화면 — 진짜 다리는 매핑에서 화면을 단 프로필을 낸다(Mirror.SupportedScreens). */
   수집화면: [] as SupportedScreen[],
 };
@@ -1215,7 +1753,9 @@ export const 지금화면 = {
 export const 기본수집화면 = (): SupportedScreen[] => [
   { code: "01117", entityType: "request", kind: "접수", name: "조달요구 접수(목록형)" },
   { code: "01179", entityType: "notice", kind: "공고", name: "입찰공고 상세" },
+  { code: "01196", entityType: "notice", kind: "공고", name: "입찰공고상세조회(통합)" },
   { code: "01579", entityType: "contract", kind: "계약", name: "계약 상세" },
+  { code: "01608", entityType: "contract", kind: "계약", name: "물품·일반용역 변경계약서 작성" },
 ];
 
 export const 기본탭 = (): MirrorTab[] => [
@@ -1327,8 +1867,6 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
         ] : 꼴 === "옛 판" ? [
           { at: 오늘의("09:12"), event: "connected", browser: "Chrome", version: "0.8.0", previous: "" },
         ] : [],
-        errors: 지금화면.오류,
-        pastError: 지금화면.지난오류,
       };
       return wait(status);
     }
@@ -1342,16 +1880,12 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
     case "mirrorCommand":
       지금화면.명령.push({ tabId: Number(args[1]), command: String(args[2]) });
       return wait({ sent: true });
-    // 진짜 다리는 확장의 설정 명령을 홈의 명령 폴더에 놓는다. 여기서는 확장이 바로 적용하고 다시 알린 것으로 친다.
-    case "extensionCommand":
-      지금화면.명령.push({ tabId: 0, command: String(args[1]) + (args[2] ? `:${String(args[2])}` : "") });
-      if (args[1] === "setPanelMode" && 지금화면.설정) 지금화면.설정 = { ...지금화면.설정, panelMode: String(args[2]) as "always" | "button" };
-      return wait({ sent: true });
-    // 진짜 다리는 확장의 저장과 같은 절차로 쓴다. 여기서는 그 탭을 「저장됨」 으로 바꾸고 수집 기록을 한 줄 더한다.
+    // 진짜 다리는 수집의 저장과 같은 절차로 쓴다. 여기서는 그 탭을 「저장됨」 으로 바꾸고 수집 기록을 한 줄 더한다.
     case "importShot": {
       const tabId = Number(args[1]);
-      const restore = JSON.parse(String(args[3])) as string[];
-      지금화면.가져옴.push({ tabId, baseToken: String(args[2]), restore, captureId: String(args[4]) });
+      const picks = JSON.parse(String(args[3])) as string[];
+      지금화면.가져옴.push({ tabId, baseToken: String(args[2]), picks, captureId: String(args[4]) });
+      if (지금화면.사라짐) return wait<ImportResult>({ status: "gone", message: "이 탭이 닫혔거나 브라우저 연결이 끊겨 가져오지 않았습니다. 나라장터에서 화면을 다시 여세요." });
       if (지금화면.낡음) return wait<ImportResult>({ status: "stale", message: "화면이나 작업자료가 바뀌었습니다. 다시 읽습니다." });
       const now = new Date();
       const p2 = (n: number) => String(n).padStart(2, "0");
@@ -1363,9 +1897,12 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
         ...t, readAt: 오늘의(hhmm),
         shot: { ...shot, status: "저장됨", changes: 0, itemChanges: 0, compareSeq: shot.seq, latestSeq: shot.seq,
           fields: shot.fields.map((f) => f.kind === "changed" || f.kind === "new" ? { ...f, kind: "same", old: null }
-            : f.kind === "override" ? { ...f, kind: "same", value: restore.includes(f.choiceId ?? "") ? f.value : f.human ?? "", human: null, choiceId: null }
+            : f.kind === "override" ? { ...f, kind: "same", value: picks.includes(f.choiceId ?? "") ? f.value : f.human ?? "", human: null, choiceId: null }
+            : f.kind === "blank" ? { ...f, kind: "same", value: picks.includes(f.choiceId ?? "") ? "" : f.value, choiceId: null }
             : f),
-          items: shot.items.map((i) => ({ ...i, before: null, added: false })),
+          items: shot.items.filter((i) => !shot.missing.some((m) => m.table.endsWith("_item") && String(m.line) === i.line && picks.includes(m.choiceId)))
+            .map((i) => ({ ...i, before: null, added: false })),
+          missing: shot.missing.filter((m) => !picks.includes(m.choiceId)), keptCells: 0, keptIn: "",
           rounds: shot.rounds.map((r) => r.state === "ghost" ? { ...r, state: "current", savedOn: `${p2(now.getMonth() + 1)}/${p2(now.getDate())}` } : r) },
       });
       수집.줄 = [수집줄(오늘의(hhmm), shot.kind, shot.number, shot.title, true), ...(수집.줄.length > 0 ? 수집.줄 : 기본수집())];
@@ -1376,17 +1913,130 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       if (args[0] === "list") return wait({ active: JSON.parse(mappingJson), defaults: JSON.parse(mappingJson), versions: [] });
       return Promise.reject(new Error("개발 미리보기입니다. 매핑 검증·자료 저장은 메인 프로그램에서 실행하세요."));
     case "status":
+      summary.noticeBases = sheets["v_공고"].rows.length;
+      summary.noticeRows = sheets["v_공고차수"].rows.length;
       return wait(summary);
 
     // 열람이면 진짜 다리처럼 고칠 수 있는 열을 비워 보낸다.
     case "sheet": {
+      const view = 뷰목록().find(v => `u_${v.name}` === args[0]);
+      if (view) {
+        const fold = 모으기(view), env = 뷰재료();
+        const rows = 뷰줄들(view.definition.columns, fold).map(r => Object.fromEntries(view.definition.columns.map(c => {
+          const f = toV2(c.formula);
+          return [c.name, f.source === "flow" && checkFlow(f.flow, env).ok ? 줄값(f.flow, env, r, fold) : ""];
+        })));
+        return wait({ name: `u_${view.name}`, columns: view.definition.columns.map(c => c.name), rows,
+          editable: [], correctable: [], overrides: {} });
+      }
       const sheet = sheets[args[0] as string];
+      if (!sheet) throw new Error(`내보이지 않는 표입니다: ${args[0]}`);
       return wait(열람 ? { ...sheet, editable: [], correctable: [], overrides: {} } : sheet);
     }
 
+    case "columnContext":
+      return wait(columnContextExample(args[0] as Entity));
+    case "traceComputedColumn":
+      try {
+        return wait(추적(args[0] as Entity, toV2(JSON.parse(args[1] as string))));
+      } catch (e) { return Promise.reject(e as Error); }
+    case "compileComputedColumn": {
+      const [entityType, json] = args as [Entity, string];
+      try {
+        const f = toV2(JSON.parse(json));
+        return wait(f.source === "sql" ? f.sql : compileFlow(f.flow, 재료(entityType), entityType));
+      } catch (e) { return Promise.reject(e as Error); }
+    }
+    // 목업은 SQL 을 돌리지 않는다 — 모양만 보고(checkSqlMock), 표본 값은 비워 둔다.
+    case "validateComputedSql": {
+      const [entityType, sql] = args as [Entity, string];
+      const samples = columnContextExample(entityType).sources.slice(0, 3).map(({ base, revision, title }) => ({ base, revision, title }));
+      const issue = checkSqlMock(sql)[0];
+      const result: SqlCheck = { ok: !issue, error: issue?.message ?? null, samples, final: samples.map(() => ""),
+        note: "미리보기 자료에서는 SQL을 돌리지 않습니다. 앱에서는 표본 문서에서 실제로 돌려 봅니다." };
+      return wait(result);
+    }
+    case "planFreezeColumn": {
+      const [entityType, name] = args as [Entity, string];
+      const column = userColumns[entityType].find(c => c.fieldName === name);
+      if (!column) return Promise.reject(new Error(`그런 열이 없습니다: ${name}`));
+      const rows = sheets[종류뷰[entityType]].rows;
+      const filled = rows.filter(r => (r[name] ?? "") !== "").length;
+      const plan: FreezePlan = column.kind === "computed"
+        ? { kind: column.kind, cells: filled, hidden: 0, series: rows.length }
+        : { kind: column.kind, cells: 0, hidden: filled, series: 0 };
+      return wait(plan);
+    }
+    case "freezeColumn": {
+      const [entityType, name, expected] = args as [Entity, string, string];
+      return 열고치기(entityType, () => {
+        const at = userColumns[entityType].findIndex(c => c.fieldName === name);
+        const column = userColumns[entityType][at];
+        if (!column || column.kind !== "computed") throw new Error("가공열만 값으로 굳힐 수 있습니다.");
+        const filled = sheets[종류뷰[entityType]].rows.filter(r => (r[name] ?? "") !== "").length;
+        if (expected !== undefined && Number(expected) !== filled) throw new Error("센 뒤 자료가 바뀌었습니다. 다시 세어 확인하세요. 쓴 값은 없습니다.");
+        userColumns[entityType][at] = { ...column, kind: "text", choices: [] };
+      });
+    }
+    case "saveComputedColumn": {
+      const [entityType, name, json, previousName] = args as [Entity, string, string, string | null];
+      return 열고치기(entityType, () => {
+        const old = userColumns[entityType].find(c => c.fieldName === previousName);
+        if (!name.trim()) throw new Error("열 이름이 비었습니다.");
+        if (userColumns[entityType].some(c => c.fieldName === name && c !== old) || 쓰이는가(entityType, name))
+          throw new Error(`이미 있는 열입니다: ${name}`);
+        const f = toV2(JSON.parse(json));
+        const problem = f.source === "flow" ? checkFlow(f.flow, 재료(entityType)).errors[0] : checkSqlMock(f.sql)[0];
+        if (problem) throw new Error(problem.message);
+        f.id = old?.formula?.id || crypto.randomUUID();
+        const column: UserColumn = { entityType, fieldName: name, kind: "computed", choices: [], formula: f };
+        if (old) userColumns[entityType].splice(userColumns[entityType].indexOf(old), 1, column);
+        else userColumns[entityType].push(column);
+        if (old && previousName && previousName !== name) 뷰열이름바꾸기(entityType, previousName, name);
+      });
+    }
+    // 맞춤 뷰(docs/user-views.md §8). 목업은 정의를 들고 TS 평가기로 미리보기·보표를 낸다. 기준 인자는 없다.
+    case "userViews":
+      return wait(뷰목록());
+    case "exportViewPackage": {
+      try {
+        const json = JSON.stringify(구성내보내기(JSON.parse(args[0] as string)), null, 2);
+        보기구성파일.exported = json;
+        const name = "보기구성.json", url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+        const a = document.createElement("a"); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
+        return wait({ download: true, name });
+      } catch (e) { return Promise.reject(e as Error); }
+    }
+    case "pickViewPackage": return 구성파일고르기();
+    case "builtinViewPackage":
+      try { return wait({ name: "예시 보기", json: 예시보기, preview: 구성미리보기(예시보기) }); } catch (e) { return Promise.reject(e as Error); }
+    case "previewViewPackage":
+      try { return wait(구성미리보기(args[0] as string)); } catch (e) { return Promise.reject(e as Error); }
+    case "importViewPackage":
+      try { 구성미리보기(args[0] as string, args[1] as string); return wait(뷰목록()); } catch (e) { return Promise.reject(e as Error); }
+    case "userViewContext":
+      return 스위치.뷰맥락오류 ? Promise.reject(new Error(스위치.뷰맥락오류)) : wait(뷰맥락());
+    case "traceUserViewColumn":
+      try { return wait(뷰추적(toV2(JSON.parse(args[0] as string)), args[1] as string[] | null | undefined)); }
+      catch (e) { return Promise.reject(e as Error); }
+    case "userViewSamples":
+      try { return wait(뷰표본(JSON.parse(args[0] as string) as 뷰꼴, (args[1] as string | null) ?? "", (args[2] as 뷰가장자리 | null) ?? null)); }
+      catch (e) { return Promise.reject(e as Error); }
+    case "previewUserView":
+      try { return wait(뷰미리보기(JSON.parse(args[0] as string) as 뷰꼴, String(args[1] ?? ""))); }
+      catch (e) { return Promise.reject(e as Error); }
+    case "saveUserView":
+      try { return wait(뷰저장(JSON.parse(args[0] as string) as 뷰꼴, (args[1] as string | null) ?? null)); }
+      catch (e) { return Promise.reject(e as Error); }
+    case "deleteUserView": {
+      const at = 사용자뷰.findIndex(v => v.id === args[0]);
+      if (at < 0) return Promise.reject(new Error("그런 맞춤 뷰가 없습니다."));
+      사용자뷰.splice(at, 1);
+      return wait(뷰목록());
+    }
     case "userColumns": {
       const which = args[0] as Entity | undefined;
-      return wait(which ? userColumns[which] : 모든열());
+      return wait(which ? userColumns[which].map(열내기) : 모든열());
     }
 
     case "addColumn": {
@@ -1422,7 +2072,8 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
           choices: kind === "choice" ? 후보(packed) : [],
         };
 
-        // 이름이 바뀌면 적어 둔 값도 따라간다.
+        // 이름이 바뀌면 적어 둔 값도, 그 열을 읽던 맞춤 뷰의 식도 따라간다(docs/user-views.md §5).
+        if (name !== fieldName) 뷰열이름바꾸기(entityType, fieldName, name);
         if (name !== fieldName)
           for (const key of 시트(entityType))
             for (const row of sheets[key].rows) {
@@ -1455,6 +2106,40 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       });
     }
 
+    case "batchEdit": {
+      const [view, json] = args as [string, string];
+      const changes = JSON.parse(json) as BatchChange[];
+      const current = sheets[view];
+      if (!current || current.editable.length + current.correctable.length === 0) return Promise.reject(new Error("읽기 전용 표입니다."));
+      for (const c of changes) {
+        const r = current.rows.find(row => 줄키(row) === c.rowKey);
+        if (!r || !(current.editable.includes(c.field) || current.correctable.includes(c.field))) return Promise.reject(new Error("수정할 수 없는 칸입니다."));
+        if ((r[c.field] ?? "") !== c.original) return Promise.reject(new Error("자료가 변경되었습니다. 다시 읽고 검토하세요. 저장한 값은 없습니다."));
+        if (c.field === "메모" && c.value === "실패") return Promise.reject(new Error("일부러 낸 오류 — 저장한 값은 없습니다."));
+      }
+      for (const c of changes) for (const sheet of Object.values(sheets)) {
+        if (!sheet.columns.includes(c.field)) continue;
+        for (const r of sheet.rows.filter(r => 줄키(r) === c.rowKey)) {
+          if (c.operation === "revert") {
+            const original = sheet.overrides[c.rowKey]?.[c.field];
+            if (original !== undefined) { r[c.field] = original; delete sheet.overrides[c.rowKey][c.field]; }
+          } else {
+            if (current.correctable.includes(c.field)) (sheet.overrides[c.rowKey] ??= {})[c.field] ??= r[c.field] ?? "";
+            r[c.field] = c.value;
+          }
+        }
+      }
+      return wait({ changed: changes.length });
+    }
+    case "batchDeletionPlan": {
+      return wait(batchPlan(JSON.parse(String(args[0])), args[1] === "series"));
+    }
+    case "batchDelete": {
+      const keys = JSON.parse(String(args[0])) as string[];
+      const plan = batchPlan(keys, args[1] === "series");
+      if (args[2] !== plan.fingerprint) return Promise.reject(new Error("삭제 영향이 변경되었습니다. 다시 검토하세요."));
+      return Promise.all(keys.map(key => invoke("deleteEntity", [key, args[1]]))).then(() => plan);
+    }
     case "setField": {
       const [key, field, value] = args as [string, string, string];
       // 되돌리기를 볼 자리. 담당은 이제 기본 열이 아니라 남아 있는 열로 바꾼다.
@@ -1517,15 +2202,11 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
         delete sheet.overrides[key];
       }
 
-      계약줄 = 계약줄.filter((c) => c.key !== key.slice(0, -2));
-      접수줄 = 접수줄.filter((r) => r.key !== key.slice(0, -4));
 
       summary.contractBases = sheets["v_계약"].rows.length;
       summary.contractRows = summary.contractBases;
       summary.requestBases = sheets["v_접수"].rows.length;
       summary.requestRows = summary.requestBases;
-      summary.unlinkedContracts = 미연결수();
-      summary.unlinkedRequests = 미연결접수수();
 
       return wait(null);
     }
@@ -1533,7 +2214,11 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
     case "outline":
       return wait(outline);
 
+    case "dashboard":
+      return wait(dashboardFixture());
+
     case "settings":
+      if (스위치.설정오류 > 0) { 스위치.설정오류--; return Promise.reject(new Error("설정 파일이 잠겨 있습니다.")); }
       return wait(settings);
 
     case "saveSettings": {
@@ -1545,13 +2230,6 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       };
       return wait(settings);
     }
-
-    case "linkCandidates":
-      return wait({ contracts: 계약줄, candidates, notices: noticeChoices });
-
-    // 진짜 다리는 ERP 명시 참조로 다시 잇는다. 여기서는 그 결과의 꼴만 낸다.
-    case "relinkExplicit":
-      return wait({ linked: 1 });
 
     case "dataLocation":
       return wait({
@@ -1571,6 +2249,13 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
     case "windowPrefs":
       return wait(창.몸가짐);
 
+    // 진짜 다리는 깃발을 쥐었다가 창을 닫을 때 보고, 「정말 닫기」 에서 창을 내린다. 미리보기에는 내릴 창이 없다.
+    case "setUnsaved":
+      if (args[0] !== "true" && args[0] !== "false") return Promise.reject(new Error(`켜짐·꺼짐이 아닙니다: ${String(args[0])}`));
+      return wait(null);
+    case "closeWindow":
+      return wait(null);
+
     // 진짜 다리처럼 "true"·"false" 만 받는다.
     case "saveWindowPrefs": {
       const [closeToTray, autostart] = args as [string, string];
@@ -1587,114 +2272,7 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       return wait({ folder: "C:\\Users\\홍길동\\AppData\\Local\\Pclm" });
 
     // 이어도 계약은 목록에 남는다 — 잘못 이었으면 그 줄에서 끊어야 한다.
-    case "confirmLink": {
-      const [contractKey, noticeKey] = args as [string, string];
-      const 공고 = noticeChoices.find((n) => n.key === noticeKey);
-
-      candidates = candidates.filter((c) => c.contractKey !== contractKey);
-      계약줄 = 계약줄.map((c) => c.key === contractKey
-        ? { ...c, candidateCount: 0, noticeKey, noticeTitle: 공고?.title ?? "", decidedBy: "human" }
-        : c);
-
-      summary.unlinkedContracts = 미연결수();
-      return wait(null);
-    }
-
-    case "rejectLink": {
-      const [contractKey, noticeKey] = args as [string, string];
-      candidates = candidates.filter(
-        (c) => !(c.contractKey === contractKey && c.noticeKey === noticeKey),
-      );
-
-      // 물리쳐도 계약은 목록에 남는다 — 이어지지 않은 채로 남았다는 사실이 사라지면 안 된다.
-      계약줄 = 계약줄.map((c) =>
-        c.key === contractKey
-          ? { ...c, candidateCount: candidates.filter((x) => x.contractKey === contractKey).length }
-          : c,
-      );
-
-      return wait(null);
-    }
-
-    // 풀기만 한다. 거부와 달리 "아니다" 라는 판정은 남기지 않는다.
-    case "unlink": {
-      const [contractKey] = args as [string];
-      계약줄 = 계약줄.map((c) =>
-        c.key === contractKey ? { ...c, noticeKey: null, noticeTitle: "", decidedBy: null } : c);
-
-      summary.unlinkedContracts = 미연결수();
-      return wait(null);
-    }
-
-    // 추천에 없는 짝도 나란히 견준다. 진짜 다리는 DB 를 읽지만 여기서는 건명만 맞대어 본다.
-    case "compareLink": {
-      const [contractKey, noticeKey] = args as [string, string];
-      const 계약 = 계약줄.find((c) => c.key === contractKey);
-      const 공고 = noticeChoices.find((n) => n.key === noticeKey);
-
-      if (!계약 || !공고)
-        return Promise.reject(new Error(`견줄 짝을 찾지 못했습니다: ${contractKey} ← ${noticeKey}`));
-
-      return wait<LinkFacet[]>([
-        { name: "건명", contract: 계약.title, notice: 공고.title, agrees: 계약.title === 공고.title },
-        { name: "세부품명", contract: "플라즈마절단기", notice: "플라즈마절단기", agrees: true },
-        { name: "물품식별번호", contract: "29077509", notice: "29077509", agrees: true },
-        { name: "수요기관", contract: "가람군수지원단", notice: "가람군수지원단", agrees: true },
-        { name: "계약일 / 게시일", contract: "2026-07-22", notice: 공고.postedAt, agrees: true },
-      ]);
-    }
-
-    case "requestLinkCandidates":
-      return wait({ requests: 접수줄, candidates: requestCandidates, notices: 접수쪽공고 });
-
-    case "confirmRequestLink": {
-      const [requestKey, noticeKey] = args as [string, string];
-      const 공고 = 접수쪽공고.find((n) => n.key === noticeKey);
-
-      requestCandidates = requestCandidates.filter((c) => c.requestKey !== requestKey);
-      접수줄 = 접수줄.map((r) => r.key === requestKey
-        ? { ...r, candidateCount: 0, noticeKey, noticeTitle: 공고?.title ?? "", decidedBy: "human" }
-        : r);
-
-      summary.unlinkedRequests = 미연결접수수();
-      return wait(null);
-    }
-
-    case "rejectRequestLink": {
-      const [requestKey, noticeKey] = args as [string, string];
-      requestCandidates = requestCandidates.filter(
-        (c) => !(c.requestKey === requestKey && c.noticeKey === noticeKey),
-      );
-
-      접수줄 = 접수줄.map((r) =>
-        r.key === requestKey
-          ? { ...r, candidateCount: requestCandidates.filter((x) => x.requestKey === requestKey).length }
-          : r,
-      );
-
-      return wait(null);
-    }
-
-    case "unlinkRequest": {
-      const [requestKey] = args as [string];
-      접수줄 = 접수줄.map((r) =>
-        r.key === requestKey ? { ...r, noticeKey: null, noticeTitle: "", decidedBy: null } : r);
-
-      summary.unlinkedRequests = 미연결접수수();
-      return wait(null);
-    }
-
-    case "compareRequestLink": {
-      const [requestKey, noticeKey] = args as [string, string];
-      const 접수 = 접수줄.find((r) => r.key === requestKey);
-      const 공고 = 접수쪽공고.find((n) => n.key === noticeKey);
-
-      if (!접수 || !공고)
-        return Promise.reject(new Error(`견줄 짝을 찾지 못했습니다: ${requestKey} ← ${noticeKey}`));
-
-      return wait<RequestLinkFacet[]>(접수견줌(접수.title, 공고.title));
-    }
-
+    case "exportSheet":
     case "export": {
       // 진짜 다리는 고르기 창을 열고 실제로 쓴 경로를 돌려준다. 그만두면 null 이다.
       const 오늘 = new Date().toISOString().slice(0, 10).replace(/-/g, "");

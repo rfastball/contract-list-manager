@@ -1,0 +1,2856 @@
+{
+ "about": "가공식 v2 공유 사례표(docs/column-management.md §11.7). vitest(frontend/src/flow/cases.test.ts)와 xunit(FlowCaseTests)이 같은 파일을 읽는다 — 두 꼴 검사·평가가 어긋나면 한쪽이 붉어진다. 값은 모두 지어낸 것이다. env 는 자료 종류별 원천 재료(xunit 이 실제 뷰와 대조한다), docs 는 시험 DB 에 넣는 문서(fields 는 면 뷰에 찍히는 값, links 는 사람이 확정한 연결), cases 의 final 은 문서별 끝 값, shapes 는 단계별 꼴, error.index 는 오류가 붙는 단계(0 = 원천).",
+ "env": {
+  "contract": {
+   "base": [
+    "계약번호",
+    "계약본번호",
+    "차수",
+    "계약건명",
+    "계약일자",
+    "계약방법",
+    "계약구분",
+    "품명",
+    "수량",
+    "단위",
+    "계약금액",
+    "계약보증금률(%)",
+    "계약보증금(원)",
+    "수수료",
+    "지체상금률",
+    "하자보수보증금률",
+    "하자담보책임기간",
+    "계약기간",
+    "납품기한",
+    "인도조건",
+    "납품장소",
+    "분할납품",
+    "지급방법",
+    "수요기관",
+    "검사기관",
+    "검수기관",
+    "계약상대자",
+    "대표자",
+    "사업자등록번호",
+    "상대자주소",
+    "상대자전화",
+    "상대자팩스"
+   ],
+   "items": [
+    "품명",
+    "물품분류번호",
+    "물품식별번호",
+    "규격",
+    "수요기관",
+    "단위",
+    "수량",
+    "단가",
+    "금액",
+    "인도조건"
+   ],
+   "linked": {
+    "notice": {
+     "fields": [
+      "입찰공고번호",
+      "공고본번호",
+      "차수",
+      "공고명",
+      "공고종류",
+      "게시일시",
+      "입찰방식",
+      "낙찰방법",
+      "낙찰하한율",
+      "계약방법",
+      "계약구분",
+      "사업예산",
+      "배정예산",
+      "추정가격",
+      "기초금액",
+      "분할납품",
+      "하자담보기간",
+      "공고기관",
+      "공고담당자",
+      "집행관",
+      "지역제한",
+      "사전규격등록번호",
+      "개찰일시",
+      "입찰개시일시",
+      "입찰마감일시",
+      "등록마감일시",
+      "수요기관",
+      "세부품명",
+      "세부품명번호",
+      "수량",
+      "단위",
+      "납품기한",
+      "인도조건",
+      "담당부서",
+      "담당자",
+      "담당자전화",
+      "담당자팩스",
+      "관련공고",
+      "공고건",
+      "현행공고"
+     ],
+     "items": [
+      "세부품명",
+      "세부품명번호",
+      "물품식별번호",
+      "규격",
+      "수요기관",
+      "단위",
+      "수량",
+      "추정단가",
+      "납품장소",
+      "인도조건"
+     ],
+     "many": false
+    },
+    "request": {
+     "fields": [
+      "접수번호",
+      "접수본번호",
+      "차수",
+      "조달요구번호",
+      "품목수",
+      "요청명",
+      "접수일자",
+      "업무구분",
+      "계약법구분",
+      "계약방법",
+      "계약유형",
+      "낙찰방법",
+      "회계구분",
+      "지급방법",
+      "품대",
+      "수수료",
+      "부가가치세액",
+      "예산금액",
+      "외국산여부",
+      "요청구분",
+      "공개여부",
+      "전담관",
+      "담당과",
+      "담당자",
+      "선급금선고지",
+      "선급금지급가능",
+      "기타사항",
+      "수요기관",
+      "수요기관코드",
+      "기관담당자",
+      "기관담당자전화",
+      "기관담당자팩스",
+      "세부품명",
+      "세부품명번호",
+      "수량",
+      "단위",
+      "인도조건",
+      "납품기한",
+      "재고번호"
+     ],
+     "items": [
+      "세부품명",
+      "세부품명번호",
+      "물품식별번호",
+      "규격",
+      "단위",
+      "수량",
+      "조달요구번호",
+      "단가",
+      "금액",
+      "납품장소",
+      "인도조건"
+     ],
+     "many": false
+    }
+   }
+  },
+  "notice": {
+   "base": [
+    "입찰공고번호",
+    "공고본번호",
+    "차수",
+    "공고명",
+    "공고종류",
+    "게시일시",
+    "입찰방식",
+    "낙찰방법",
+    "낙찰하한율",
+    "계약방법",
+    "계약구분",
+    "사업예산",
+    "배정예산",
+    "추정가격",
+    "기초금액",
+    "분할납품",
+    "하자담보기간",
+    "공고기관",
+    "공고담당자",
+    "집행관",
+    "지역제한",
+    "사전규격등록번호",
+    "개찰일시",
+    "입찰개시일시",
+    "입찰마감일시",
+    "등록마감일시",
+    "수요기관",
+    "세부품명",
+    "세부품명번호",
+    "수량",
+    "단위",
+    "납품기한",
+    "인도조건",
+    "담당부서",
+    "담당자",
+    "담당자전화",
+    "담당자팩스",
+    "관련공고",
+    "공고건",
+    "현행공고"
+   ],
+   "items": [
+    "세부품명",
+    "세부품명번호",
+    "물품식별번호",
+    "규격",
+    "수요기관",
+    "단위",
+    "수량",
+    "추정단가",
+    "납품장소",
+    "인도조건"
+   ],
+   "linked": {
+    "request": {
+     "fields": [
+      "접수번호",
+      "접수본번호",
+      "차수",
+      "조달요구번호",
+      "품목수",
+      "요청명",
+      "접수일자",
+      "업무구분",
+      "계약법구분",
+      "계약방법",
+      "계약유형",
+      "낙찰방법",
+      "회계구분",
+      "지급방법",
+      "품대",
+      "수수료",
+      "부가가치세액",
+      "예산금액",
+      "외국산여부",
+      "요청구분",
+      "공개여부",
+      "전담관",
+      "담당과",
+      "담당자",
+      "선급금선고지",
+      "선급금지급가능",
+      "기타사항",
+      "수요기관",
+      "수요기관코드",
+      "기관담당자",
+      "기관담당자전화",
+      "기관담당자팩스",
+      "세부품명",
+      "세부품명번호",
+      "수량",
+      "단위",
+      "인도조건",
+      "납품기한",
+      "재고번호"
+     ],
+     "items": [
+      "세부품명",
+      "세부품명번호",
+      "물품식별번호",
+      "규격",
+      "단위",
+      "수량",
+      "조달요구번호",
+      "단가",
+      "금액",
+      "납품장소",
+      "인도조건"
+     ],
+     "many": false
+    },
+    "contract": {
+     "fields": [
+      "계약번호",
+      "계약본번호",
+      "차수",
+      "계약건명",
+      "계약일자",
+      "계약방법",
+      "계약구분",
+      "품명",
+      "수량",
+      "단위",
+      "계약금액",
+      "계약보증금률(%)",
+      "계약보증금(원)",
+      "수수료",
+      "지체상금률",
+      "하자보수보증금률",
+      "하자담보책임기간",
+      "계약기간",
+      "납품기한",
+      "인도조건",
+      "납품장소",
+      "분할납품",
+      "지급방법",
+      "수요기관",
+      "검사기관",
+      "검수기관",
+      "계약상대자",
+      "대표자",
+      "사업자등록번호",
+      "상대자주소",
+      "상대자전화",
+      "상대자팩스"
+     ],
+     "items": [
+      "품명",
+      "물품분류번호",
+      "물품식별번호",
+      "규격",
+      "수요기관",
+      "단위",
+      "수량",
+      "단가",
+      "금액",
+      "인도조건"
+     ],
+     "many": true
+    }
+   }
+  },
+  "request": {
+   "base": [
+    "접수번호",
+    "접수본번호",
+    "차수",
+    "조달요구번호",
+    "품목수",
+    "요청명",
+    "접수일자",
+    "업무구분",
+    "계약법구분",
+    "계약방법",
+    "계약유형",
+    "낙찰방법",
+    "회계구분",
+    "지급방법",
+    "품대",
+    "수수료",
+    "부가가치세액",
+    "예산금액",
+    "외국산여부",
+    "요청구분",
+    "공개여부",
+    "전담관",
+    "담당과",
+    "담당자",
+    "선급금선고지",
+    "선급금지급가능",
+    "기타사항",
+    "수요기관",
+    "수요기관코드",
+    "기관담당자",
+    "기관담당자전화",
+    "기관담당자팩스",
+    "세부품명",
+    "세부품명번호",
+    "수량",
+    "단위",
+    "인도조건",
+    "납품기한",
+    "재고번호"
+   ],
+   "items": [
+    "세부품명",
+    "세부품명번호",
+    "물품식별번호",
+    "규격",
+    "단위",
+    "수량",
+    "조달요구번호",
+    "단가",
+    "금액",
+    "납품장소",
+    "인도조건"
+   ],
+   "linked": {
+    "notice": {
+     "fields": [
+      "입찰공고번호",
+      "공고본번호",
+      "차수",
+      "공고명",
+      "공고종류",
+      "게시일시",
+      "입찰방식",
+      "낙찰방법",
+      "낙찰하한율",
+      "계약방법",
+      "계약구분",
+      "사업예산",
+      "배정예산",
+      "추정가격",
+      "기초금액",
+      "분할납품",
+      "하자담보기간",
+      "공고기관",
+      "공고담당자",
+      "집행관",
+      "지역제한",
+      "사전규격등록번호",
+      "개찰일시",
+      "입찰개시일시",
+      "입찰마감일시",
+      "등록마감일시",
+      "수요기관",
+      "세부품명",
+      "세부품명번호",
+      "수량",
+      "단위",
+      "납품기한",
+      "인도조건",
+      "담당부서",
+      "담당자",
+      "담당자전화",
+      "담당자팩스",
+      "관련공고",
+      "공고건",
+      "현행공고"
+     ],
+     "items": [
+      "세부품명",
+      "세부품명번호",
+      "물품식별번호",
+      "규격",
+      "수요기관",
+      "단위",
+      "수량",
+      "추정단가",
+      "납품장소",
+      "인도조건"
+     ],
+     "many": false
+    },
+    "contract": {
+     "fields": [
+      "계약번호",
+      "계약본번호",
+      "차수",
+      "계약건명",
+      "계약일자",
+      "계약방법",
+      "계약구분",
+      "품명",
+      "수량",
+      "단위",
+      "계약금액",
+      "계약보증금률(%)",
+      "계약보증금(원)",
+      "수수료",
+      "지체상금률",
+      "하자보수보증금률",
+      "하자담보책임기간",
+      "계약기간",
+      "납품기한",
+      "인도조건",
+      "납품장소",
+      "분할납품",
+      "지급방법",
+      "수요기관",
+      "검사기관",
+      "검수기관",
+      "계약상대자",
+      "대표자",
+      "사업자등록번호",
+      "상대자주소",
+      "상대자전화",
+      "상대자팩스"
+     ],
+     "items": [
+      "품명",
+      "물품분류번호",
+      "물품식별번호",
+      "규격",
+      "수요기관",
+      "단위",
+      "수량",
+      "단가",
+      "금액",
+      "인도조건"
+     ],
+     "many": true
+    }
+   }
+  }
+ },
+ "docs": {
+  "N1": {
+   "entity": "notice",
+   "base": "TESTN0001",
+   "seq": "000",
+   "fields": {
+    "입찰공고번호": "TESTN0001-000",
+    "공고명": "시험 책상 구매",
+    "게시일시": "2026/07/01",
+    "기초금액": "12,345,000"
+   },
+   "items": [
+    {
+     "세부품명": "책상",
+     "세부품명번호": "001",
+     "물품식별번호": "1000000001",
+     "규격": "A",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "2",
+     "추정단가": "150,000",
+     "납품장소": "수요처 지정 창고",
+     "인도조건": "지정장소도착도"
+    },
+    {
+     "세부품명": "책상",
+     "세부품명번호": "001",
+     "물품식별번호": "1000000001",
+     "규격": "A",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "3",
+     "추정단가": "150,000",
+     "납품장소": "수요처 지정 창고",
+     "인도조건": "지정장소도착도"
+    },
+    {
+     "세부품명": "의자",
+     "세부품명번호": "002",
+     "물품식별번호": "1000000002",
+     "규격": "B",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "5",
+     "추정단가": "80,000",
+     "납품장소": "수요처 지정 창고",
+     "인도조건": "지정장소도착도"
+    }
+   ],
+   "links": {
+    "request": "R1",
+    "contract": [
+     "K1",
+     "K2"
+    ]
+   }
+  },
+  "N2": {
+   "entity": "notice",
+   "base": "TESTN0002",
+   "seq": "000",
+   "fields": {
+    "입찰공고번호": "TESTN0002-000",
+    "공고명": "시험 빈 공고",
+    "기초금액": ""
+   },
+   "items": [],
+   "links": {
+    "request": null,
+    "contract": []
+   }
+  },
+  "R1": {
+   "entity": "request",
+   "base": "TESTR0001",
+   "seq": "00",
+   "fields": {
+    "접수번호": "TESTR0001-00",
+    "요청명": "시험 의자 요청",
+    "접수일자": "2026/06/15",
+    "품대": "320,000"
+   },
+   "items": [
+    {
+     "세부품명": "의자",
+     "세부품명번호": "",
+     "물품식별번호": "",
+     "규격": "B",
+     "단위": "개",
+     "수량": "4",
+     "조달요구번호": "TESTREQ0001",
+     "단가": "80,000",
+     "금액": "320,000",
+     "납품장소": "수요처 지정 창고",
+     "인도조건": "지정장소도착도"
+    }
+   ],
+   "links": {
+    "notice": "N1",
+    "contract": [
+     "K1",
+     "K2"
+    ]
+   }
+  },
+  "K1": {
+   "entity": "contract",
+   "base": "TESTK0001",
+   "seq": "00",
+   "fields": {
+    "계약번호": "TESTK000100",
+    "계약건명": "시험 사무가구 계약",
+    "계약일자": "2026/08/01",
+    "계약금액": "1,500,000",
+    "납품기한": "2026/09/20"
+   },
+   "items": [
+    {
+     "품명": "모니터",
+     "물품분류번호": "003",
+     "물품식별번호": "1000000003",
+     "규격": "27형",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "2",
+     "단가": "310,000",
+     "금액": "620,000",
+     "인도조건": "지정장소도착도"
+    },
+    {
+     "품명": "키보드",
+     "물품분류번호": "004",
+     "물품식별번호": "1000000004",
+     "규격": "유선",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "10",
+     "단가": "25,000",
+     "금액": "250,000",
+     "인도조건": "지정장소도착도"
+    },
+    {
+     "품명": "마우스",
+     "물품분류번호": "005",
+     "물품식별번호": "1000000005",
+     "규격": "유선",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "10",
+     "단가": "12,000",
+     "금액": "120,000",
+     "인도조건": "지정장소도착도"
+    },
+    {
+     "품명": "책상",
+     "물품분류번호": "001",
+     "물품식별번호": "1000000001",
+     "규격": "A",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "1",
+     "단가": "150,000",
+     "금액": "150,000",
+     "인도조건": "지정장소도착도"
+    }
+   ],
+   "links": {
+    "notice": "N1",
+    "request": "R1"
+   }
+  },
+  "K2": {
+   "entity": "contract",
+   "base": "TESTK0002",
+   "seq": "00",
+   "fields": {
+    "계약번호": "TESTK000200",
+    "계약건명": "시험 의자 계약",
+    "계약일자": "2026/08/05",
+    "계약금액": "320,000",
+    "납품기한": ""
+   },
+   "items": [
+    {
+     "품명": "의자",
+     "물품분류번호": "",
+     "물품식별번호": "",
+     "규격": "B",
+     "수요기관": "가람군수지원단",
+     "단위": "개",
+     "수량": "4",
+     "단가": "80,000",
+     "금액": "320,000",
+     "인도조건": "지정장소도착도"
+    }
+   ],
+   "links": {
+    "notice": "N1",
+    "request": "R1"
+   }
+  },
+  "K3": {
+   "entity": "contract",
+   "base": "TESTK0003",
+   "seq": "01",
+   "fields": {
+    "계약번호": "TESTK000301",
+    "계약건명": "시험 단독 계약",
+    "계약일자": "2026/12/31",
+    "계약금액": "",
+    "납품기한": ""
+   },
+   "items": [],
+   "links": {
+    "notice": null,
+    "request": null
+   }
+  }
+ },
+ "cases": [
+  {
+   "name": "이름(번호) 나열 — 겹친 책상 한 줄이 빠진다",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "distinct",
+       "fields": [
+        "세부품명",
+        "세부품명번호"
+       ]
+      },
+      {
+       "op": "format",
+       "text": "{세부품명}({세부품명번호})"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "rows",
+    "values",
+    "value"
+   ],
+   "final": {
+    "N1": "책상(001), 의자(002)",
+    "N2": ""
+   }
+  },
+  {
+   "name": "대표 품명 — 줄여쓰기가 넘치면 꼴대로",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "세부품명"
+      },
+      {
+       "op": "distinct"
+      },
+      {
+       "op": "abbrev",
+       "n": 1,
+       "text": "{앞} 외 {나머지}종"
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "책상 외 1종",
+    "N2": ""
+   }
+  },
+  {
+   "name": "줄여쓰기 — n 개 이하면 그냥 잇는다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "품명"
+      },
+      {
+       "op": "abbrev",
+       "n": 5,
+       "text": "{앞} 외 {나머지}종"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "모니터, 키보드, 마우스, 책상",
+    "K3": ""
+   }
+  },
+  {
+   "name": "개수 — 빈 목록은 0",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "number"
+   ],
+   "final": {
+    "K1": "4",
+    "K2": "1",
+    "K3": "0"
+   }
+  },
+  {
+   "name": "합계 천단위 — 빈 목록은 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sum",
+       "field": "금액"
+      },
+      {
+       "op": "thousands"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1,140,000",
+    "K3": ""
+   }
+  },
+  {
+   "name": "끝이 수면 기본은 천단위",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sum",
+       "field": "수량"
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "10",
+    "N2": ""
+   }
+  },
+  {
+   "name": "평균 — 소수는 그대로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "avg",
+       "field": "수량"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "5.75",
+    "K2": "4"
+   }
+  },
+  {
+   "name": "최대",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "max",
+       "field": "단가"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "310,000",
+    "K3": ""
+   }
+  },
+  {
+   "name": "최소 — 값목록",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "단가"
+      },
+      {
+       "op": "min"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "12,000"
+   }
+  },
+  {
+   "name": "거르기 — 그리고가 또는보다 먼저",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "filter",
+       "cond": [
+        {
+         "field": "수량",
+         "cmp": "≥",
+         "value": 10
+        },
+        {
+         "join": "and",
+         "field": "단가",
+         "cmp": "<",
+         "value": 20000
+        },
+        {
+         "join": "or",
+         "field": "품명",
+         "cmp": "포함",
+         "value": "책"
+        }
+       ]
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      },
+      {
+       "op": "join",
+       "text": "/"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "마우스/책상",
+    "K3": ""
+   }
+  },
+  {
+   "name": "거르기 — 비어있음",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "filter",
+       "cond": [
+        {
+         "field": "물품분류번호",
+         "cmp": "비어있음"
+        }
+       ]
+      },
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "0",
+    "K2": "1"
+   }
+  },
+  {
+   "name": "정렬 — 모두 수면 수로, 내림",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sort",
+       "field": "단가",
+       "dir": "desc"
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "모니터, 책상, 키보드, 마우스"
+   }
+  },
+  {
+   "name": "정렬 — 글이면 글로, 같으면 원래 차례",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sort",
+       "field": "규격",
+       "dir": "desc"
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "키보드, 마우스, 책상, 모니터"
+   }
+  },
+  {
+   "name": "정렬 — 값목록 수 내림",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "수량"
+      },
+      {
+       "op": "sort",
+       "dir": "desc"
+      },
+      {
+       "op": "join",
+       "text": ","
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "10,10,2,1"
+   }
+  },
+  {
+   "name": "정렬 — 필드 없는 행목록 내림은 뒤집기",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sort",
+       "dir": "desc"
+      },
+      {
+       "op": "first"
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "책상"
+   }
+  },
+  {
+   "name": "앞에서 n 다음 마지막",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "take",
+       "n": 3
+      },
+      {
+       "op": "last"
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "rows",
+    "row",
+    "value"
+   ],
+   "final": {
+    "K1": "마우스",
+    "K3": ""
+   }
+  },
+  {
+   "name": "범위 밖 n번째는 빈 값",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "nth",
+       "n": 9
+      },
+      {
+       "op": "get",
+       "field": "세부품명"
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "",
+    "N2": ""
+   }
+  },
+  {
+   "name": "값목록 n번째",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "세부품명"
+      },
+      {
+       "op": "nth",
+       "n": 3
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "의자",
+    "N2": ""
+   }
+  },
+  {
+   "name": "서식 — 번호가 빈 품목은 의자()",
+   "entity": "request",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "{세부품명}({세부품명번호})"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "final": {
+    "R1": "의자()"
+   }
+  },
+  {
+   "name": "고유 값목록 다음 글 정렬",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "세부품명"
+      },
+      {
+       "op": "distinct"
+      },
+      {
+       "op": "sort"
+      },
+      {
+       "op": "join",
+       "text": ","
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "의자,책상"
+   }
+  },
+  {
+   "name": "이 행의 열 — 뒷부분·앞부분·앞채우기",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "after",
+       "text": " "
+      },
+      {
+       "op": "before",
+       "text": " "
+      },
+      {
+       "op": "padStart",
+       "length": 6,
+       "text": "*"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "**사무가구",
+    "K2": "****의자"
+   }
+  },
+  {
+   "name": "다듬기·자르기·대응",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "  가나다라  "
+     },
+     "steps": [
+      {
+       "op": "trim"
+      },
+      {
+       "op": "substr",
+       "n": 2,
+       "length": 2
+      },
+      {
+       "op": "map",
+       "pairs": [
+        [
+         "나다",
+         "ND"
+        ]
+       ],
+       "otherwise": "?"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "ND"
+   }
+  },
+  {
+   "name": "대응 — 그외가 없으면 그대로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "map",
+       "pairs": [
+        [
+         "없는 값",
+         "x"
+        ]
+       ]
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "시험 사무가구 계약"
+   }
+  },
+  {
+   "name": "바꾸기",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "replace",
+       "text": "계약",
+       "to": "건"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "시험 사무가구 건"
+   }
+  },
+  {
+   "name": "비면 이 행의 열로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "ifEmpty",
+       "field": "계약건명"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1,500,000",
+    "K3": "시험 단독 계약"
+   }
+  },
+  {
+   "name": "만약 — 값을 수로 견준다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "if",
+       "cond": [
+        {
+         "field": "",
+         "cmp": ">",
+         "value": 1000000
+        }
+       ],
+       "then": "큰 계약",
+       "else": "작은 계약"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "큰 계약",
+    "K2": "작은 계약",
+    "K3": "작은 계약"
+   }
+  },
+  {
+   "name": "만약 — 값 조건이 이 행의 다른 열을 견준다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "if",
+       "cond": [
+        {
+         "field": "계약금액",
+         "cmp": ">",
+         "value": 1000000
+        }
+       ],
+       "then": "큰 계약",
+       "else": "작은 계약"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "value"
+   ],
+   "final": {
+    "K1": "큰 계약",
+    "K2": "작은 계약",
+    "K3": "작은 계약"
+   }
+  },
+  {
+   "name": "만약 — 지금 값과 바깥 열을 한 조건에",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "납품기한"
+     },
+     "steps": [
+      {
+       "op": "if",
+       "cond": [
+        {
+         "field": "",
+         "cmp": "비어있음"
+        },
+        {
+         "join": "and",
+         "field": "계약금액",
+         "cmp": "안비어있음"
+        }
+       ],
+       "then": "기한 없음",
+       "else": ""
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "",
+    "K2": "기한 없음",
+    "K3": ""
+   }
+  },
+  {
+   "name": "경우 — 지금 값과 바깥 열을 차례로 견주고 맞는 것이 없으면 그외",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "납품기한"
+     },
+     "steps": [
+      {
+       "op": "cases",
+       "branches": [
+        {
+         "cond": [
+          {
+           "field": "",
+           "cmp": "안비어있음"
+          }
+         ],
+         "then": "기한 있음"
+        },
+        {
+         "cond": [
+          {
+           "field": "계약금액",
+           "cmp": "안비어있음"
+          }
+         ],
+         "then": "금액만"
+        }
+       ],
+       "otherwise": "없음"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "value"
+   ],
+   "final": {
+    "K1": "기한 있음",
+    "K2": "금액만",
+    "K3": "없음"
+   }
+  },
+  {
+   "name": "경우 — 처음 맞는 것이 이기고 그외가 없으면 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "cases",
+       "branches": [
+        {
+         "cond": [
+          {
+           "field": "",
+           "cmp": ">",
+           "value": 1000000
+          }
+         ],
+         "then": "큰 계약"
+        },
+        {
+         "cond": [
+          {
+           "field": "",
+           "cmp": "안비어있음"
+          },
+          {
+           "join": "or",
+           "field": "계약건명",
+           "cmp": "포함",
+           "value": "단독"
+          }
+         ],
+         "then": "계약"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "큰 계약",
+    "K2": "계약",
+    "K3": "계약"
+   }
+  },
+  {
+   "name": "경우 — 맞는 것이 없고 그외가 없으면 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "cases",
+       "branches": [
+        {
+         "cond": [
+          {
+           "field": "",
+           "cmp": "비어있음"
+          }
+         ],
+         "then": "금액 없음"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "",
+    "K3": "금액 없음"
+   }
+  },
+  {
+   "name": "꼴 오류 — 경우가 비었다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "cases",
+       "branches": [],
+       "otherwise": "x"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 경우의 바깥 열이 이 행에 없다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "cases",
+       "branches": [
+        {
+         "cond": [
+          {
+           "field": "",
+           "cmp": "안비어있음"
+          }
+         ],
+         "then": "a"
+        },
+        {
+         "cond": [
+          {
+           "field": "없는열",
+           "cmp": "안비어있음"
+          }
+         ],
+         "then": "b"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "숫자로 실패는 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "계약 후 60일"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "add",
+       "value": 1
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": ""
+   }
+  },
+  {
+   "name": "나누기 다음 반올림 — 소수는 그대로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "div",
+       "value": 3
+      },
+      {
+       "op": "round",
+       "n": 2
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "500,000",
+    "K2": "106666.67",
+    "K3": ""
+   }
+  },
+  {
+   "name": "버림",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1,234,567.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "floor"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1,234,567"
+   }
+  },
+  {
+   "name": "반올림 — 0 에서 멀어지게",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "-2.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "round"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "-3"
+   }
+  },
+  {
+   "name": "곱하기 다음 그대로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "mul",
+       "value": 2
+      },
+      {
+       "op": "plain"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "3000000",
+    "K3": ""
+   }
+  },
+  {
+   "name": "빼기 — 이 행의 열",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 2000000
+     },
+     "steps": [
+      {
+       "op": "sub",
+       "field": "계약금액"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "500,000",
+    "K3": ""
+   }
+  },
+  {
+   "name": "날짜차이 — 이 행의 날짜 열",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "납품기한"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateDiff",
+       "field": "계약일자"
+      },
+      {
+       "op": "plain"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "date",
+    "number",
+    "value"
+   ],
+   "final": {
+    "K1": "50",
+    "K2": ""
+   }
+  },
+  {
+   "name": "날짜더하기 — 월 넘침은 다음 달로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/01/31"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateAdd",
+       "n": 1,
+       "unit": "month"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026/03/03"
+   }
+  },
+  {
+   "name": "없는 날은 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/02/30"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": ""
+   }
+  },
+  {
+   "name": "날짜서식",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약일자"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateFormat",
+       "text": "YYYY년 M월 D일"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026년 8월 1일",
+    "K2": "2026년 8월 5일"
+   }
+  },
+  {
+   "name": "분기",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약일자"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "quarter"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "3",
+    "K3": "4"
+   }
+  },
+  {
+   "name": "연결공고 필드 — 연결이 없으면 빈 값",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "notice",
+      "field": "기초금액"
+     },
+     "steps": []
+    }
+   },
+   "shapes": [
+    "value"
+   ],
+   "final": {
+    "K1": "12,345,000",
+    "K3": ""
+   }
+  },
+  {
+   "name": "연결공고 행 서식",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "notice"
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "{공고명}({입찰공고번호})"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "row",
+    "value"
+   ],
+   "final": {
+    "K1": "시험 책상 구매(TESTN0001-000)",
+    "K3": ""
+   }
+  },
+  {
+   "name": "연결공고 품목",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "notice",
+      "items": true
+     },
+     "steps": [
+      {
+       "op": "distinct",
+       "fields": [
+        "세부품명"
+       ]
+      },
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2",
+    "K3": "0"
+   }
+  },
+  {
+   "name": "연결공고 날짜와 이 행 날짜",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "notice",
+      "field": "게시일시"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateDiff",
+       "field": "계약일자"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "-31",
+    "K3": ""
+   }
+  },
+  {
+   "name": "연결접수 품목",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "request",
+      "items": true
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "세부품명"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "의자",
+    "N2": ""
+   }
+  },
+  {
+   "name": "접수의 연결공고 품목",
+   "entity": "request",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "notice",
+      "items": true
+     },
+     "steps": [
+      {
+       "op": "sum",
+       "field": "수량"
+      }
+     ]
+    }
+   },
+   "final": {
+    "R1": "10"
+   }
+  },
+  {
+   "name": "연결계약은 여러 건 — 처음 꺼내기",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract"
+     },
+     "steps": [
+      {
+       "op": "first"
+      },
+      {
+       "op": "get",
+       "field": "계약금액"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "row",
+    "value"
+   ],
+   "final": {
+    "N1": "1,500,000",
+    "N2": ""
+   }
+  },
+  {
+   "name": "연결계약 합계",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract"
+     },
+     "steps": [
+      {
+       "op": "sum",
+       "field": "계약금액"
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "1,820,000",
+    "N2": ""
+   }
+  },
+  {
+   "name": "접수의 연결계약 개수",
+   "entity": "request",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract"
+     },
+     "steps": [
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "final": {
+    "R1": "2"
+   }
+  },
+  {
+   "name": "꼴 오류 — 수에 잇기",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "count"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "number",
+    null
+   ],
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "꼴 오류 — 없는 필드",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "get",
+       "field": "품번"
+      },
+      {
+       "op": "join",
+       "text": ","
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    null,
+    null
+   ],
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 끝이 목록",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "distinct"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "rows"
+   ],
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 자기 종류의 연결",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract",
+      "field": "계약번호"
+     },
+     "steps": []
+    }
+   },
+   "shapes": [
+    null
+   ],
+   "error": {
+    "index": 0
+   }
+  },
+  {
+   "name": "꼴 오류 — 여러 건 연결의 필드 줄임",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract",
+      "field": "계약금액"
+     },
+     "steps": []
+    }
+   },
+   "error": {
+    "index": 0
+   }
+  },
+  {
+   "name": "꼴 오류 — 여러 건 연결의 품목",
+   "entity": "request",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "linked",
+      "link": "contract",
+      "items": true
+     },
+     "steps": [
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 0
+   }
+  },
+  {
+   "name": "꼴 오류 — 서식의 짝",
+   "entity": "notice",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "{세부품명"
+      },
+      {
+       "op": "join",
+       "text": ","
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 값 조건의 바깥 열이 이 행에 없다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약건명"
+     },
+     "steps": [
+      {
+       "op": "if",
+       "cond": [
+        {
+         "field": "없는열",
+         "cmp": "비어있음"
+        }
+       ],
+       "then": "a",
+       "else": "b"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 이 행에 없는 열",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "공고명"
+     },
+     "steps": []
+    }
+   },
+   "error": {
+    "index": 0
+   }
+  },
+  {
+   "name": "v1 — pick 은 고유의 기준으로 흡수된다",
+   "entity": "notice",
+   "formula": {
+    "version": 1,
+    "id": "v1a",
+    "steps": [
+     {
+      "op": "pick",
+      "fields": [
+       "세부품명",
+       "세부품명번호"
+      ],
+      "text": null,
+      "index": null
+     },
+     {
+      "op": "distinct",
+      "fields": null,
+      "text": null,
+      "index": null
+     },
+     {
+      "op": "format",
+      "fields": null,
+      "text": "{세부품명}({세부품명번호})",
+      "index": null
+     },
+     {
+      "op": "join",
+      "fields": null,
+      "text": ", ",
+      "index": null
+     }
+    ]
+   },
+   "migrated": {
+    "version": 2,
+    "id": "v1a",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "distinct",
+       "fields": [
+        "세부품명",
+        "세부품명번호"
+       ]
+      },
+      {
+       "op": "format",
+       "text": "{세부품명}({세부품명번호})"
+      },
+      {
+       "op": "join",
+       "text": ", "
+      }
+     ]
+    }
+   },
+   "final": {
+    "N1": "책상(001), 의자(002)",
+    "N2": ""
+   }
+  },
+  {
+   "name": "v1 — at+get 은 n번째+꺼내기",
+   "entity": "contract",
+   "formula": {
+    "version": 1,
+    "id": "v1b",
+    "steps": [
+     {
+      "op": "pick",
+      "fields": [
+       "품명",
+       "물품식별번호"
+      ]
+     },
+     {
+      "op": "at",
+      "index": 2
+     },
+     {
+      "op": "get",
+      "text": "물품식별번호"
+     }
+    ]
+   },
+   "migrated": {
+    "version": 2,
+    "id": "v1b",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "nth",
+       "n": 2
+      },
+      {
+       "op": "get",
+       "field": "물품식별번호"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1000000004",
+    "K2": "",
+    "K3": ""
+   }
+  },
+  {
+   "name": "v1 — 고유 다음 개수",
+   "entity": "contract",
+   "formula": {
+    "version": 1,
+    "id": "v1c",
+    "steps": [
+     {
+      "op": "pick",
+      "fields": [
+       "품명"
+      ]
+     },
+     {
+      "op": "distinct"
+     },
+     {
+      "op": "count"
+     }
+    ]
+   },
+   "migrated": {
+    "version": 2,
+    "id": "v1c",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "distinct",
+       "fields": [
+        "품명"
+       ]
+      },
+      {
+       "op": "count"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "4",
+    "K3": "0"
+   }
+  },
+  {
+   "name": "정렬 후 꺼내기와 마지막 — 내림의 끝도 순서를 보존한다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "items"
+     },
+     "steps": [
+      {
+       "op": "sort",
+       "field": "수량",
+       "dir": "desc"
+      },
+      {
+       "op": "get",
+       "field": "품명"
+      },
+      {
+       "op": "last"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "rows",
+    "rows",
+    "values",
+    "value"
+   ],
+   "final": {
+    "K1": "책상",
+    "K2": "의자",
+    "K3": ""
+   }
+  },
+  {
+   "name": "음수 날짜더하기 — 월 경계를 거슬러 간다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/03/01"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateAdd",
+       "n": -3,
+       "unit": "day"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "date",
+    "date"
+   ],
+   "final": {
+    "K1": "2026/02/26"
+   }
+  },
+  {
+   "name": "SQL 들여쓰기 — 글 안의 줄바꿈은 그대로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "첫줄\n둘째 '문구'"
+     },
+     "steps": [
+      {
+       "op": "trim"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "value"
+   ],
+   "final": {
+    "K1": "첫줄\n둘째 '문구'"
+   }
+  }
+ ]
+}
