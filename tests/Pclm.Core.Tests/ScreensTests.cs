@@ -91,14 +91,14 @@ public sealed class ScreensTests : IDisposable
     private static string Reason(Action act) => Assert.Throws<InvalidOperationException>(act).Message;
 
     [Fact]
-    public void 허용_목록은_기본_매핑에서_화면을_단_다섯_프로필이고_화면마다_프로필_하나다()
+    public void 허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화면마다_프로필_하나다()
     {
         var defaults = Mapping.Defaults();
-        Assert.Equal(new[] { ("01117", "g2b-request-v1"), ("01179", "g2b-notice-a-v1"), ("01196", "g2b-notice-b-v1"), ("01579", "g2b-contract-v1"), ("01608", "g2b-contract-change-v1") },
+        Assert.Equal(new[] { ("01112", "g2b-request-b-v1"), ("01117", "g2b-request-v1"), ("01179", "g2b-notice-a-v1"), ("01181", "g2b-notice-a-service-v1"), ("01196", "g2b-notice-b-v1"), ("01579", "g2b-contract-v1"), ("01608", "g2b-contract-change-v1") },
             Screens.Supported(defaults).Select(p => (p.Screen!.Code, p.Id)).OrderBy(p => p.Code));
         // 번호는 숫자 다섯이고 겹치지 않으며, 이름이 있다.
         Assert.All(Screens.Supported(defaults), p => Assert.True(Screens.IsCode(p.Screen!.Code) && p.Screen.Name.Length > 0, p.Id));
-        Assert.Equal(5, Screens.Supported(defaults).Select(p => p.Screen!.Code).Distinct().Count());
+        Assert.Equal(7, Screens.Supported(defaults).Select(p => p.Screen!.Code).Distinct().Count());
         Assert.Equal("g2b-contract-v1", Screens.ProfileFor(defaults, "01579")?.Id);
         Assert.Null(Screens.ProfileFor(defaults, "01175"));
         Assert.Null(Screens.ProfileFor(defaults, null));
@@ -118,7 +118,7 @@ public sealed class ScreensTests : IDisposable
         Assert.Equal(frozen, Reason(() => Mapping.Validate(Edit(p => p with { IdentitySource = "mf_wfm_container_gridView" }))));
         // 받지 않는 프로필에 화면을 다는 것도 목록을 넓히는 일이라 편집본으로는 하지 않는다.
         Assert.Equal(frozen, Reason(() => Mapping.Validate(defaults with { Profiles = defaults.Profiles
-            .Select(p => p.Id == "g2b-request-b-v1" ? p with { Screen = new("01188", "접수") } : p).ToArray() })));
+            .Select(p => p.Id == "g2b-public-notice-header-v1" ? p with { Screen = new("01188", "공고") } : p).ToArray() })));
         Mapping.Validate(Edit(p => p with { Heading = "다른 제목" }));
     }
 
@@ -263,6 +263,104 @@ public sealed class ScreensTests : IDisposable
     }
 
     [Fact]
+    public void 일반용역_접수_상세는_접수_B_로_읽고_다른_프로필로_열면_맞는_프로필을_알려_준다()
+    {
+        // 메뉴 01112 — 번호·차수가 머리에 있고 품목은 gvDmndItem 에 온다. 그 화면이 오기 전에는 접수 B 가 받는 화면이 없었다.
+        CaptureInput File(string profile) => new(profile, Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new
+            {
+                depth1 = "01001", depth2 = "01112", ctrtDmndRcptNo = "RC012", ctrtDmndRcptOrd = "000",
+                ctrtDmndBizNm = "시험 용역", wrtYmd = "20261001", scsbdMthdCd = "낙030005",
+            },
+            tables = new Dictionary<string, object> { ["mf_wfm_container_gvDmndItem"] = new[] {
+                new { ctrtDmndRcptNo = "RC012", ctrtDmndRcptOrd = "000", ctrtDmndRcptItemSqno = 1, dtlsPrnm = "시험 용역", ctrtDmndQty = 1, ctrtDmndUprc = 1000, devyCndtCd = "인010045" },
+            } },
+        }));
+        var preview = _host.Inspect(File("g2b-request-b-v1"));
+        Assert.Equal("RC012-000", preview.Entity);
+        Assert.Equal(1, preview.ItemCount);
+        Assert.Equal("협상에의한계약", preview.Document.Rows[0].Values["award_method"]);
+        Assert.Equal("기타사항참조", Assert.Single(preview.Document.Rows, r => r.Table == "request_item").Values["delivery_terms"]);
+        Assert.Equal("접수 화면(메뉴 01112)의 JSON 입니다. 접수 프로필(g2b-request-b-v1)로 여세요.", Reason(() => _host.Inspect(File("g2b-request-v1"))));
+    }
+
+    [Fact]
+    public void 일반용역_공고_상세는_공고_A_의_칸으로_읽고_미리보기가_한_벌_더_실은_첨부는_하나로_본다()
+    {
+        // 메뉴 01181 — 물품 공고 상세(01179)와 같은 칸이다. 「미리보기」 창이 같은 첨부 표를 한 벌 더 싣고 빈 첨부 표가 하나 더 온다.
+        var files = new[] { new { atchFileSqno = 1, atchFileDscr = "공고서", orgnlAtchFileNm = "시험 공고서.hwp" } };
+        CaptureInput File(string profile) => new(profile, Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new
+            {
+                depth1 = "01170", depth2 = "01181", bidPbancNo = "R26BK00000011", bidPbancOrd = "001", bidPbancNm = "시험 용역 공고",
+                pbancKndCd = "공440002", pbancSttsCd = "공400002", scsbdMthdCd = "낙030005", dmstcOvrsSeCd = "국010001", pnprDcsnMthoCd = "예050001",
+                slprRcptBgngDay = "20261001", slprRcptBgngTime = "1000", onbsPrnmntDay = "20261008", onbsPrnmntTime = "1100",
+            },
+            tables = new Dictionary<string, object>
+            {
+                ["mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List"] = new[] {
+                    new { bidClsfNo = "0", bidPbancItemSqno = "1", dtlsPrnmNm = "시험 용역", devyCndtCd = "인010040" } },
+                ["mf_wfm_container_tabEmpty_grdFile"] = Array.Empty<object>(),
+                ["mf_wfm_container_grdFile"] = files,
+                ["mf_wfm_container_preview_grdFile"] = files,
+            },
+        }));
+        var preview = _host.Inspect(File("g2b-notice-a-service-v1"));
+        Assert.Equal("R26BK00000011-001", preview.Entity);
+        Assert.Equal(1, preview.ItemCount);
+        var rows = preview.Document.Rows;
+        var head = rows[0].Values;
+        // 공고 A 의 후처리 — 공고종류에 상태를 붙이고 일정 행을 세운다.
+        Assert.Equal("실공고(변경공고)", head["notice_kind"]);
+        Assert.Equal(new[] { "입찰서제출", "개찰" }, rows.Where(r => r.Table == "notice_schedule").Select(r => r.Values["name"]));
+        Assert.Equal(("협상에의한계약", "국내입찰", "비예가"), (head["award_method"], head["international_kind"], head["price_estimation_method"]));
+        Assert.Equal("과업내역에 따름", Assert.Single(rows, r => r.Table == "notice_item").Values["delivery_terms"]);
+        Assert.Single(rows, r => r.Table == "erp_notice_attachment");
+        Assert.Equal("공고 화면(메뉴 01181)의 JSON 입니다. 공고 프로필(g2b-notice-a-service-v1)로 여세요.", Reason(() => _host.Inspect(File("g2b-notice-a-v1"))));
+    }
+
+    [Theory]
+    [InlineData("g2b-contract-v1")]
+    [InlineData("g2b-contract-change-v1")]
+    public void 계약특성과_계약보증서_제출방법은_사람이_화면에서_확인한_명칭으로_담는다(string profile)
+    {
+        // 원문에 명칭 칸이 없어 「명칭 미확정」 으로 담기던 코드 — 명칭은 사람이 계약 상세 화면에서 읽어 준 그대로다(2026-10-15).
+        var map = Mapping.Defaults().Profiles.Single(p => p.Id == profile).Fields.ToDictionary(f => f.Source);
+        Assert.Equal("[국가계약법]용역(물품과 용역을 일괄입찰한 소프트웨어 사업제외)(0.125)", Mapping.ConvertValue("0013", map["ctrtChrsSeCd"]));
+        Assert.Equal("지급각서대체", Mapping.ConvertValue("계260001", map["ctwtSbmsnMthdCd"]));
+        Assert.Equal("전자접수 및 직접수납", Mapping.ConvertValue("계260002", map["ctwtSbmsnMthdCd"]));
+        Assert.Equal("[국가계약법]물품의 제조 · 구매(0.075)", Mapping.ConvertValue("0009", map["ctrtChrsSeCd"]));
+        // 사람이 건넨 목록에 없는 번호는 짐작하지 않는다.
+        Assert.Equal("0005 (명칭 미확정)", Mapping.ConvertValue("0005", map["ctrtChrsSeCd"]));
+    }
+
+    [Fact]
+    public void 계약특성_코드_사전은_계약_프로필_모두가_같은_것을_쓴다()
+    {
+        var dictionaries = Mapping.Defaults().Profiles.SelectMany(p => p.Fields).Where(f => f.Source == "ctrtChrsSeCd")
+            .Select(f => JsonSerializer.Serialize(f.Codes!.OrderBy(c => c.Key))).ToArray();
+        Assert.Equal(2, dictionaries.Length);
+        Assert.Single(dictionaries.Distinct());
+    }
+
+    [Fact]
+    public void 일반용역_화면이_오기_전에_저장한_매핑은_새_공고_프로필과_접수_B_의_화면을_기본에서_얻는다()
+    {
+        const string added = "g2b-notice-a-service-v1";
+        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Mapping.Defaults(), Mapping.Json))!;
+        var profiles = node["profiles"]!.AsArray();
+        profiles.Remove(profiles.Single(p => (string)p!["id"]! == added));
+        profiles.Single(p => (string)p!["id"]! == "g2b-request-b-v1")!.AsObject().Remove("screen");
+        var parsed = Mapping.Parse(node.ToJsonString());
+        Assert.Equal(Mapping.Hash(Mapping.Defaults().Profiles.Single(p => p.Id == added)), Mapping.Hash(parsed.Profiles.Single(p => p.Id == added)));
+        Assert.Equal(added, Screens.ProfileFor(parsed, "01181")?.Id);
+        Assert.Equal("g2b-request-b-v1", Screens.ProfileFor(parsed, "01112")?.Id);
+        Assert.Equal(Mapping.Hash(Mapping.Defaults()), Mapping.Hash(parsed));
+    }
+
+    [Fact]
     public void 확장은_인사의_매핑에서_목록을_받고_스냅샷의_화면_번호는_모르는_칸이_아니다()
     {
         JsonElement Call(string method, object? args = null) =>
@@ -272,7 +370,7 @@ public sealed class ScreensTests : IDisposable
         // 목록을 따로 싣지 않는다 — 매핑의 프로필이 단 화면이 그것이다.
         var hello = Call("hello").GetProperty("result");
         Assert.False(hello.TryGetProperty("screens", out _));
-        Assert.Equal(new[] { ("01117", "g2b-request-v1"), ("01179", "g2b-notice-a-v1"), ("01196", "g2b-notice-b-v1"), ("01579", "g2b-contract-v1"), ("01608", "g2b-contract-change-v1") },
+        Assert.Equal(new[] { ("01112", "g2b-request-b-v1"), ("01117", "g2b-request-v1"), ("01179", "g2b-notice-a-v1"), ("01181", "g2b-notice-a-service-v1"), ("01196", "g2b-notice-b-v1"), ("01579", "g2b-contract-v1"), ("01608", "g2b-contract-change-v1") },
             hello.GetProperty("mapping").GetProperty("profiles").EnumerateArray()
                 .Where(p => p.TryGetProperty("screen", out var s) && s.ValueKind == JsonValueKind.Object)
                 .Select(p => (p.GetProperty("screen").GetProperty("code").GetString()!, p.GetProperty("id").GetString()!)).OrderBy(p => p.Item1));

@@ -61,7 +61,8 @@
           "transform": "code",
           "codes": {
             "낙030001": "적격심사제",
-            "낙030002": "규격가격동시입찰"
+            "낙030002": "규격가격동시입찰",
+            "낙030005": "협상에의한계약"
           }
         },
         {
@@ -223,7 +224,9 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {
@@ -281,6 +284,10 @@
     {
       "id": "g2b-request-b-v1",
       "entityType": "request",
+      "screen": {
+        "code": "01112",
+        "name": "조달요구 접수 상세(일반용역)"
+      },
       "identitySource": "pointInfo",
       "baseField": "ctrtDmndRcptNo",
       "seqField": "ctrtDmndRcptOrd",
@@ -334,7 +341,8 @@
           "transform": "code",
           "codes": {
             "낙030001": "적격심사제",
-            "낙030002": "규격가격동시입찰"
+            "낙030002": "규격가격동시입찰",
+            "낙030005": "협상에의한계약"
           }
         },
         {
@@ -496,7 +504,9 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {
@@ -586,7 +596,8 @@
           "transform": "code",
           "codes": {
             "낙030001": "적격심사제",
-            "낙030002": "규격가격동시입찰"
+            "낙030002": "규격가격동시입찰",
+            "낙030005": "협상에의한계약"
           }
         },
         {
@@ -616,7 +627,10 @@
         {
           "source": "dmstcOvrsSeCd",
           "target": "international_kind",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "국010001": "국내입찰"
+          }
         },
         {
           "source": "fncrNm",
@@ -641,7 +655,10 @@
         {
           "source": "pnprDcsnMthoCd",
           "target": "price_estimation_method",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "예050001": "비예가"
+          }
         },
         {
           "source": "bizAmt",
@@ -832,7 +849,390 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
+              }
+            },
+            {
+              "source": "ctrtDmndRcptNo",
+              "target": "ref_request_base",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtDmndRcptOrd",
+              "target": "ref_request_seq",
+              "transform": "text"
+            },
+            {
+              "source": "ctrtDmndRcptItemSqno",
+              "target": "ref_request_item",
+              "transform": "text"
+            },
+            {
+              "source": "bidClsfNo",
+              "target": "source_class",
+              "transform": "text"
+            },
+            {
+              "source": "bidPbancItemSqno",
+              "target": "source_item",
+              "transform": "text"
+            }
+          ],
+          "required": true
+        },
+        {
+          "source": "mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List",
+          "target": "notice_officer_contact",
+          "keys": [
+            "dmstUntyGrpNo",
+            "dmstPicId"
+          ],
+          "fields": [
+            {
+              "source": "dmstUntyGrpNm",
+              "target": "demand_agency",
+              "transform": "text"
+            },
+            {
+              "source": "deptNm",
+              "target": "department",
+              "transform": "text"
+            },
+            {
+              "source": "picNm",
+              "target": "officer",
+              "transform": "text"
+            },
+            {
+              "source": "faxNo",
+              "target": "fax",
+              "transform": "text"
+            },
+            {
+              "source": "tlphNo",
+              "target": "phone",
+              "transform": "text"
+            }
+          ],
+          "required": false
+        },
+        {
+          "source": "*_grdFile",
+          "target": "erp_notice_attachment",
+          "keys": [
+            "atchFileSqno"
+          ],
+          "fields": [
+            {
+              "source": "atchFileDscr",
+              "target": "document_type",
+              "transform": "text"
+            },
+            {
+              "source": "orgnlAtchFileNm",
+              "target": "file_name",
+              "transform": "text"
+            }
+          ],
+          "required": false
+        }
+      ],
+      "heading": null,
+      "selectors": {}
+    },
+    {
+      "id": "g2b-notice-a-service-v1",
+      "entityType": "notice",
+      "screen": {
+        "code": "01181",
+        "name": "입찰공고 상세(일반용역)"
+      },
+      "identitySource": "pointInfo",
+      "baseField": "bidPbancNo",
+      "seqField": "bidPbancOrd",
+      "fields": [
+        {
+          "source": "bidPbancNm",
+          "target": "title",
+          "transform": "text"
+        },
+        {
+          "source": "pbancKndCd",
+          "target": "notice_kind",
+          "transform": "code",
+          "codes": {
+            "공440002": "실공고"
+          }
+        },
+        {
+          "source": "pbancPstgDt",
+          "target": "posted_at",
+          "transform": "datetime"
+        },
+        {
+          "source": "scsbdMthdCd",
+          "target": "award_method",
+          "transform": "code",
+          "codes": {
+            "낙030001": "적격심사제",
+            "낙030002": "규격가격동시입찰",
+            "낙030005": "협상에의한계약"
+          }
+        },
+        {
+          "source": "scsbdLwlmRat",
+          "target": "lowest_bid_ratio",
+          "transform": "decimal"
+        },
+        {
+          "source": "stdCtrtMthdCd",
+          "target": "contract_method",
+          "transform": "code",
+          "codes": {
+            "계030001": "일반경쟁",
+            "계030003": "제한경쟁",
+            "계030004": "수의계약"
+          }
+        },
+        {
+          "source": "ctrtTyCd",
+          "target": "contract_kind",
+          "transform": "code",
+          "codes": {
+            "계120001": "총액계약",
+            "계120002": "일반단가계약"
+          }
+        },
+        {
+          "source": "dmstcOvrsSeCd",
+          "target": "international_kind",
+          "transform": "code",
+          "codes": {
+            "국010001": "국내입찰"
+          }
+        },
+        {
+          "source": "fncrNm",
+          "target": "creditor",
+          "transform": "text"
+        },
+        {
+          "source": "rbidPrmsYn",
+          "target": "rebid_allowed",
+          "transform": "boolean"
+        },
+        {
+          "source": "prttnDlvgdsPsbltyYn",
+          "target": "partial_delivery_allowed",
+          "transform": "boolean"
+        },
+        {
+          "source": "fctrRspbMhct",
+          "target": "warranty_month_part",
+          "transform": "integer"
+        },
+        {
+          "source": "pnprDcsnMthoCd",
+          "target": "price_estimation_method",
+          "transform": "code",
+          "codes": {
+            "예050001": "비예가"
+          }
+        },
+        {
+          "source": "bizAmt",
+          "target": "project_amount",
+          "transform": "decimal"
+        },
+        {
+          "source": "alotBgtAmt",
+          "target": "allocated_budget",
+          "transform": "decimal"
+        },
+        {
+          "source": "prspPrce",
+          "target": "estimated_price",
+          "transform": "decimal"
+        },
+        {
+          "source": "vatAmt",
+          "target": "vat",
+          "transform": "decimal"
+        },
+        {
+          "source": "pbancInstUntyGrpNm",
+          "target": "notice_agency",
+          "transform": "text"
+        },
+        {
+          "source": "pbancPicNm",
+          "target": "notice_officer",
+          "transform": "text"
+        },
+        {
+          "source": "bidBlffNm",
+          "target": "executive_officer",
+          "transform": "text"
+        },
+        {
+          "source": "bfSpecRegNo",
+          "target": "prior_spec_number",
+          "transform": "text"
+        },
+        {
+          "source": "rgnLmtYn",
+          "target": "region_restriction",
+          "transform": "text"
+        },
+        {
+          "source": "prfmncLmtYn",
+          "target": "performance_restricted",
+          "transform": "boolean"
+        },
+        {
+          "source": "mnftrItemLmtYn",
+          "target": "manufacturing_kind",
+          "transform": "text"
+        },
+        {
+          "source": "fprdYn",
+          "target": "foreign_allowed",
+          "transform": "boolean"
+        },
+        {
+          "source": "rschDvlpItemYn",
+          "target": "research_item",
+          "transform": "boolean"
+        },
+        {
+          "source": "pbancSttsCd",
+          "target": "source_status",
+          "transform": "code",
+          "codes": {
+            "공400001": "일반공고",
+            "공400002": "변경공고",
+            "공400003": "취소공고",
+            "공400004": "재공고"
+          }
+        },
+        {
+          "source": "dlvgdsTermCn",
+          "target": "delivery_term_text",
+          "transform": "text"
+        },
+        {
+          "source": "fctrRspbNbyr",
+          "target": "warranty_years",
+          "transform": "integer"
+        },
+        {
+          "source": "slprRcptBgngDay",
+          "secondarySource": "slprRcptBgngTime",
+          "target": "bid_opens_at",
+          "transform": "datetime"
+        },
+        {
+          "source": "slprRcptDdlnDay",
+          "secondarySource": "slprRcptDdlnTime",
+          "target": "bid_closes_at",
+          "transform": "datetime"
+        },
+        {
+          "source": "onbsPrnmntDay",
+          "secondarySource": "onbsPrnmntTime",
+          "target": "opening_at",
+          "transform": "datetime"
+        },
+        {
+          "source": "bidQlfcRegDay",
+          "secondarySource": "bidQlfcRegTime",
+          "target": "registration_closes_at",
+          "transform": "datetime"
+        },
+        {
+          "source": "pbancChgRsn",
+          "target": "change_reason",
+          "transform": "text"
+        }
+      ],
+      "tables": [
+        {
+          "source": "mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List",
+          "target": "notice_item",
+          "keys": [
+            "bidClsfNo",
+            "bidPbancItemSqno"
+          ],
+          "fields": [
+            {
+              "source": "dmstUntyGrpNm",
+              "target": "demand_agency",
+              "transform": "text"
+            },
+            {
+              "source": "dtlsPrnmNm",
+              "target": "item_name",
+              "transform": "text"
+            },
+            {
+              "source": "dtlsPrnmNo",
+              "target": "detail_item_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemIdnfNo",
+              "target": "item_id_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemDtlSpecCn",
+              "target": "specification",
+              "transform": "text"
+            },
+            {
+              "source": "prchsDtlItemQty",
+              "target": "quantity",
+              "transform": "integer"
+            },
+            {
+              "source": "prchsDtlItemUntVal",
+              "target": "unit",
+              "transform": "text"
+            },
+            {
+              "source": "prchsDtlItemUprc",
+              "target": "unit_price",
+              "transform": "decimal"
+            },
+            {
+              "source": "dlvgdsTermNody",
+              "target": "delivery_days",
+              "transform": "integer"
+            },
+            {
+              "source": "dlvgdsTermDt",
+              "target": "delivery_due",
+              "transform": "date"
+            },
+            {
+              "source": "dlvgdsPlacNm",
+              "target": "delivery_place",
+              "transform": "text"
+            },
+            {
+              "source": "devyCndtCd",
+              "target": "delivery_terms",
+              "transform": "code",
+              "codes": {
+                "인010001": "납품장소도",
+                "인010002": "납품장소 상차도",
+                "인010003": "납품장소 하차도",
+                "인010004": "납품장소 입고도",
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {
@@ -1138,7 +1538,9 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {
@@ -1316,7 +1718,24 @@
         {
           "source": "ctrtChrsSeCd",
           "target": "contract_character",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "0001": "[국가계약법]물품의 제조 · 구매(0.15)",
+            "0002": "[국가계약법]설계(승인필요)와 제조가 일괄된 물품의 제조 · 구매(0.1)",
+            "0003": "[국가계약법]물품의 수리 · 가공 · 대여(0.25)",
+            "0004": "[국가계약법]물품과 용역을 일괄입찰한 소프트웨어사업(0.15)",
+            "0006": "[국가계약법]군용 음 · 식료품 제조 · 구매(0.3)",
+            "0007": "[국가계약법]운송 · 보관 및 양곡가공(0.5)",
+            "0008": "[국가계약법]기타 · 그밖의 계약(0.25)",
+            "0009": "[국가계약법]물품의 제조 · 구매(0.075)",
+            "0010": "[국가계약법]설계(승인필요)와 제조가 일괄된 물품의 제조 · 구매(0.050)",
+            "0011": "[국가계약법]물품의 수리 · 가공 · 대여(0.125)",
+            "0012": "[국가계약법]물품과 용역을 일괄입찰한 소프트웨어사업(0.075)",
+            "0013": "[국가계약법]용역(물품과 용역을 일괄입찰한 소프트웨어 사업제외)(0.125)",
+            "0014": "[국가계약법]군용 음 · 식료품 제조 · 구매(0.15)",
+            "0015": "[국가계약법]운송 · 보관 및 양곡가공(0.25)",
+            "0016": "[국가계약법]기타 · 그밖의 계약(0.125)"
+          }
         },
         {
           "source": "ctrtFee",
@@ -1370,7 +1789,11 @@
         {
           "source": "ctwtSbmsnMthdCd",
           "target": "guarantee_method",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "계260001": "지급각서대체",
+            "계260002": "전자접수 및 직접수납"
+          }
         },
         {
           "source": "cgntTxam",
@@ -1477,7 +1900,9 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {
@@ -1645,7 +2070,24 @@
         {
           "source": "ctrtChrsSeCd",
           "target": "contract_character",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "0001": "[국가계약법]물품의 제조 · 구매(0.15)",
+            "0002": "[국가계약법]설계(승인필요)와 제조가 일괄된 물품의 제조 · 구매(0.1)",
+            "0003": "[국가계약법]물품의 수리 · 가공 · 대여(0.25)",
+            "0004": "[국가계약법]물품과 용역을 일괄입찰한 소프트웨어사업(0.15)",
+            "0006": "[국가계약법]군용 음 · 식료품 제조 · 구매(0.3)",
+            "0007": "[국가계약법]운송 · 보관 및 양곡가공(0.5)",
+            "0008": "[국가계약법]기타 · 그밖의 계약(0.25)",
+            "0009": "[국가계약법]물품의 제조 · 구매(0.075)",
+            "0010": "[국가계약법]설계(승인필요)와 제조가 일괄된 물품의 제조 · 구매(0.050)",
+            "0011": "[국가계약법]물품의 수리 · 가공 · 대여(0.125)",
+            "0012": "[국가계약법]물품과 용역을 일괄입찰한 소프트웨어사업(0.075)",
+            "0013": "[국가계약법]용역(물품과 용역을 일괄입찰한 소프트웨어 사업제외)(0.125)",
+            "0014": "[국가계약법]군용 음 · 식료품 제조 · 구매(0.15)",
+            "0015": "[국가계약법]운송 · 보관 및 양곡가공(0.25)",
+            "0016": "[국가계약법]기타 · 그밖의 계약(0.125)"
+          }
         },
         {
           "source": "ctrtFee",
@@ -1699,7 +2141,11 @@
         {
           "source": "ctwtSbmsnMthdCd",
           "target": "guarantee_method",
-          "transform": "code"
+          "transform": "code",
+          "codes": {
+            "계260001": "지급각서대체",
+            "계260002": "전자접수 및 직접수납"
+          }
         },
         {
           "source": "advcPinfrmYn",
@@ -1796,7 +2242,9 @@
                 "인010002": "납품장소 상차도",
                 "인010003": "납품장소 하차도",
                 "인010004": "납품장소 입고도",
-                "인010005": "현장설치도"
+                "인010005": "현장설치도",
+                "인010040": "과업내역에 따름",
+                "인010045": "기타사항참조"
               }
             },
             {

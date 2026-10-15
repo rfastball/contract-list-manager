@@ -330,6 +330,42 @@ it("변경계약서 작성 화면은 번호·차수를 품목 표에서 읽고, 
   expect(run).toThrow("화면에서 번호를 읽지 못했습니다.");
 });
 
+it("와일드카드가 여러 표에 맞으면 빈 표를 버리고, 고른 행이 같으면 앞의 표 하나로 담고, 다르면 담지 않는다", () => {
+  screen();
+  // 「미리보기」 창이 같은 첨부 표를 한 벌 더 싣는다. 전에는 표가 여럿이면 조용히 건너뛰어 첨부를 빠뜨렸다.
+  const file = (sqno: number, name: string, status = "R") => ({ atchFileSqno: sqno, atchFileDscr: "공고서", orgnlAtchFileNm: name, rowStatus: status });
+  const grids: Record<string, unknown[]> = {
+    mf_wfm_container_tabEmpty_grdFile: [],
+    mf_wfm_container_grdFile: [file(1, "시험 공고서.hwp")],
+    // 고르지 않는 칸이 달라도 같은 표다.
+    mf_wfm_container_preview_grdFile: [file(1, "시험 공고서.hwp", "U")],
+  };
+  const values: Record<string, string> = { bidPbancNo: "R26BK00000001", bidPbancOrd: "000" };
+  document.body.innerHTML = `<div id="mf_wfm_container">${Object.keys(grids).map(id => `<div id="${id}"></div>`).join("")}${
+    Object.keys(values).map(k => `<span id="mf_wfm_container_${k}"></span>`).join("")}</div>`;
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01179" }, $p: { getComponentById: (id: string) => {
+    if (id in grids) return { getDataList: () => ({ getAllJSON: () => grids[id] }) };
+    const key = id.replace("mf_wfm_container_", "");
+    return key in values ? { getRef: () => "data:dma_pointInfo." + key, getValue: () => values[key] } : null;
+  } } };
+  fakeWindow.top = fakeWindow;
+  const read = new Function("document", "window", "location", "profiles", captureSource + "; return pclmReadMapped(profiles);");
+  const run = () => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, JSON.parse(mappingJson).profiles);
+  const files = (result: any) => Object.keys(result.data.tables).filter(k => k.endsWith("_grdFile"));
+
+  const same = run();
+  expect(files(same)).toEqual(["mf_wfm_container_grdFile"]);
+  expect(same.data.tables.mf_wfm_container_grdFile).toEqual([{ atchFileSqno: 1, atchFileDscr: "공고서", orgnlAtchFileNm: "시험 공고서.hwp" }]);
+  // 서로 다르면 어느 것이 대표인지 모른다 — 그 표만 담지 않고 나머지는 읽는다.
+  grids.mf_wfm_container_preview_grdFile = [file(1, "다른 첨부.pdf")];
+  const different = run();
+  expect(files(different)).toEqual([]);
+  expect(different).toMatchObject({ profile: "g2b-notice-a-v1", data: { pointInfo: values } });
+  // 모두 비었으면 앞의 빈 표 하나다.
+  grids.mf_wfm_container_grdFile = []; grids.mf_wfm_container_preview_grdFile = [];
+  expect(run().data.tables).toEqual({ mf_wfm_container_tabEmpty_grdFile: [] });
+});
+
 it("받는지는 hello 매핑에서 화면을 단 프로필만으로 정하고, 화면 하나를 그 프로필 하나로 읽으며, 표가 없어도 받는다", () => {
   screen();
   const profiles = JSON.parse(mappingJson).profiles;
@@ -358,6 +394,10 @@ it("받는지는 hello 매핑에서 화면을 단 프로필만으로 정하고, 
   // 공고 화면이면 계약 번호가 보여도 공고 프로필 하나로만 읽는다.
   menu = "01179";
   expect(run()).toMatchObject({ profile: "g2b-notice-a-v1", screen: "01179" });
+  // 일반용역 공고 상세는 같은 칸을 읽는 다른 프로필이다 — 화면 하나에 프로필 하나.
+  menu = "01181";
+  expect(run()).toMatchObject({ profile: "g2b-notice-a-service-v1", screen: "01181", data: { pointInfo: { bidPbancNo: "R26BK00000001", bidPbancOrd: "000" } } });
+  menu = "01179";
   // 나라장터의 함수가 없으면 주소 상태의 번호를 쓴다.
   delete fakeWindow.com;
   fakeHistory.state = { data: { menuNo: "01579" } };

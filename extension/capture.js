@@ -73,16 +73,27 @@ function pclmReadMapped(profiles) {
   const notRead = "화면에서 번호를 읽지 못했습니다. 화면이 다 열린 뒤 다시 읽어 주세요.";
   if (p.heading && p.heading !== heading) throw new Error(notRead);
   const tables = {}, pointInfo = {};
-  for (const t of p.tables) {
-    const ids = [...document.querySelectorAll('[id]')].map(e => e.id).filter(id => t.source.startsWith('*') ? id.endsWith(t.source.slice(1)) : id === t.source);
-    if (ids.length !== 1) continue;
-    const grid = component(ids[0]);
+  const readGrid = id => {
+    const grid = component(id);
     let list = grid?.getDataList?.();
     if (typeof list === "string") list = component(list);
     list ||= grid;
     const raw = list?.getAllJSON?.();
-    if (!Array.isArray(raw)) continue;
-    tables[ids[0]] = raw.map(row => pick(row, [...t.keys, ...t.fields.flatMap(f => f.secondarySource ? [f.source, f.secondarySource] : [f.source])]));
+    return Array.isArray(raw) ? raw : undefined;
+  };
+  // 와일드카드가 여러 표에 맞으면(「미리보기」 창이 같은 첨부를 한 벌 더 싣는다) 빈 표를 버리고, 남은 표의 고른 행이 모두
+  // 같으면 앞의 것 하나로 담는다 — 앱의 Mapping.Resolve 와 같은 규칙이다. 서로 다르면 어느 것이 대표인지 모르므로 담지 않는다.
+  for (const t of p.tables) {
+    const ids = [...document.querySelectorAll('[id]')].map(e => e.id).filter(id => t.source.startsWith('*') ? id.endsWith(t.source.slice(1)) : id === t.source);
+    if (!ids.length || ids.length > 1 && !t.source.startsWith('*')) continue;
+    const paths = [...t.keys, ...t.fields.flatMap(f => f.secondarySource ? [f.source, f.secondarySource] : [f.source])];
+    const read = ids.map(id => ({ id, raw: readGrid(id) })).filter(r => r.raw)
+      .map(r => ({ id: r.id, rows: r.raw.map(row => pick(row, paths)) }));
+    if (!read.length) continue;
+    const filled = read.filter(r => r.rows.length);
+    if (filled.some(r => JSON.stringify(r.rows) !== JSON.stringify(filled[0].rows))) continue;
+    const chosen = filled[0] || read[0];
+    tables[chosen.id] = chosen.rows;
   }
   for (const key of new Set([...p.fields.flatMap(f => f.secondarySource ? [f.source, f.secondarySource] : [f.source]), ...(p.identitySource === "pointInfo" ? [p.baseField, p.seqField] : [])])) {
     if (key.startsWith("tables.")) {

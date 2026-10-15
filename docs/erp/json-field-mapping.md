@@ -1023,7 +1023,7 @@ Q02의 나머지와 이후 묶음은 최신 요청에 따라 [남은 항목 일�
 | `ovrlCtrtYn` | 총괄계약 여부 후보 | 업무 기본·상태 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "N" |
 | `pnpr` | 예정가격 | 금액·세금·수수료 | ID·표 맥락 기반 후보 / Q12 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | 원문 생략 |
 | `prcmBsneAreaCd` | 조달업무영역 코드 후보 | 업무 기본·상태 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "조070001" |
-| `prflcAplcnCrtrCd` | 실적 적용기준 코드 후보 | 업무 기본·상태 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "물130002" |
+| `prflcAplcnCrtrCd` | 물가변동적용기준 | 업무 기본·상태 | 사용자 확인 2026-10-15(옛 후보 「실적 적용기준」 은 틀렸다) | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "물130002" |
 | `procsCtrtWtotAgreYn` | 계약 진행 동의 여부(정확한 용어 미확정) | 업무 기본·상태 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "Y" |
 | `prttnDlvgdsPsbltyYn` | 분할납품 가능 여부 | 일정·납품·검사 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "Y" |
 | `prvctImplYn` | 수의계약 사유 관련 여부(약어 미확정) | 업무 기본·상태 | ID·표 맥락 기반 후보 / Q18 | string · 5/0/0/0 | S06,S09,S10,S11,S12 | "N" |
@@ -1620,6 +1620,25 @@ Q02의 나머지와 이후 묶음은 최신 요청에 따라 [남은 항목 일�
 | 공고 B · 명칭형/요약 | `mf_wfm_container_mainWframe_gridView6` | `devyCndtCd` → `devyCndtNm` | "인010003" → "납품장소 하차도" | S13 |
 | 공고 B · 명칭형/요약 | `mf_wfm_container_mainWframe_gridViewPgst` | `bidPgstCd` → `bidPgstNm` | "입160010" → "개찰완료" | S13 |
 | 접수 | `pointInfo` | `dmstAcntgCd` → `dmstAcntgNm` | "011" → "일반회계" | S04,S07,S14 |
+| 접수 · 일반용역 상세 | `pointInfo`·`mf_wfm_container_gvDmndItem` | `devyCndtCd` → `devyCndtNm` | "인010040" → "과업내역에 따름" | 일반용역 코퍼스 2026-10-15 |
+| 접수 · 일반용역 상세 | `pointInfo`·`mf_wfm_container_gvDmndItem` | `devyCndtCd` → `devyCndtNm` | "인010045" → "기타사항참조" | 일반용역 코퍼스 2026-10-15 |
+| 공고 A · 일반용역 | `pointInfo` | `scsbdMthdCd` → `scsbdMthdNm` | "낙030005" → "협상에의한계약" | 일반용역 코퍼스 2026-10-15 |
+| 공고 A · 일반용역 | `pointInfo` | `dmstcOvrsSeCd` → `dmstcOvrsSeNm` | "국010001" → "국내입찰" | 일반용역 코퍼스 2026-10-15 |
+| 공고 A · 일반용역 | `pointInfo` | `pnprDcsnMthoCd` → `pnprDcsnMthoNm` | "예050001" → "비예가" | 일반용역 코퍼스 2026-10-15 |
+
+### 사람이 화면에서 확인한 명칭 (2026-10-15)
+
+원문 JSON 에 명칭 칸이 없는 코드다. 사람이 나라장터 계약 상세 화면에서 읽어 준 명칭을 그대로 적는다 — 고쳐 쓰거나 줄이지 않는다.
+
+| 화면형 | 출처 | 코드 ID | 대응 | 화면 칸 |
+|---|---|---|---|---|
+| 계약 | `pointInfo` | `ctrtChrsSeCd` | "0001"~"0016"(0005 없음) 열네 개 — 목록은 기본 `mapping.json` 의 계약 프로필 | 계약특성 |
+| 계약 | `pointInfo` | `prflcAplcnCrtrCd` | "물130001" → "지수조정율", "물130002" → "품목조정율" | 물가변동적용기준(수집하지 않음) |
+
+계약특성 명칭 끝 괄호의 숫자는 그 계약특성의 지체상금률이다(`lqdmRatTmp` 로 수집되는 값을 화면이 구분용으로 함께 적는다).
+명칭은 그대로 담고 숫자를 떼어 다른 칸으로 옮기지 않는다. 계약특성 코드는 계약 상세·변경계약서 작성이 같은 사전을 쓴다.
+| 계약 | `pointInfo` | `ctwtSbmsnMthdCd` | "계260001" → "지급각서대체" | 계약보증서 제출방법 |
+| 계약 | `pointInfo` | `ctwtSbmsnMthdCd` | "계260002" → "전자접수 및 직접수납" | 계약보증서 전자제출여부 |
 
 ## 미해석 ID 모음
 

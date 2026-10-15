@@ -1752,7 +1752,9 @@ export const 지금화면 = {
 /** 기본 매핑에서 화면을 단 프로필(src/Pclm.Core/Erp/mapping.json 의 screen) 그대로. */
 export const 기본수집화면 = (): SupportedScreen[] => [
   { code: "01117", entityType: "request", kind: "접수", name: "조달요구 접수(목록형)" },
+  { code: "01112", entityType: "request", kind: "접수", name: "조달요구 접수 상세(일반용역)" },
   { code: "01179", entityType: "notice", kind: "공고", name: "입찰공고 상세" },
+  { code: "01181", entityType: "notice", kind: "공고", name: "입찰공고 상세(일반용역)" },
   { code: "01196", entityType: "notice", kind: "공고", name: "입찰공고상세조회(통합)" },
   { code: "01579", entityType: "contract", kind: "계약", name: "계약 상세" },
   { code: "01608", entityType: "contract", kind: "계약", name: "물품·일반용역 변경계약서 작성" },

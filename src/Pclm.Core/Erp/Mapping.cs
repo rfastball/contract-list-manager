@@ -33,6 +33,11 @@ public static class Mapping
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
         MaxDepth = 32,
     };
+    /// <summary>
+    /// 입찰공고 상세의 꼴(공고 A)을 읽는 프로필 — 물품(01179)과 일반용역(01181)은 같은 칸을 쓰고 화면 번호만 다르다. 공고종류에
+    /// 상태를 붙이고 일정 행을 세우는 후처리가 둘에 함께 걸린다.
+    /// </summary>
+    private static readonly HashSet<string> NoticeA = ["g2b-notice-a-v1", "g2b-notice-a-service-v1"];
     public static MappingSet Defaults()
     {
         using var stream = typeof(Mapping).Assembly.GetManifestResourceStream("Pclm.Core.Erp.mapping.json")!;
@@ -152,16 +157,44 @@ public static class Mapping
     }
     public static string? Text(JsonElement? value) => value is null || value.Value.ValueKind == JsonValueKind.Null
         ? null : value.Value.ValueKind == JsonValueKind.String ? value.Value.GetString()?.Trim() : value.Value.ToString();
-    private static bool HasTable(JsonElement input, string source) => input.TryGetProperty("tables", out var tables) &&
-        tables.EnumerateObject().Any(p => source.StartsWith('*') ? p.Name.EndsWith(source[1..], StringComparison.Ordinal) : p.Name == source);
     public static JsonElement[] Table(JsonElement input, string source)
     {
-        if (!input.TryGetProperty("tables", out var tables)) throw new InvalidOperationException("tables가 없습니다.");
+        if (!input.TryGetProperty("tables", out _)) throw new InvalidOperationException("tables가 없습니다.");
+        return (Resolve(input, source) ?? throw new InvalidOperationException($"대표 표를 하나로 확인하지 못했습니다: {source}")).Rows;
+    }
+    /// <summary>
+    /// 출처가 가리키는 표 하나 — 표 이름과 행. 맞는 표가 없으면 null(그 표를 걷지 않은 문서다). 표 이름을 고르는 규칙은 여기
+    /// 하나뿐이다: 걷는 것·있는지 보는 것·걸러 담는 것이 모두 이것을 지난다.
+    /// <para>와일드카드(<c>*접미사</c>)가 여러 표에 맞으면 빈 표를 버리고, 남은 것이 내용까지 같으면(행 수와 각 행의 키·값) 앞의
+    /// 것 하나로 본다 — 「미리보기」 창이 같은 첨부를 한 벌 더 싣는다. 모두 비었으면 앞의 빈 표다. 서로 다른 비지 않은 표가 둘
+    /// 이상이면 어느 것이 대표인지 모르므로 거절한다. 정확한 이름은 하나에만 맞는다.</para>
+    /// </summary>
+    private static (string Name, JsonElement[] Rows)? Resolve(JsonElement input, string source)
+    {
+        if (!input.TryGetProperty("tables", out var tables) || tables.ValueKind != JsonValueKind.Object) return null;
         var matches = tables.EnumerateObject().Where(p => source.StartsWith('*')
             ? p.Name.EndsWith(source[1..], StringComparison.Ordinal) : p.Name == source).ToArray();
-        if (matches.Length != 1 || matches[0].Value.ValueKind != JsonValueKind.Array)
+        if (matches.Length == 0) return null;
+        if (matches.Any(m => m.Value.ValueKind != JsonValueKind.Array) || !source.StartsWith('*') && matches.Length != 1)
             throw new InvalidOperationException($"대표 표를 하나로 확인하지 못했습니다: {source}");
-        return matches[0].Value.EnumerateArray().ToArray();
+        var filled = matches.Where(m => m.Value.GetArrayLength() > 0).ToArray();
+        if (filled.Skip(1).Any(m => !Same(m.Value, filled[0].Value)))
+            throw new InvalidOperationException($"대표 표를 하나로 확인하지 못했습니다: {source}");
+        var chosen = filled.Length > 0 ? filled[0] : matches[0];
+        return (chosen.Name, chosen.Value.EnumerateArray().ToArray());
+    }
+    /// <summary>구조로 같은가 — 객체는 키의 순서와 관계없이 같은 키에 같은 값, 배열은 같은 순서로 같은 원소, 나머지는 적힌 그대로.</summary>
+    private static bool Same(JsonElement a, JsonElement b)
+    {
+        if (a.ValueKind != b.ValueKind) return false;
+        return a.ValueKind switch
+        {
+            JsonValueKind.Object => a.EnumerateObject().Count() == b.EnumerateObject().Count() &&
+                a.EnumerateObject().All(p => b.TryGetProperty(p.Name, out var other) && Same(p.Value, other)),
+            JsonValueKind.Array => a.GetArrayLength() == b.GetArrayLength() &&
+                a.EnumerateArray().Zip(b.EnumerateArray()).All(x => Same(x.First, x.Second)),
+            _ => a.GetRawText() == b.GetRawText(),
+        };
     }
     public static JsonElement Sanitize(MappingSet set, string profile, JsonElement input)
     {
@@ -170,10 +203,8 @@ public static class Mapping
         var tables = new Dictionary<string, object>();
         foreach (var t in p.Tables)
         {
-            JsonElement[] rows;
-            try { rows = Table(input, t.Source); }
-            catch (InvalidOperationException) when (!HasTable(input, t.Source)) { continue; }
-            var key = input.GetProperty("tables").EnumerateObject().Single(x => t.Source.StartsWith('*') ? x.Name.EndsWith(t.Source[1..], StringComparison.Ordinal) : x.Name == t.Source).Name;
+            // 고른 표 하나만 남긴다 — 걸러 담은 자료를 다시 읽어도 같은 표가 골라진다.
+            if (Resolve(input, t.Source) is not (var key, var rows)) continue;
             tables[key] = rows.Select(row => Pick(row, t.Fields.SelectMany(f => f.SecondarySource is null ? new[] { f.Source } : new[] { f.Source, f.SecondarySource }).Concat(t.Keys))).ToArray();
         }
         foreach (var group in p.Fields.Where(f => f.Source.StartsWith("tables.")).GroupBy(f => f.Source.Split('.')[1]))
@@ -222,9 +253,7 @@ public static class Mapping
         var rows = new List<MappedRow> { new(p.EntityType, "", Fields(point, p.Fields, input)) };
         foreach (var t in p.Tables)
         {
-            JsonElement[] source;
-            try { source = Table(input, t.Source); }
-            catch (InvalidOperationException) when (!HasTable(input, t.Source)) { continue; }
+            if (Resolve(input, t.Source) is not (_, var source)) continue;
             if (source.Length == 0) continue; // 빈 표는 덜 불러온 탭일 수 있다 — 있던 행을 지우지 않는다.
             var keys = new HashSet<string>();
             foreach (var row in source)
@@ -246,7 +275,7 @@ public static class Mapping
             if (amounts.Any(string.IsNullOrEmpty)) throw new InvalidOperationException("전체 품목 금액이 있어야 계약 총액을 계산할 수 있습니다.");
             rows[0].Values["amount"] = (decimal.Truncate(amounts.Sum(a => decimal.Parse(a!, CultureInfo.InvariantCulture)) / 10) * 10).ToString(CultureInfo.InvariantCulture);
         }
-        if (p.Id == "g2b-notice-a-v1")
+        if (NoticeA.Contains(p.Id))
         {
             var values = rows[0].Values;
             if (values.GetValueOrDefault("notice_kind") is { } kind && values.GetValueOrDefault("source_status") is { } status && !status.Contains("미확정"))

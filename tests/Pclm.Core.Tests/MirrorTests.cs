@@ -215,7 +215,9 @@ public sealed class MirrorTests : IDisposable
         Assert.Equal(new[]
         {
             new MirrorScreen("01117", "request", "접수", "조달요구 접수(목록형)"),
+            new MirrorScreen("01112", "request", "접수", "조달요구 접수 상세(일반용역)"),
             new MirrorScreen("01179", "notice", "공고", "입찰공고 상세"),
+            new MirrorScreen("01181", "notice", "공고", "입찰공고 상세(일반용역)"),
             new MirrorScreen("01196", "notice", "공고", "입찰공고상세조회(통합)"),
             new MirrorScreen("01579", "contract", "계약", "계약 상세"),
             new MirrorScreen("01608", "contract", "계약", "물품·일반용역 변경계약서 작성"),

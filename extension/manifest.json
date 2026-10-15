@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Vqq8ybBbhBd/sVOlEGOc2iYacMENJHe6zhn9TJ0rkFxJ3ak2cRG3KDkSUNi65AMzbh57bSSstaNK8TYMry902WqcKGB3pnW37g8VjEJrhbzMJBU5iW9JQWQ0fmR/DuwW+37eKukxaED8wk7EmV6IhQguuFPm9mJIcJJa51qNRdSHaI5cwnjrUn/TOHLYlwg9YKbPhcJOEEzG7GCOtPE0MulZt1JNvKThpnLURD8r9dHs7x1o2PPSvYs4fMXR2C0oFTS34XwM3rOQF3aAl013FxyVnWz8UOYTSFbQG6DJyvpHGiG0Trl8T0hzMMKHKWiLvbABAadL3FWNYNc8gmRbQIDAQAB",
   "name": "계약 목록 — 나라장터 연결",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "나라장터 화면을 계약 목록 앱에 이어 줍니다. 가져오기는 계약 목록의 「지금 보는 화면」에서 하고, 현재 화면은 엑셀로 내보낼 수 있습니다.",
   "permissions": [
     "scripting",

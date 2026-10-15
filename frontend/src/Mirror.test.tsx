@@ -222,7 +222,8 @@ describe("탭과 따라가기", () => {
     // 메뉴 번호를 알면 곁에 보인다(ADR-037).
     expect(section.querySelector(".dock-menu")!.textContent).toBe("화면 번호 01175");
     expect([...section.querySelectorAll(".dock-rules dt, .dock-rules dd")].map((e) => e.textContent)).toEqual(
-      ["접수", "조달요구 접수(목록형)", "공고", "입찰공고 상세", "공고", "입찰공고상세조회(통합)", "계약", "계약 상세", "계약", "물품·일반용역 변경계약서 작성"]);
+      ["접수", "조달요구 접수(목록형)", "접수", "조달요구 접수 상세(일반용역)", "공고", "입찰공고 상세", "공고", "입찰공고 상세(일반용역)",
+       "공고", "입찰공고상세조회(통합)", "계약", "계약 상세", "계약", "물품·일반용역 변경계약서 작성"]);
     await user.click(within(section).getByRole("button", { name: "현재 화면 엑셀로 내보내기" }));
     await waitFor(() => expect(지금화면.명령).toContainEqual({ tabId: 3, command: "export" }));
     expect(기둥().querySelector(".dock-foot")).toBeNull(); // 가져올 것이 없다.

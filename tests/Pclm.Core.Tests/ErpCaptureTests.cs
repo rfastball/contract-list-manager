@@ -707,6 +707,53 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Equal("2026-09-01 10:30:00", c.QuerySingle<string>("SELECT posted_at FROM notice"));
     }
 
+    /// <summary>
+    /// 공고 상세의 「미리보기」 창은 같은 첨부 표를 한 벌 더 싣고, 빈 첨부 표가 하나 더 오기도 한다. 와일드카드 출처가 그 셋에
+    /// 맞아 문서 전체가 「대표 표를 하나로 확인하지 못했습니다」 로 거절됐다. 빈 표를 버리고 남은 것이 내용까지 같으면 하나로 보고,
+    /// 서로 다르면 어느 것이 대표인지 모르므로 여전히 거절한다.
+    /// </summary>
+    [Fact]
+    public void 와일드카드가_같은_내용의_표_여럿에_맞으면_하나로_보고_다르면_거절한다()
+    {
+        var set = Mapping.Defaults();
+        const string profile = "g2b-notice-a-v1";
+        object[] Files(string second) => [
+            new { atchFileSqno = 1, atchFileDscr = "공고서", orgnlAtchFileNm = "시험 공고서.hwp" },
+            new { atchFileSqno = 2, atchFileDscr = "과업지시서", orgnlAtchFileNm = second },
+        ];
+        // 같은 행이라도 키의 순서는 다를 수 있다.
+        object[] Reordered(string second) => [
+            new Dictionary<string, object> { ["orgnlAtchFileNm"] = "시험 공고서.hwp", ["atchFileDscr"] = "공고서", ["atchFileSqno"] = 1 },
+            new Dictionary<string, object> { ["orgnlAtchFileNm"] = second, ["atchFileDscr"] = "과업지시서", ["atchFileSqno"] = 2 },
+        ];
+        JsonElement Input(params (string Id, object[] Rows)[] tables) => JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new { bidPbancNo = "R26BK00000099", bidPbancOrd = "000", bidPbancNm = "시험 공고" },
+            tables = tables.ToDictionary(t => t.Id, t => (object)t.Rows),
+        });
+        static int Attachments(MappedDocument doc) => doc.Rows.Count(r => r.Table == "erp_notice_attachment");
+
+        var same = Input(("mf_wfm_container_tabEmpty_grdFile", []), ("mf_wfm_container_grdFile", Files("시험 과업지시서.pdf")),
+            ("mf_wfm_container_preview_grdFile", Reordered("시험 과업지시서.pdf")));
+        Assert.Equal(2, Attachments(Mapping.Map(set, profile, same)));
+        Assert.Equal(2, Mapping.Table(same, "*_grdFile").Length);
+        // 걸러 담은 자료에는 고른 표 하나만 남는다 — 빈 표가 아니라 앞의 비지 않은 표다.
+        var sanitized = Mapping.Sanitize(set, profile, same);
+        Assert.Equal(new[] { "mf_wfm_container_grdFile" },
+            sanitized.GetProperty("tables").EnumerateObject().Where(p => p.Name.EndsWith("_grdFile")).Select(p => p.Name));
+        Assert.Equal(2, Attachments(Mapping.Map(set, profile, sanitized)));
+
+        var different = Input(("mf_wfm_container_grdFile", Files("시험 과업지시서.pdf")), ("mf_wfm_container_preview_grdFile", Files("다른 첨부.pdf")));
+        const string ambiguous = "대표 표를 하나로 확인하지 못했습니다: *_grdFile";
+        Assert.Equal(ambiguous, Assert.Throws<InvalidOperationException>(() => Mapping.Map(set, profile, different)).Message);
+        Assert.Equal(ambiguous, Assert.Throws<InvalidOperationException>(() => Mapping.Sanitize(set, profile, different)).Message);
+
+        // 모두 비었으면 빈 표 하나다 — 덜 불러온 탭일 수 있어 걷지 않는다.
+        var empty = Input(("mf_wfm_container_grdFile", []), ("mf_wfm_container_preview_grdFile", []));
+        Assert.Equal(0, Attachments(Mapping.Map(set, profile, empty)));
+        Assert.Single(Mapping.Sanitize(set, profile, empty).GetProperty("tables").EnumerateObject(), p => p.Name.EndsWith("_grdFile"));
+    }
+
     private static byte[] Frame(byte[] payload)
     {
         var frame = new byte[payload.Length + 4];
