@@ -1372,7 +1372,7 @@ const 갈린건칸: OutlineNoticeGroup = {
 };
 
 const 갈린건접수: OutlineRequest = {
-  key: "MPKPLA26910450",
+  key: "MPKPLA26910450", // gitleaks:allow (목업 데이터)
   number: "MPKPLA26910450-000",
   title: "26년가람조립대구매",
   receivedOn: "2026/06/24",
