@@ -75,7 +75,12 @@ public sealed class PclmFileTests : IDisposable
         Run(connection, Schema.Baseline);
         Run(connection, $"PRAGMA user_version = {Schema.BaselineVersion};");
         if (sql is not null) Run(connection, sql);
+        BuildViews(connection);
+    }
 
+    /// <summary>지금의 계약면 뷰를 그 파일의 사람 열로 짓는다.</summary>
+    private static void BuildViews(SqliteConnection connection)
+    {
         var columns = new List<UserColumnDefinition>();
         using (var command = connection.CreateCommand())
         {
@@ -114,15 +119,22 @@ public sealed class PclmFileTests : IDisposable
     }
 
     /// <summary>뷰 하나의 줄 전부. 차례에 기대지 않게 글로 바꿔 정렬한다.</summary>
-    private static List<string> Rows(SqliteConnection connection, string view)
+    /// <param name="added">판올림이 더한 열(<see cref="Views.HiddenByDefault"/>). 옛 줄에서는 빈 문자열이어야 하고, 견줄 때는 뺀다 —
+    /// 옛 판의 뷰에는 없던 열이다.</param>
+    private static List<string> Rows(SqliteConnection connection, string view, IReadOnlyList<string>? added = null)
     {
         using var command = connection.CreateCommand();
         command.CommandText = $"SELECT * FROM \"{view}\";";
         var rows = new List<string>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
-            rows.Add(string.Join("\u0001", Enumerable.Range(0, reader.FieldCount)
+        {
+            var kept = Enumerable.Range(0, reader.FieldCount).Where(i => added?.Contains(reader.GetName(i)) != true).ToList();
+            foreach (var i in Enumerable.Range(0, reader.FieldCount).Except(kept))
+                Assert.True(!reader.IsDBNull(i) && reader.GetString(i) == "", $"{view}.{reader.GetName(i)}: 옛 줄의 새 열은 빈 문자열이어야 합니다");
+            rows.Add(string.Join("\u0001", kept
                 .Select(i => reader.IsDBNull(i) ? "<NULL>" : Convert.ToString(reader.GetValue(i)))));
+        }
         rows.Sort(StringComparer.Ordinal);
         return rows;
     }
@@ -139,7 +151,7 @@ public sealed class PclmFileTests : IDisposable
             using var reader = command.ExecuteReader();
             while (reader.Read()) present.Add(reader.GetString(0));
         }
-        return Views.Names.Where(present.Contains).ToDictionary(v => v, v => Rows(connection, v));
+        return Views.Names.Where(present.Contains).ToDictionary(v => v, v => Rows(connection, v, Views.HiddenByDefault.GetValueOrDefault(v)));
     }
 
     /// <summary>SQLite 가 <b>읽기 전용이라서</b> 거절했는가(SQLITE_READONLY = 8). 다른 까닭의 실패는 지나가지 않는다.</summary>
@@ -320,7 +332,20 @@ public sealed class PclmFileTests : IDisposable
     {
         var path = In("옛 계약자료.db");
         LegacyV19(path, 채움);
-        var before = AllViews(path);
+        // 옛 줄을 지금의 뷰로 본다. 지금의 뷰는 v28 이 더한 열·표와 v29 가 이름을 바꾼 열을 읽으므로 사본에만 그 둘을 밟아
+        // 본다 — 있던 열의 값은 그대로이고(v29 가 비우는 재무관은 기본으로 숨는 새 열이다), 옛 파일 자체는 v19 그대로 판올림을 밟는다.
+        var seen = In("옛 계약자료-지금의 뷰.db");
+        File.Copy(path, seen);
+        using (var connection = new SqliteConnection($"Data Source={seen};Pooling=False"))
+        {
+            connection.Open();
+            // 이름을 바꾸는 단계는 뷰가 서 있으면 SQLite 가 막는다 — 판올림처럼 뷰를 치우고 밟은 뒤 다시 짓는다.
+            foreach (var view in Views.Names.Reverse().Concat(Views.LegacyNames)) Run(connection, $"DROP VIEW IF EXISTS \"{view}\";");
+            Run(connection, Schema.Steps[28 - Schema.BaselineVersion - 1]);
+            Run(connection, Schema.Steps[29 - Schema.BaselineVersion - 1]);
+            BuildViews(connection);
+        }
+        var before = AllViews(seen);
         var legacy = PclmFile.Inspect(path);
 
         Assert.Contains(before.Values, rows => rows.Count > 0);

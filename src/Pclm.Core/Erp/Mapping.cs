@@ -8,6 +8,9 @@ namespace Pclm.Core.Erp;
 
 public sealed record FieldMap(string Source, string Target, string Transform = "text",
     Dictionary<string, string>? Codes = null, string? SecondarySource = null);
+/// <param name="Keys">원천 행을 가리는 칸. <b>비어 있으면 줄 차례가 곧 행이다</b> — 업종명처럼 같은 값이 두 줄에 올 수 있고 가릴
+/// 칸이 따로 없는 표에 쓴다. 키가 없거나 겹친다고 문서 전체를 거절하지 않고, 다시 수집하면 같은 차례의 줄에 얹힌다.
+/// 키를 비우는 것은 기본 매핑이 그렇게 둔 표에서만 된다(<see cref="Mapping.Validate"/>).</param>
 public sealed record TableMap(string Source, string Target, string[] Keys, FieldMap[] Fields,
     bool Required = false, string? TotalSelector = null);
 /// <param name="Screen">이 프로필이 읽는 나라장터 화면(ADR-037). 이것이 있는 프로필만이 수집하는 화면이다 — 받는 화면의 허용
@@ -45,11 +48,84 @@ public static class Mapping
     }
     public static MappingSet Parse(string json)
     {
-        var value = JsonSerializer.Deserialize<MappingSet>(json, Json)
-            ?? throw new InvalidOperationException("매핑이 비어 있습니다.");
-        value = WithScreens(WithNewProfiles(value));
+        var value = Normalize(json);
         Validate(value);
         return value;
+    }
+    /// <summary>
+    /// 작업자료에 저장한 매핑(<c>erp_mapping</c>)을 읽는다. <see cref="Parse"/> 에 더해 기본 매핑이 거둔 필드 — 그 프로필·표의
+    /// 허용 목적지에 더는 없는 대상 — 를 조용히 떨군다(ADR-043: 뜻이 확정되지 않은 필드는 매핑에서 빠진다). 떨구지 않으면 거두기 전에
+    /// 저장·활성화한 편집본을 <see cref="Validate"/> 가 거절해 활성 매핑을 읽는 수집이 통째로 멈춘다. 그 필드만 걸던 선택자도 함께
+    /// 떨군다. 사람이 지금 편집해 저장하는 길(<see cref="Parse"/>)은 그대로 거절한다 — 고친 것이 말없이 사라지면 안 된다.
+    /// 거꾸로 기본에 새로 더해진 대상이 편집본에 없으면 기본의 것으로 채운다(<see cref="WithMissingFields"/>).
+    /// </summary>
+    public static MappingSet Read(string json)
+    {
+        var value = WithMissingFields(WithoutRetiredFields(Normalize(json)));
+        Validate(value);
+        return value;
+    }
+    /// <summary>
+    /// 기본 매핑에 대상이 더해지기 전에 저장한 편집본에 빠진 필드·표를 기본의 것 그대로 채운다(ADR-043 결정 2 — 확정이면 담는다).
+    /// 채우지 않으면 편집본을 활성화한 작업자료만 새로 확정된 필드를 영영 수집하지 않는데, 편집본은 검증을 통과하므로 아무것도
+    /// 실패하지 않는다. 무엇을 수집할지는 사람마다 고르지 않는다(ADR-043 「버린 안」) — 편집본이 고칠 수 있는 것은 출처·변환·선택자이고
+    /// 대상의 목록은 기본의 것이다. 이미 있는 대상(출처를 고친 것)은 건드리지 않는다. 모르는 프로필·깨진 항목은 그대로 둔다 —
+    /// 거절은 <see cref="Validate"/> 의 몫이다. 표는 기본의 자리 차례대로 끼운다.
+    /// </summary>
+    private static MappingSet WithMissingFields(MappingSet set)
+    {
+        if (set.Profiles is null) return set;
+        var defaults = Defaults().Profiles;
+        return set with { Profiles = set.Profiles.Select(p =>
+        {
+            if (p?.Fields is null || p.Tables is null || defaults.SingleOrDefault(d => d.Id == p.Id) is not { } original) return p;
+            static FieldMap[] Fill(FieldMap[] fields, FieldMap[] allowed)
+            {
+                var missing = allowed.Where(a => !fields.Any(f => f?.Target == a.Target)).ToArray();
+                return missing.Length == 0 ? fields : [.. fields, .. missing];
+            }
+            var tables = p.Tables.Select(t => t?.Fields is null || original.Tables.SingleOrDefault(x => x.Target == t.Target) is not { } allowed
+                ? t : t with { Fields = Fill(t.Fields, allowed.Fields) }).ToList();
+            for (var i = 0; i < original.Tables.Length; i++)
+                if (!tables.Any(t => t?.Target == original.Tables[i].Target))
+                    tables.Insert(Math.Min(i, tables.Count), original.Tables[i]);
+            return p with { Fields = Fill(p.Fields, original.Fields), Tables = tables.ToArray()! };
+        }).ToArray()! };
+    }
+    private static MappingSet Normalize(string json)
+    {
+        var value = JsonSerializer.Deserialize<MappingSet>(json, Json)
+            ?? throw new InvalidOperationException("매핑이 비어 있습니다.");
+        return WithScreens(WithNewProfiles(value));
+    }
+    /// <summary>
+    /// 기본의 같은 프로필(같은 표)에 대상이 없는 필드를 뺀다. 모르는 프로필·표와 깨진 항목(null)은 그대로 둔다 — 거절은
+    /// <see cref="Validate"/> 의 몫이다.
+    /// </summary>
+    private static MappingSet WithoutRetiredFields(MappingSet set)
+    {
+        if (set.Profiles is null) return set;
+        var defaults = Defaults().Profiles;
+        return set with { Profiles = set.Profiles.Select(p =>
+        {
+            if (p?.Fields is null || p.Tables is null || defaults.SingleOrDefault(d => d.Id == p.Id) is not { } original) return p;
+            var retired = new List<FieldMap>();
+            FieldMap[] Keep(FieldMap[] fields, FieldMap[] allowed)
+            {
+                var gone = fields.Where(f => f?.Target is not null && !allowed.Any(a => a.Target == f.Target)).ToArray();
+                retired.AddRange(gone);
+                return gone.Length == 0 ? fields : fields.Where(f => !gone.Contains(f)).ToArray();
+            }
+            var fields = Keep(p.Fields, original.Fields);
+            TableMap[] tables = p.Tables.Select(t => t?.Fields is null || original.Tables.SingleOrDefault(x => x.Target == t.Target) is not { } allowed
+                ? t : t with { Fields = Keep(t.Fields, allowed.Fields) }).ToArray()!;
+            if (retired.Count == 0) return p;
+            var used = fields.Where(f => f is not null).SelectMany(f => new[] { f.Source, f.SecondarySource })
+                .Append(p.BaseField).Append(p.SeqField).ToHashSet();
+            var orphaned = retired.SelectMany(f => new[] { f.Source, f.SecondarySource }).Where(s => s is not null && !used.Contains(s)).ToHashSet();
+            var selectors = p.Selectors?.Where(x => !orphaned.Contains(x.Key)).ToDictionary(x => x.Key, x => x.Value);
+            return p with { Fields = fields, Tables = tables, Selectors = selectors };
+        }).ToArray()! };
     }
     /// <summary>
     /// 기본 매핑에 프로필이 더해지기 전에 저장한 매핑(작업자료의 <c>erp_mapping</c>)에 빠진 프로필을 기본의 것 그대로 채운다 —
@@ -108,7 +184,10 @@ public static class Mapping
                 var allowed = original.Tables.SingleOrDefault(t => t.Target == table.Target)
                     ?? throw new InvalidOperationException("지원하지 않는 대상 표입니다.");
                 CheckPath(table.Source);
-                if (table.Keys.Length is < 1 or > 5) throw new InvalidOperationException("원천 행 복합키가 필요합니다.");
+                // 키를 비우는 것(줄 차례로 행을 가리기)은 기본 매핑이 그렇게 둔 표에서만 된다 — 품목처럼 키로 짝을 짓는 표가 차례에
+                // 기대게 되면 줄이 하나 빠질 때 뒤의 줄이 모두 엉뚱한 행에 얹힌다.
+                if (table.Keys.Length > 5 || table.Keys.Length == 0 && allowed.Keys.Length != 0)
+                    throw new InvalidOperationException("원천 행 복합키가 필요합니다.");
                 foreach (var key in table.Keys) CheckPath(key);
                 CheckFields(table.Fields, allowed.Fields);
                 if (table.TotalSelector?.Length > 500) throw new InvalidOperationException("전체 건수 선택자가 너무 깁니다.");
@@ -256,9 +335,11 @@ public static class Mapping
             if (Resolve(input, t.Source) is not (_, var source)) continue;
             if (source.Length == 0) continue; // 빈 표는 덜 불러온 탭일 수 있다 — 있던 행을 지우지 않는다.
             var keys = new HashSet<string>();
-            foreach (var row in source)
+            for (var index = 0; index < source.Length; index++)
             {
-                var parts = t.Keys.Select(k => Text(At(row, k))).ToArray();
+                var row = source[index];
+                // 키가 없는 표는 줄 차례가 곧 행이다(<see cref="TableMap"/>) — 같은 값의 줄도, 빈 칸의 줄도 저마다 선다.
+                var parts = t.Keys.Length == 0 ? ["#" + (index + 1)] : t.Keys.Select(k => Text(At(row, k))).ToArray();
                 if (parts.Any(string.IsNullOrEmpty)) throw new InvalidOperationException($"원천 행 키가 없습니다: {t.Source}");
                 var key = JsonSerializer.Serialize(parts);
                 if (!keys.Add(key)) throw new InvalidOperationException($"원천 행 키가 중복됩니다: {t.Source}");
@@ -342,7 +423,7 @@ public sealed class MappingStore(Database database)
     {
         using var c = database.OpenReadOnly();
         var json = c.QuerySingleOrDefault<string>("SELECT json FROM erp_mapping WHERE active = 1");
-        return json is null ? Mapping.Defaults() : Mapping.Parse(json);
+        return json is null ? Mapping.Defaults() : Mapping.Read(json);
     }
     public object List()
     {

@@ -161,6 +161,30 @@ public sealed class ScreensTests : IDisposable
     }
 
     [Fact]
+    public void 기본에서_거둔_필드가_남은_편집본은_읽을_때_그_필드만_떨구고_새로_저장하는_길은_거절한다()
+    {
+        // 뜻이 확정되지 않아 기본 매핑에서 뺀 필드(ADR-043)가 거두기 전에 활성화한 편집본에 남아 있다 — 머리 필드·표 필드·그것만 걸던 선택자.
+        const string contract = "g2b-contract-v1";
+        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Mapping.Defaults(), Mapping.Json))!;
+        var profile = node["profiles"]!.AsArray().Single(p => (string)p!["id"]! == contract)!;
+        profile["fields"]!.AsArray().Add(System.Text.Json.Nodes.JsonNode.Parse("""{"source":"ctrtDvofNm","target":"contract_officer","transform":"text"}"""));
+        profile["tables"]!.AsArray().Single(t => (string)t!["target"]! == "contract_item")!["fields"]!.AsArray()
+            .Add(System.Text.Json.Nodes.JsonNode.Parse("""{"source":"spplRgnNm","target":"region","transform":"text"}"""));
+        profile["selectors"] = System.Text.Json.Nodes.JsonNode.Parse("""{"ctrtDvofNm":"#officer"}""");
+        node["profiles"]!.AsArray().Single(p => (string)p!["id"]! == "g2b-notice-a-v1")!["heading"] = "다른 제목";
+        using (var c = new Database(DbPath).Open())
+            Dapper.SqlMapper.Execute(c, "INSERT INTO erp_mapping(revision,json,active,validated,created_at) VALUES('old',@json,1,1,'2026-01-01T00:00:00Z')",
+                new { json = node.ToJsonString() });
+
+        var active = new MappingStore(new Database(DbPath)).Active();
+        Assert.Equal(Mapping.Hash(Mapping.Defaults().Profiles.Single(p => p.Id == contract)), Mapping.Hash(active.Profiles.Single(p => p.Id == contract)));
+        Assert.Equal("다른 제목", active.Profiles.Single(p => p.Id == "g2b-notice-a-v1").Heading);
+
+        // 사람이 지금 저장하는 편집본은 말없이 고쳐 쓰지 않는다 — 기본에 없는 대상은 거절이다.
+        Assert.Equal("허용되지 않은 대상·변환입니다: contract_officer", Reason(() => Mapping.Parse(node.ToJsonString())));
+    }
+
+    [Fact]
     public void 메뉴_경로에서_비지_않은_가장_깊은_단을_화면의_번호로_본다()
     {
         Assert.Equal("01579", Screens.Leaf(Point(("depth1", "01570"), ("depth2", "01571"), ("depth3", "01579"))));
@@ -295,7 +319,7 @@ public sealed class ScreensTests : IDisposable
             pointInfo = new
             {
                 depth1 = "01170", depth2 = "01181", bidPbancNo = "R26BK00000011", bidPbancOrd = "001", bidPbancNm = "시험 용역 공고",
-                pbancKndCd = "공440002", pbancSttsCd = "공400002", scsbdMthdCd = "낙030005", dmstcOvrsSeCd = "국010001", pnprDcsnMthoCd = "예050001",
+                pbancKndCd = "공440002", pbancSttsCd = "공400002", scsbdMthdCd = "낙030005", dmstcOvrsSeCd = "국010001", pnprDcsnMthoCd = "예050001", pnprDcsnMthoNm = "비예가",
                 slprRcptBgngDay = "20261001", slprRcptBgngTime = "1000", onbsPrnmntDay = "20261008", onbsPrnmntTime = "1100",
             },
             tables = new Dictionary<string, object>

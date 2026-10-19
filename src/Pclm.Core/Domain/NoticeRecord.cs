@@ -22,6 +22,10 @@ public sealed record NoticeRecord
     public string? ContractMethod { get; init; }
     public string? ContractKind { get; init; }
     public string? InternationalKind { get; init; }
+    /// <summary>
+    /// 공고서의 「채권자」 칸 — 값은 기관장 직함이다. 뜻이 미정인 후보라 <b>담지 않는다</b>(2026-10-16 사용자 결정 — 수집의
+    /// <c>grnteCrdrNm</c> 과 같은 칸). 옛 기록(시험 표본)을 읽을 때 자리만 받는다. 재무관(<c>fncrNm</c>)과 다른 사람이다.
+    /// </summary>
     public string? Creditor { get; init; }
     public bool? RebidAllowed { get; init; }
     public bool? PartialDeliveryAllowed { get; init; }

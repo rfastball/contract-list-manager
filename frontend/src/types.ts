@@ -25,6 +25,11 @@ export type Sheet = {
   correctable: string[];
   /** 이미 고쳐 둔 칸. 줄 키 → 열 이름 → **고치기 전에 그 자리에 있던 값**. */
   overrides: Record<string, Record<string, string>>;
+  /**
+   * 표에서 기본으로 숨기는 열(다리의 <code>Views.HiddenByDefault</code>, ADR-043 결정 5). 새로 담기 시작한 필드의 열이라
+   * 사람이 설정에서 켠 것만 펼친다. 뷰와 엑셀 전체 내보내기에는 그대로 있다. 맞춤 뷰처럼 없는 표는 비어 있다.
+   */
+  hidden?: string[];
   rows: Row[];
 };
 

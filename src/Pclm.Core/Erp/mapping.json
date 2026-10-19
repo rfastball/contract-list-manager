@@ -138,6 +138,19 @@
           "source": "dmndInstPicFaxNo",
           "target": "agency_fax",
           "transform": "text"
+        },
+        {
+          "source": "pbancKndCd",
+          "target": "notice_kind",
+          "transform": "code",
+          "codes": {
+            "공440002": "실공고"
+          }
+        },
+        {
+          "source": "prspPrce",
+          "target": "estimated_price",
+          "transform": "decimal"
         }
       ],
       "tables": [
@@ -255,11 +268,6 @@
               "transform": "text"
             },
             {
-              "source": "ndpfExpndDmndNoVal",
-              "target": "expense_request_number",
-              "transform": "text"
-            },
-            {
               "source": "ctrtDmndRcptNo",
               "target": "ref_request_base",
               "transform": "text"
@@ -272,6 +280,16 @@
             {
               "source": "ctrtDmndRcptItemSqno",
               "target": "ref_request_item",
+              "transform": "text"
+            },
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsPrcmItemDlvgdsMtruNm",
+              "target": "delivery_unit",
               "transform": "text"
             }
           ],
@@ -418,6 +436,19 @@
           "source": "dmndInstPicFaxNo",
           "target": "agency_fax",
           "transform": "text"
+        },
+        {
+          "source": "pbancKndCd",
+          "target": "notice_kind",
+          "transform": "code",
+          "codes": {
+            "공440002": "실공고"
+          }
+        },
+        {
+          "source": "prspPrce",
+          "target": "estimated_price",
+          "transform": "decimal"
         }
       ],
       "tables": [
@@ -535,11 +566,6 @@
               "transform": "text"
             },
             {
-              "source": "ndpfExpndDmndNoVal",
-              "target": "expense_request_number",
-              "transform": "text"
-            },
-            {
               "source": "ctrtDmndRcptNo",
               "target": "ref_request_base",
               "transform": "text"
@@ -552,6 +578,11 @@
             {
               "source": "ctrtDmndRcptItemSqno",
               "target": "ref_request_item",
+              "transform": "text"
+            },
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
               "transform": "text"
             }
           ],
@@ -634,7 +665,7 @@
         },
         {
           "source": "fncrNm",
-          "target": "creditor",
+          "target": "finance_officer",
           "transform": "text"
         },
         {
@@ -774,6 +805,28 @@
           "source": "pbancChgRsn",
           "target": "change_reason",
           "transform": "text"
+        },
+        {
+          "source": "bidMthdCd",
+          "target": "bid_method",
+          "transform": "code",
+          "codes": {
+            "입180002": "전자입찰"
+          }
+        },
+        {
+          "source": "bizAmtFeeSumAmt",
+          "target": "project_fee_total",
+          "transform": "decimal"
+        },
+        {
+          "source": "lcrtTyCd",
+          "target": "contract_law",
+          "transform": "code",
+          "codes": {
+            "계040001": "국가계약법",
+            "계040002": "지방계약법"
+          }
         }
       ],
       "tables": [
@@ -878,6 +931,31 @@
               "source": "bidPbancItemSqno",
               "target": "source_item",
               "transform": "text"
+            },
+            {
+              "source": "dmstUntyGrpNo",
+              "target": "demand_agency_code",
+              "transform": "text"
+            },
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemIdnfNm",
+              "target": "item_identification_name",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsItemSpecNo",
+              "target": "spec_number",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsPrcmDmndNo",
+              "target": "request_number",
+              "transform": "text"
             }
           ],
           "required": true
@@ -913,6 +991,19 @@
             {
               "source": "tlphNo",
               "target": "phone",
+              "transform": "text"
+            }
+          ],
+          "required": false
+        },
+        {
+          "source": "mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList",
+          "target": "notice_restricted_industry",
+          "keys": [],
+          "fields": [
+            {
+              "source": "bidLmtUntyNm",
+              "target": "name",
               "transform": "text"
             }
           ],
@@ -987,23 +1078,14 @@
           "transform": "decimal"
         },
         {
-          "source": "stdCtrtMthdCd",
+          "source": "stdCtrtMthdNm",
           "target": "contract_method",
-          "transform": "code",
-          "codes": {
-            "계030001": "일반경쟁",
-            "계030003": "제한경쟁",
-            "계030004": "수의계약"
-          }
+          "transform": "text"
         },
         {
-          "source": "ctrtTyCd",
+          "source": "ctrtTyNm",
           "target": "contract_kind",
-          "transform": "code",
-          "codes": {
-            "계120001": "총액계약",
-            "계120002": "일반단가계약"
-          }
+          "transform": "text"
         },
         {
           "source": "dmstcOvrsSeCd",
@@ -1015,7 +1097,7 @@
         },
         {
           "source": "fncrNm",
-          "target": "creditor",
+          "target": "finance_officer",
           "transform": "text"
         },
         {
@@ -1024,7 +1106,7 @@
           "transform": "boolean"
         },
         {
-          "source": "prttnDlvgdsPsbltyYn",
+          "source": "prttnDlvgdsPsbltyYnNm",
           "target": "partial_delivery_allowed",
           "transform": "boolean"
         },
@@ -1034,12 +1116,9 @@
           "transform": "integer"
         },
         {
-          "source": "pnprDcsnMthoCd",
+          "source": "pnprDcsnMthoNm",
           "target": "price_estimation_method",
-          "transform": "code",
-          "codes": {
-            "예050001": "비예가"
-          }
+          "transform": "text"
         },
         {
           "source": "bizAmt",
@@ -1097,12 +1176,12 @@
           "transform": "text"
         },
         {
-          "source": "fprdYn",
+          "source": "fprdYnNm",
           "target": "foreign_allowed",
           "transform": "boolean"
         },
         {
-          "source": "rschDvlpItemYn",
+          "source": "rschDvlpItemYnNm",
           "target": "research_item",
           "transform": "boolean"
         },
@@ -1154,6 +1233,35 @@
         {
           "source": "pbancChgRsn",
           "target": "change_reason",
+          "transform": "text"
+        },
+        {
+          "source": "scsbdMthdDtlsNm",
+          "target": "award_criteria",
+          "transform": "text"
+        },
+        {
+          "source": "bidMthdNm",
+          "target": "bid_method",
+          "transform": "text"
+        },
+        {
+          "source": "bizAmtFeeSumAmt",
+          "target": "project_fee_total",
+          "transform": "decimal"
+        },
+        {
+          "source": "lcrtTyCd",
+          "target": "contract_law",
+          "transform": "code",
+          "codes": {
+            "계040001": "국가계약법",
+            "계040002": "지방계약법"
+          }
+        },
+        {
+          "source": "tables.mf_wfm_container_PNPE027_01_wframe_popupCnts_mainWframe_gridViewPgst.0.bidPgstNm",
+          "target": "bid_status",
           "transform": "text"
         }
       ],
@@ -1259,6 +1367,31 @@
               "source": "bidPbancItemSqno",
               "target": "source_item",
               "transform": "text"
+            },
+            {
+              "source": "dmstUntyGrpNo",
+              "target": "demand_agency_code",
+              "transform": "text"
+            },
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemIdnfNm",
+              "target": "item_identification_name",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsItemSpecNo",
+              "target": "spec_number",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsPrcmDmndNo",
+              "target": "request_number",
+              "transform": "text"
             }
           ],
           "required": true
@@ -1294,6 +1427,19 @@
             {
               "source": "tlphNo",
               "target": "phone",
+              "transform": "text"
+            }
+          ],
+          "required": false
+        },
+        {
+          "source": "mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList",
+          "target": "notice_restricted_industry",
+          "keys": [],
+          "fields": [
+            {
+              "source": "bidLmtUntyNm",
+              "target": "name",
               "transform": "text"
             }
           ],
@@ -1380,11 +1526,6 @@
           "transform": "text"
         },
         {
-          "source": "grnteCrdrNm",
-          "target": "creditor",
-          "transform": "text"
-        },
-        {
           "source": "rbidPrmsYnNm",
           "target": "rebid_allowed",
           "transform": "boolean"
@@ -1463,6 +1604,16 @@
           "source": "tables.mf_wfm_container_mainWframe_gridView5.0.baseAmt",
           "target": "base_price",
           "transform": "decimal"
+        },
+        {
+          "source": "bidMthdNm",
+          "target": "bid_method",
+          "transform": "text"
+        },
+        {
+          "source": "tables.mf_wfm_container_mainWframe_gridViewPgst.0.bidPgstNm",
+          "target": "bid_status",
+          "transform": "text"
         }
       ],
       "tables": [
@@ -1566,6 +1717,21 @@
             {
               "source": "bidPbancItemSqno",
               "target": "source_item",
+              "transform": "text"
+            },
+            {
+              "source": "dmstUntyGrpNo",
+              "target": "demand_agency_code",
+              "transform": "text"
+            },
+            {
+              "source": "itemClsfNo",
+              "target": "classification_number",
+              "transform": "text"
+            },
+            {
+              "source": "itemIdnfNm",
+              "target": "item_identification_name",
               "transform": "text"
             }
           ],
@@ -1831,23 +1997,41 @@
           "transform": "text"
         },
         {
-          "source": "ctrtDvofNm",
-          "target": "contract_officer",
-          "transform": "text"
-        },
-        {
-          "source": "ctrtSlcfNm",
-          "target": "finance_officer",
-          "transform": "text"
-        },
-        {
-          "source": "ctrtDpdrNm",
-          "target": "expenditure_officer",
-          "transform": "text"
-        },
-        {
           "source": "ctrtPicNm",
           "target": "staff",
+          "transform": "text"
+        },
+        {
+          "source": "dmstPicId",
+          "target": "agency_officer_id",
+          "transform": "text"
+        },
+        {
+          "source": "fprdYn",
+          "target": "foreign_allowed",
+          "transform": "boolean"
+        },
+        {
+          "source": "lcrtTyCd",
+          "target": "contract_law",
+          "transform": "code",
+          "codes": {
+            "계040001": "국가계약법",
+            "계040002": "지방계약법"
+          }
+        },
+        {
+          "source": "prflcAplcnCrtrCd",
+          "target": "price_adjustment_basis",
+          "transform": "code",
+          "codes": {
+            "물130001": "지수조정율",
+            "물130002": "품목조정율"
+          }
+        },
+        {
+          "source": "rlsYn",
+          "target": "disclosure",
           "transform": "text"
         }
       ],
@@ -1879,11 +2063,6 @@
             {
               "source": "itemSpecVal",
               "target": "specification",
-              "transform": "text"
-            },
-            {
-              "source": "spplRgnNm",
-              "target": "region",
               "transform": "text"
             },
             {
@@ -1944,6 +2123,41 @@
               "source": "ctrtItemSqno",
               "target": "source_item",
               "transform": "text"
+            },
+            {
+              "source": "bidClsfNo",
+              "target": "ref_notice_class",
+              "transform": "text"
+            },
+            {
+              "source": "bidPbancItemSqno",
+              "target": "ref_notice_item",
+              "transform": "text"
+            },
+            {
+              "source": "dlvgdsPlacNm",
+              "target": "delivery_place",
+              "transform": "text"
+            },
+            {
+              "source": "dlvgdsTermNody",
+              "target": "delivery_days",
+              "transform": "integer"
+            },
+            {
+              "source": "dmstUntyGrpNo",
+              "target": "demand_agency_code",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsPrcmDmndNo",
+              "target": "request_number",
+              "transform": "text"
+            },
+            {
+              "source": "odn1PlorNtnNm",
+              "target": "origin_country",
+              "transform": "text"
             }
           ],
           "required": true
@@ -1999,6 +2213,11 @@
               "source": "ctrtSharAmt",
               "target": "share_amount",
               "transform": "decimal"
+            },
+            {
+              "source": "jintSyddCmnMthoNm",
+              "target": "joint_method",
+              "transform": "text"
             }
           ],
           "required": false
@@ -2059,13 +2278,9 @@
           "transform": "text"
         },
         {
-          "source": "ctrtTyCd",
+          "source": "ctrtTyNm",
           "target": "contract_kind",
-          "transform": "code",
-          "codes": {
-            "계120001": "총액계약",
-            "계120002": "일반단가계약"
-          }
+          "transform": "text"
         },
         {
           "source": "ctrtChrsSeCd",
@@ -2173,21 +2388,6 @@
           "transform": "text"
         },
         {
-          "source": "ctrtDvofNm",
-          "target": "contract_officer",
-          "transform": "text"
-        },
-        {
-          "source": "ctrtSlcfNm",
-          "target": "finance_officer",
-          "transform": "text"
-        },
-        {
-          "source": "ctrtDpdrNm",
-          "target": "expenditure_officer",
-          "transform": "text"
-        },
-        {
           "source": "ctrtPicNm",
           "target": "staff",
           "transform": "text"
@@ -2221,11 +2421,6 @@
             {
               "source": "itemSpecVal",
               "target": "specification",
-              "transform": "text"
-            },
-            {
-              "source": "spplRgnNm",
-              "target": "region",
               "transform": "text"
             },
             {
@@ -2285,6 +2480,41 @@
             {
               "source": "ctrtItemSqno",
               "target": "source_item",
+              "transform": "text"
+            },
+            {
+              "source": "bidClsfNo",
+              "target": "ref_notice_class",
+              "transform": "text"
+            },
+            {
+              "source": "bidPbancItemSqno",
+              "target": "ref_notice_item",
+              "transform": "text"
+            },
+            {
+              "source": "dlvgdsPlacNm",
+              "target": "delivery_place",
+              "transform": "text"
+            },
+            {
+              "source": "dlvgdsTermNody",
+              "target": "delivery_days",
+              "transform": "integer"
+            },
+            {
+              "source": "dmstUntyGrpNo",
+              "target": "demand_agency_code",
+              "transform": "text"
+            },
+            {
+              "source": "ndfsPrcmDmndNo",
+              "target": "request_number",
+              "transform": "text"
+            },
+            {
+              "source": "odn1PlorNtnNm",
+              "target": "origin_country",
               "transform": "text"
             }
           ],

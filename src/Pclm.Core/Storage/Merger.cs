@@ -138,6 +138,7 @@ public sealed class Merger
         new("notice_schedule", ["notice_base", "seq", "line_no"], null, 규칙.부모따라, "공고 일정", "notice"),
         new("notice_officer_contact", ["notice_base", "seq", "line_no"], null, 규칙.부모따라, "수요기관 담당자", "notice"),
         new("notice_relation", ["notice_base", "seq", "line_no"], null, 규칙.부모따라, "관련공고", "notice"),
+        new("notice_restricted_industry", ["notice_base", "seq", "line_no"], null, 규칙.부모따라, "입찰참가 제한 업종", "notice"),
         new("contract_item", ["contract_base", "seq", "line_no"], null, 규칙.부모따라, "계약 품목", "contract"),
         new("erp_notice_attachment", ["notice_base", "seq", "line_no"], null, 규칙.부모따라, "공고 첨부", "notice"),
         new("erp_partner", ["contract_base", "seq", "line_no"], null, 규칙.부모따라, "계약 업체", "contract"),

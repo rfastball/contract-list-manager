@@ -1,7 +1,0 @@
-# 공공 GitLab push 보안 검사(Gitleaks) 오탐 예외
-[extend]
-useDefault = true
-
-[[allowlists]]
-description = "Chrome 확장 manifest의 key는 확장 ID 고정용 공개키"
-paths = ['''extension/manifest\.json$''']

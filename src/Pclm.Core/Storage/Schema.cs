@@ -20,7 +20,7 @@ namespace Pclm.Core.Storage;
 public static class Schema
 {
     /// <summary>스키마 판. 올릴 때마다 <see cref="Steps"/> 에 단계를 하나 더하고 이것도 하나 올린다.</summary>
-    public const int Version = 27;
+    public const int Version = 29;
 
     /// <summary><see cref="Baseline"/> 이 짓는 판. 이보다 옛 판은 받지 않는다.</summary>
     public const int BaselineVersion = 19;
@@ -32,7 +32,7 @@ public static class Schema
     /// 갓 지은 파일의 스키마가 조용히 갈린다 — <c>contract/schema.txt</c> 박제가 그것을 붙든다.
     /// 빈 파일도 기준선 뒤에 이것을 밟으므로 둘은 언제나 같은 길을 지난다.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27];
+    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27, V28, V29];
 
     /// <summary>
     /// 이 판을 <b>지나는</b> 작업자료에 서식용 예시 보기를 한 번 심는다(<see cref="Database.Migrate"/> — docs/user-views.md §13).
@@ -46,6 +46,82 @@ public static class Schema
     /// (<see cref="Store.UpgradeExampleViews"/> — docs/user-views.md §13). 고쳤거나 지운 보기는 그대로 둔다.
     /// </summary>
     public const int ExampleViewUpgradeVersion = 27;
+
+    /// <summary>
+    /// v28 → v29. <b>「채권자」 로 담던 칸이 실은 두 가지였다</b>(2026-10-16 사용자 결정). 물품·일반용역 공고의 <c>fncrNm</c> 은
+    /// 재무관(사람 이름)이고, 통합 조회의 <c>grnteCrdrNm</c>·옛 공고서의 「채권자」 는 늘 기관장 직함이라 뜻이 미정인 후보다. 둘이
+    /// <c>notice.creditor</c> 한 칸에 섞여 있었다. 열을 <c>finance_officer</c>(재무관)로 바꾸고, <b>재무관에서 왔다고 밝힐 수 있는
+    /// 값만</b> 남긴다.
+    ///
+    /// <para>출처는 수집이 남긴 기록에서 읽는다 — <c>erp_source.document_json</c> 의 공고 머리 줄에 칸마다 그 값을 담은 프로필
+    /// (<c>origins</c>)이 적혀 있다(저장이 이번 수집을 앞의 기록에 겹쳐 쌓는다). 그 칸을 마지막으로 채운 프로필이 공고 A(<c>fncrNm</c> 을 읽는 둘)이고 그
+    /// 기록의 값이 지금 표의 값과 같을 때만 남긴다. 기록이 없거나(옛 공고서·시험 표본), 통합 조회가 채웠거나, 사람이 수집을
+    /// 물리쳐 기록과 값이 갈렸으면 비운다 — 기관장 직함이 재무관 칸에 찍히는 것보다 빈 칸이 낫다. 비운 값은 다시 수집하면 선다.</para>
+    /// </summary>
+    private const string V29 = """
+        ALTER TABLE notice RENAME COLUMN creditor TO finance_officer;
+        UPDATE notice SET finance_officer = NULL
+        WHERE finance_officer IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM erp_source s, json_each(s.document_json, '$.rows') r
+              WHERE s.entity_type = 'notice' AND s.entity_base = notice.notice_base AND s.entity_seq = notice.seq
+                AND json_extract(r.value, '$.table') = 'notice'
+                AND json_extract(r.value, '$.origins.creditor') IN ('g2b-notice-a-v1', 'g2b-notice-a-service-v1')
+                AND json_extract(r.value, '$.values.creditor') = notice.finance_officer);
+        """;
+
+    /// <summary>
+    /// v27 → v28. <b>확정된 필드를 담을 자리</b>(ADR-043 — 아는 것은 전부 담는다). 뜻을 확인하고도 「쓰지 않는다」 는
+    /// 이유로 매핑에 들지 못했던 필드가 담길 열과 표를 더한다. 더하기만 한다 — 있던 열의 값은 그대로다.
+    ///
+    /// <para>새 열은 다른 수집 열처럼 NULL 로 선다. 계약면은 빈 값을 빈 문자열로 내므로(<see cref="Views"/>) 옛 줄의 새 칸은
+    /// 거기서 빈 문자열이다. 기본값을 <c>''</c> 로 두지 않는 것은 다시 수집할 때 「빈 문자열 → 걷지 않은 값」 이 바뀐 칸으로
+    /// 세어지지 않게 하려는 것이다 — 다른 열이 모두 그렇게 선다.</para>
+    ///
+    /// <para><c>notice_restricted_industry</c> 는 입찰참가 제한 업종명이다. 한 공고에 여럿이라 일정·담당자처럼 차수에 매단
+    /// 딸린 표이고, 공고 뷰에는 줄 차례대로 이어 붙인 한 칸으로 선다. 계약 품목의 입찰분류번호·입찰공고 품목순번
+    /// (<c>ref_notice_class</c>·<c>ref_notice_item</c>)은 적힌 그대로 담는 참조일 뿐 잇는 데 쓰지 않는다(ADR-040 의 명시
+    /// 참조는 그대로다).</para>
+    /// </summary>
+    private const string V28 = """
+        ALTER TABLE request ADD COLUMN notice_kind TEXT;
+        ALTER TABLE request ADD COLUMN estimated_price TEXT;
+        ALTER TABLE request_item ADD COLUMN classification_number TEXT;
+        ALTER TABLE request_item ADD COLUMN delivery_unit TEXT;
+
+        ALTER TABLE notice ADD COLUMN contract_law TEXT;
+        ALTER TABLE notice ADD COLUMN project_fee_total TEXT;
+        ALTER TABLE notice ADD COLUMN bid_status TEXT;
+        ALTER TABLE notice_item ADD COLUMN demand_agency_code TEXT;
+        ALTER TABLE notice_item ADD COLUMN classification_number TEXT;
+        ALTER TABLE notice_item ADD COLUMN item_identification_name TEXT;
+        ALTER TABLE notice_item ADD COLUMN spec_number TEXT;
+        ALTER TABLE notice_item ADD COLUMN request_number TEXT;
+
+        -- 입찰참가 제한 업종. 여럿일 수 있어 딸린 표다 — 공고 뷰에는 줄 차례대로 이어 붙인다.
+        CREATE TABLE notice_restricted_industry (
+            notice_base TEXT NOT NULL,
+            seq         TEXT NOT NULL,
+            line_no     INTEGER NOT NULL,
+            name        TEXT,
+            PRIMARY KEY (notice_base, seq, line_no),
+            FOREIGN KEY (notice_base, seq) REFERENCES notice(notice_base, seq) ON DELETE CASCADE
+        );
+
+        ALTER TABLE contract ADD COLUMN agency_officer_id TEXT;
+        ALTER TABLE contract ADD COLUMN foreign_allowed INTEGER;
+        ALTER TABLE contract ADD COLUMN contract_law TEXT;
+        ALTER TABLE contract ADD COLUMN price_adjustment_basis TEXT;
+        ALTER TABLE contract ADD COLUMN disclosure TEXT;
+        ALTER TABLE erp_partner ADD COLUMN joint_method TEXT;
+        ALTER TABLE contract_item ADD COLUMN ref_notice_class TEXT;
+        ALTER TABLE contract_item ADD COLUMN ref_notice_item TEXT;
+        ALTER TABLE contract_item ADD COLUMN delivery_place TEXT;
+        ALTER TABLE contract_item ADD COLUMN delivery_days INTEGER;
+        ALTER TABLE contract_item ADD COLUMN demand_agency_code TEXT;
+        ALTER TABLE contract_item ADD COLUMN request_number TEXT;
+        ALTER TABLE contract_item ADD COLUMN origin_country TEXT;
+        """;
 
     /// <summary>
     /// v26 → v27. <b>표는 그대로다.</b> 손대지 않은 예시 보기를 사람 이름이 앞서는 지금 구성으로 갈아 끼우는 일은

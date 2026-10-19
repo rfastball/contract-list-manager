@@ -12,6 +12,9 @@ type Props = {
   settings: Settings;
   display: DisplayPreferences;
   onDisplayChange: (preferences: DisplayPreferences) => void;
+  /** 표마다 켠 「기본으로 숨는 열」. 바꾸는 즉시 표에 선다. */
+  shownColumns: ShownColumns;
+  onShownColumnsChange: (shown: ShownColumns) => void;
   onExportExcel: () => Promise<void>;
   exportBusy: boolean;
   onViewsImported: () => void;
@@ -71,13 +74,49 @@ export function useDisplayPreferences() {
 }
 
 /**
+ * 표마다 사람이 켠 「기본으로 숨는 열」 — 표의 뷰 이름 → 켠 열 이름. 차수 표는 본 표의 것을 따른다.
+ *
+ * <p>새로 담기 시작한 필드의 열은 표에서 기본으로 숨는다(ADR-043 결정 5). 무엇이 숨는지는 다리가 시트와 함께 보내고
+ * (<code>Sheet.hidden</code>), 여기는 사람이 켠 것만 든다 — 켜지 않은 열은 숨고, 지금 보이는 열은 그대로 보인다.
+ * 글자 크기·테마처럼 이 컴퓨터의 것이라 자료가 아니라 브라우저 저장소에 둔다.</p>
+ */
+export type ShownColumns = Record<string, string[]>;
+const SHOWN_KEY = "pclm.shownColumns";
+export function useShownColumns() {
+  const [shown, setShown] = useState<ShownColumns>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? "null");
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+      return Object.fromEntries(Object.entries(saved as Record<string, unknown>)
+        .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+        .map(([view, names]) => [view, names.filter((n): n is string => typeof n === "string")]));
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SHOWN_KEY, JSON.stringify(shown)); } catch { /* 저장 제한 중에도 현재 창에는 적용한다. */ }
+  }, [shown]);
+  return [shown, setShown] as const;
+}
+
+/**
+ * 설정이 늘어놓는 표 — 숨는 열이 있는 표만 선다. 차수 표(<code>v_공고차수</code>·<code>v_계약차수</code>·
+ * <code>v_통합차수</code>)는 본 표와 같은 열 한 벌이라 본 표의 선택을 따른다.
+ */
+const SHOWN_TABLES: { view: string; name: string }[] = [
+  { view: "v_통합", name: "대시보드 표" },
+  { view: "v_접수", name: "접수" },
+  { view: "v_공고", name: "공고" },
+  { view: "v_계약", name: "계약" },
+];
+
+/**
  * 설정. 자료 관리·제출과 취합·화면 표시·보기 구성·앱 실행·정보(판과 라이선스).
  *
  * <p>자료는 확장과 ERP JSON 으로 들어온다(ADR-028). 그 둘을 까는 자리는 설정이 아니라 왼쪽 메뉴의 나라장터다 —
  * 설정에는 열 관리·나라장터로 가는 중복 진입점을 두지 않는다.</p>
  */
 export function SettingsPanel({
-  settings, onSave, onClose, display, onDisplayChange, onExportExcel, exportBusy, onViewsImported,
+  settings, onSave, onClose, display, onDisplayChange, shownColumns, onShownColumnsChange, onExportExcel, exportBusy, onViewsImported,
   onPickPlanExcel, onImportPlan, onSubmit, onMerge,
   location, onRevealData, readOnly = false, onOpenOther,
   windowPrefs = null, onSaveWindowPrefs,
@@ -198,6 +237,7 @@ export function SettingsPanel({
     { id: "set-share", name: "제출·취합" },
     ...(PLANNING_ENABLED ? [{ id: "set-plan", name: "계획 엑셀" }] : []),
     { id: "set-display", name: "화면 표시" },
+    { id: "set-columns", name: "표의 추가 열" },
     ...(USER_VIEWS_ENABLED ? [{ id: "set-views", name: "보기 구성" }] : []),
     ...(showWindow ? [{ id: "set-window", name: "앱 실행" }] : []),
   ];
@@ -386,6 +426,7 @@ export function SettingsPanel({
           </div>
           <p className="hint">바꾸는 즉시 적용되며 이 컴퓨터에 저장합니다.</p>
         </section>
+        <ShownColumnsSection shown={shownColumns} onChange={onShownColumnsChange} />
         {USER_VIEWS_ENABLED && <section className="set" id="set-views" aria-labelledby="set-views-h">
           <h3 id="set-views-h">보기 구성</h3>
           <ViewPackages readOnly={readOnly} onImported={onViewsImported} />
@@ -514,6 +555,53 @@ function ConfirmSwitch({ plan, busy, onConfirm, onClose }: {
         </button>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * 「표의 추가 열」 절 — 표마다 기본으로 숨는 열을 늘어놓고 켜고 끈다(ADR-043 결정 5). 무엇이 숨는지는 다리의 한 벌
+ * (<code>hiddenColumns</code>)을 읽는다. 누르는 그 자리에서 표에 서고 이 컴퓨터에 남는다. 열람 창에서도 된다 — 자료가 아니라
+ * 보는 모양이다.
+ */
+function ShownColumnsSection({ shown, onChange }: { shown: ShownColumns; onChange: (shown: ShownColumns) => void }) {
+  const [hidden, setHidden] = useState<Record<string, string[]> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let live = true;
+    call<Record<string, string[]>>("hiddenColumns").then(
+      (map) => { if (live) setHidden(map); },
+      (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { live = false; };
+  }, []);
+
+  const toggle = (view: string, column: string, on: boolean) => {
+    const mine = shown[view] ?? [];
+    onChange({ ...shown, [view]: on ? [...mine.filter((c) => c !== column), column] : mine.filter((c) => c !== column) });
+  };
+
+  const tables = SHOWN_TABLES.filter((t) => (hidden?.[t.view]?.length ?? 0) > 0);
+  return (
+    <section className="set" id="set-columns" aria-labelledby="set-columns-h">
+      <h3 id="set-columns-h">표의 추가 열</h3>
+      <p className="hint">새로 담기 시작한 열은 표에서 접어 둡니다. 켠 열은 그 표의 끝에 보입니다. 전체 자료 내보내기에는 늘 담깁니다.</p>
+      {error ? <p className="hint" role="alert">{error}</p>
+        : hidden === null ? <p className="hint">읽는 중…</p>
+        : tables.map((table) => (
+          <fieldset className="set-group shown-columns" key={table.view}>
+            <legend>{table.name}</legend>
+            {hidden[table.view].map((column) => (
+              <label className="check" key={column}>
+                <input
+                  type="checkbox"
+                  checked={(shown[table.view] ?? []).includes(column)}
+                  onChange={(e) => toggle(table.view, column, e.target.checked)}
+                />
+                <span>{column}</span>
+              </label>
+            ))}
+          </fieldset>
+        ))}
+    </section>
   );
 }
 

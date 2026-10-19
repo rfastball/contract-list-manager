@@ -9,7 +9,7 @@ import { PLANNING_ENABLED, USER_VIEWS_ENABLED } from "./features";
 import { Dock } from "./Mirror";
 import { KINDS, NaraPanel, SourceChain, use들어옴, 원천상태, 브라우저이름, type Kind } from "./Nara";
 import { Outline, initialOutlineState, type OutlineState } from "./Outline";
-import { SettingsPanel, useDisplayPreferences } from "./SettingsPanel";
+import { SettingsPanel, useDisplayPreferences, useShownColumns } from "./SettingsPanel";
 import { Status } from "./Status";
 import { UserViews } from "./views/UserViews";
 import type {
@@ -144,6 +144,7 @@ const 거르개풀기 = (packed: string) => {
 
 export function App() {
   const [display, setDisplay] = useDisplayPreferences();
+  const [shownColumns, setShownColumns] = useShownColumns();
   const [tab, setTab] = useState<Tab>("통합");
   const [dashboardShape, setDashboardShape] = useState<Shape>("브리핑");
   const [listShape, setListShape] = useState<Exclude<Shape, "브리핑">>("구조");
@@ -684,9 +685,19 @@ export function App() {
    * 열람 중이면 고칠 수 있는 칸이 없다. 다리가 이미 빈 채로 보내지만 여기서도 비운다 — 다리가 답하기 전의
    * 낡은 표나 가짜 다리가 칸을 열어 두어도, 넣는 순간 거절당할 칸을 고칠 수 있는 것처럼 그리지 않는다.
    */
-  const 보이는시트 = readOnly && 거른시트
+  const 고칠시트 = readOnly && 거른시트
     ? { ...거른시트, editable: [], correctable: [], overrides: {} }
     : 거른시트;
+
+  /**
+   * 기본으로 숨는 열(다리가 시트와 함께 보낸다, ADR-043 결정 5)은 사람이 설정에서 켠 것만 남긴다. <b>Grid 는 건드리지
+   * 않는다</b> — 받은 열을 그리는 것이 전부라, 복사·현재 표 내보내기도 보이는 열만 담는다. 차수 표는 본 표의 선택을 따른다.
+   * 엑셀 전체 내보내기는 다리가 뷰를 그대로 싣는다.
+   */
+  const 켠열 = tab === "현황" || tab === "나라장터" ? [] : shownColumns[SHEETS[tab].view] ?? [];
+  const 보이는시트 = 고칠시트 && 고칠시트.hidden?.length
+    ? { ...고칠시트, columns: 고칠시트.columns.filter((c) => !고칠시트.hidden!.includes(c) || 켠열.includes(c)) }
+    : 고칠시트;
 
   /** 지금 보고 있는 갈래. 그 갈래로 들어온 것은 이미 본 것이라 +N 에 세지 않는다. */
   const arrivals = use들어옴(captures, isKind(tab) ? tab : null);
@@ -1034,6 +1045,8 @@ export function App() {
           settings={settings}
           display={display}
           onDisplayChange={setDisplay}
+          shownColumns={shownColumns}
+          onShownColumnsChange={setShownColumns}
           onExportExcel={exportExcel}
           exportBusy={saving}
           onViewsImported={() => void reloadViewConfiguration()}

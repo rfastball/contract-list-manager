@@ -101,7 +101,7 @@ const tree: Tree = {
     },
     // 취소 뒤 재공고로 본번호가 갈린 건. 사슬은 하나이고 본문에는 재공고가 선다.
     {
-      key: "MBKLMH26930006/R26BK09011054", // gitleaks:allow (테스트 데이터)
+      key: "MBKLMH26930006/R26BK09011054",
       request: 접수("MBKLMH26930006", "가스성분분석기 요청", ["MBKLMH26930006"]),
       notice: {
         groupBase: "R26BK09011054",
@@ -259,7 +259,7 @@ describe("Outline", () => {
       <Outline
         tree={{
           chains: [{
-            key: "MBKLMH26930009/R26BK09011054", // gitleaks:allow (테스트 데이터)
+            key: "MBKLMH26930009/R26BK09011054",
             request: 접수("MBKLMH26930009", "서로 가리키는 건", ["MBKLMH26930009"]),
             notice: {
               groupBase: "R26BK09011054",

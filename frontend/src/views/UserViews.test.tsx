@@ -151,7 +151,8 @@ describe("보기", () => {
     // 같은 낱말 — 화면을 읽는 이름도 열·열 목록·내 보기가다.
     expect(screen.getByRole("navigation", { name: "내 보기" })).toBeTruthy();
     expect(screen.getByRole("complementary", { name: "열 목록" })).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/사용자 뷰|레코드|기준|연결계약/);
+    // 「기준」 은 낱말로만 본다 — 열 목록의 필드 이름(물가변동적용기준)은 화면의 말이 아니라 자료의 이름이다.
+    expect(document.body.textContent).not.toMatch(/사용자 뷰|레코드|(?<![가-힣])기준|연결계약/);
   });
 
   /** 실패를 삼키면 줄은 「계산 중」 에, 고르개는 「맞는 미리보기 자료가 없습니다」 에 머물러 무엇이 잘못됐는지 알 길이 없다. */

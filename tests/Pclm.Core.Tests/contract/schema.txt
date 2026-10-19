@@ -59,7 +59,7 @@ CREATE TABLE contract (
     acceptance_agency          TEXT,
     counterparty_number        TEXT REFERENCES counterparty(business_number),
     source_sha256              TEXT,
-    updated_at                 TEXT NOT NULL, first_contracted_on TEXT, guarantee_rate TEXT, guarantee_amount TEXT, guarantee_method TEXT, stamp_tax TEXT, advance_notice TEXT, advance_notice_rate TEXT, warranty_years TEXT, warranty_months TEXT, ref_request_base TEXT, ref_notice_base TEXT, contract_officer TEXT, finance_officer TEXT, expenditure_officer TEXT, staff TEXT,
+    updated_at                 TEXT NOT NULL, first_contracted_on TEXT, guarantee_rate TEXT, guarantee_amount TEXT, guarantee_method TEXT, stamp_tax TEXT, advance_notice TEXT, advance_notice_rate TEXT, warranty_years TEXT, warranty_months TEXT, ref_request_base TEXT, ref_notice_base TEXT, contract_officer TEXT, finance_officer TEXT, expenditure_officer TEXT, staff TEXT, agency_officer_id TEXT, foreign_allowed INTEGER, contract_law TEXT, price_adjustment_basis TEXT, disclosure TEXT,
     PRIMARY KEY (contract_base, seq)
 )
 
@@ -90,7 +90,7 @@ CREATE TABLE "contract_item" (
     unit_price            TEXT,
     amount                TEXT,
     demand_agency         TEXT,
-    delivery_due          TEXT, ref_request_base TEXT, ref_request_seq TEXT, source_item TEXT,
+    delivery_due          TEXT, ref_request_base TEXT, ref_request_seq TEXT, source_item TEXT, ref_notice_class TEXT, ref_notice_item TEXT, delivery_place TEXT, delivery_days INTEGER, demand_agency_code TEXT, request_number TEXT, origin_country TEXT,
     PRIMARY KEY (contract_base, seq, line_no),
     FOREIGN KEY (contract_base, seq) REFERENCES contract(contract_base, seq) ON DELETE CASCADE
 )
@@ -144,7 +144,7 @@ CREATE TABLE erp_notice_attachment (notice_base TEXT NOT NULL, seq TEXT NOT NULL
 table erp_partner
 CREATE TABLE erp_partner (contract_base TEXT NOT NULL, seq TEXT NOT NULL, line_no INTEGER NOT NULL,
     source_id TEXT, name TEXT, business_number TEXT, representative TEXT, address TEXT, phone TEXT, fax TEXT,
-    share_rate TEXT, share_amount TEXT, PRIMARY KEY(contract_base,seq,line_no),
+    share_rate TEXT, share_amount TEXT, joint_method TEXT, PRIMARY KEY(contract_base,seq,line_no),
     FOREIGN KEY(contract_base,seq) REFERENCES contract(contract_base,seq) ON DELETE CASCADE)
 
 table erp_row
@@ -183,7 +183,7 @@ CREATE TABLE notice (
     contract_method          TEXT,
     contract_kind            TEXT,
     international_kind       TEXT,
-    creditor                 TEXT,
+    finance_officer                 TEXT,
     rebid_allowed            INTEGER,
     partial_delivery_allowed INTEGER,
     warranty_months          INTEGER,
@@ -202,7 +202,7 @@ CREATE TABLE notice (
     foreign_allowed          INTEGER,
     research_item            INTEGER,
     source_sha256            TEXT,
-    updated_at               TEXT NOT NULL, warranty_month_part TEXT, bid_opens_at TEXT, bid_closes_at TEXT, opening_at TEXT, registration_closes_at TEXT, change_reason TEXT, vat TEXT, source_status TEXT, delivery_term_text TEXT, warranty_years TEXT, warranty_text TEXT,
+    updated_at               TEXT NOT NULL, warranty_month_part TEXT, bid_opens_at TEXT, bid_closes_at TEXT, opening_at TEXT, registration_closes_at TEXT, change_reason TEXT, vat TEXT, source_status TEXT, delivery_term_text TEXT, warranty_years TEXT, warranty_text TEXT, contract_law TEXT, project_fee_total TEXT, bid_status TEXT,
     PRIMARY KEY (notice_base, seq)
 )
 
@@ -224,7 +224,7 @@ CREATE TABLE "notice_item" (
     unit_price         TEXT,
     delivery_days      INTEGER,
     delivery_place     TEXT,
-    delivery_terms     TEXT, delivery_due TEXT, ref_request_base TEXT, ref_request_seq TEXT, ref_request_item TEXT, source_class TEXT, source_item TEXT,
+    delivery_terms     TEXT, delivery_due TEXT, ref_request_base TEXT, ref_request_seq TEXT, ref_request_item TEXT, source_class TEXT, source_item TEXT, demand_agency_code TEXT, classification_number TEXT, item_identification_name TEXT, spec_number TEXT, request_number TEXT,
     PRIMARY KEY (notice_base, seq, line_no),
     FOREIGN KEY (notice_base, seq) REFERENCES notice(notice_base, seq) ON DELETE CASCADE
 )
@@ -249,6 +249,16 @@ CREATE TABLE notice_relation (
     seq         TEXT NOT NULL,
     line_no     INTEGER NOT NULL,  -- 적힌 차례. 원문은 최신에서 과거 순으로 적는다
     related     TEXT NOT NULL, related_base TEXT, related_seq  TEXT,     -- 관련공고 번호. 꼴을 검사하지 않고 적힌 그대로 담는다
+    PRIMARY KEY (notice_base, seq, line_no),
+    FOREIGN KEY (notice_base, seq) REFERENCES notice(notice_base, seq) ON DELETE CASCADE
+)
+
+table notice_restricted_industry
+CREATE TABLE notice_restricted_industry (
+    notice_base TEXT NOT NULL,
+    seq         TEXT NOT NULL,
+    line_no     INTEGER NOT NULL,
+    name        TEXT,
     PRIMARY KEY (notice_base, seq, line_no),
     FOREIGN KEY (notice_base, seq) REFERENCES notice(notice_base, seq) ON DELETE CASCADE
 )
@@ -350,7 +360,7 @@ CREATE TABLE request (
     agency_phone      TEXT,
     agency_fax        TEXT,
     source_sha256     TEXT,
-    updated_at        TEXT NOT NULL, advance_notice_rate TEXT,
+    updated_at        TEXT NOT NULL, advance_notice_rate TEXT, notice_kind TEXT, estimated_price TEXT,
     PRIMARY KEY (request_base, seq)
 )
 
@@ -379,7 +389,7 @@ CREATE TABLE request_item (
     delivery_place     TEXT,
     stock_number       TEXT,
     spec_number        TEXT,
-    expense_request_number TEXT, ref_request_base TEXT, ref_request_seq TEXT, ref_request_item TEXT,
+    expense_request_number TEXT, ref_request_base TEXT, ref_request_seq TEXT, ref_request_item TEXT, classification_number TEXT, delivery_unit TEXT,
     PRIMARY KEY (request_base, seq, line_no),
     FOREIGN KEY (request_base, seq) REFERENCES request(request_base, seq) ON DELETE CASCADE
 )

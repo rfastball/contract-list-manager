@@ -501,6 +501,81 @@ it("표시 설정은 즉시 적용하고 다시 열어도 유지하며 시스템
   expect(document.documentElement.dataset.theme).toBeUndefined();
 });
 
+/**
+ * 새로 담기 시작한 열은 표에서 기본으로 숨는다(ADR-043 결정 5). 숨는 것은 다리가 시트와 함께 보낸 열뿐이고, 켠 것은 그 표에만
+ * 서고 이 컴퓨터에 남는다. 지금 보이는 열은 그대로다.
+ */
+describe("설정 — 표의 추가 열", () => {
+  const 머리 = (name: string) => screen.queryByRole("columnheader", { name });
+
+  it("기본으로 숨는 열은 표에 없고, 설정에서 켜면 그 표에만 서고 다시 열어도 남는다", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
+    await screen.findByRole("columnheader", { name: "현행공고" });
+    expect(머리("계약법구분")).toBeNull();
+    expect(머리("입찰진행상태")).toBeNull();
+    expect(머리("검토여부")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "설정" }));
+    const dialog = await screen.findByRole("dialog", { name: "설정" });
+    expect(within(dialog).getByRole("heading", { name: "표의 추가 열" })).toBeTruthy();
+    const 공고 = within(await within(dialog).findByRole("group", { name: "공고" }));
+    expect(공고.getAllByRole("checkbox").map((c) => c.closest("label")!.textContent))
+      .toEqual(["계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태", "재무관"]);
+    expect(within(within(dialog).getByRole("group", { name: "접수" })).getAllByRole("checkbox").map((c) => c.closest("label")!.textContent))
+      .toEqual(["공고종류", "추정가격"]);
+    await user.click(공고.getByRole("checkbox", { name: "계약법구분" }));
+    expect((공고.getByRole("checkbox", { name: "계약법구분" }) as HTMLInputElement).checked).toBe(true);
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+
+    // 켠 열은 숨기 전의 제자리(기본 열의 끝, 사람 열 앞)에 선다. 켜지 않은 열은 그대로 숨는다.
+    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
+    expect(within(screen.getByRole("table")).getAllByText("국가계약법").length).toBeGreaterThan(0);
+    expect(머리("입찰진행상태")).toBeNull();
+    const 머리들 = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(머리들.findIndex((t) => t?.startsWith("계약법구분"))).toBeGreaterThan(머리들.findIndex((t) => t?.startsWith("현행공고")));
+    expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual({ "v_공고": ["계약법구분"] });
+
+    // 다른 표에는 번지지 않는다 — 접수의 계약법구분은 본디 보이는 열이고, 계약의 것은 계약 표의 선택을 따른다.
+    await user.click(screen.getByRole("tab", { name: /^계약/ }));
+    await screen.findByRole("columnheader", { name: "상대자팩스" });
+    expect(머리("계약법구분")).toBeNull();
+    expect(머리("공동수급구성방식")).toBeNull();
+
+    // 다시 열어도 남는다. 차수 표는 본 표의 선택을 따른다.
+    cleanup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
+    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "전체 차수" }));
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", ["v_공고차수"]));
+    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
+    expect(머리("입찰진행상태")).toBeNull();
+  });
+
+  it("현재 표 내보내기는 보이는 열만 담는다", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
+    await screen.findByRole("columnheader", { name: "현행공고" });
+    await user.click(screen.getByLabelText("엑셀 내보내기"));
+    await user.click(screen.getByRole("button", { name: /^검색 결과 \d+행 내보내기$/ }));
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("exportSheet", ["공고 목록", expect.any(String)]));
+    const sent = JSON.parse(부름.mock.calls.find(([m]) => m === "exportSheet")![1][1] as string) as { columns: string[] };
+    expect(sent.columns).toContain("현행공고");
+    expect(sent.columns).not.toContain("계약법구분");
+    expect(sent.columns).not.toContain("입찰진행상태");
+  });
+
+  it("저장소가 깨져 있으면 아무 열도 켜지 않은 채로 연다", async () => {
+    localStorage.setItem("pclm.shownColumns", "{깨진");
+    const { dialog } = await 설정열기();
+    const 공고 = within(await within(dialog).findByRole("group", { name: "공고" }));
+    expect(공고.getAllByRole("checkbox").every((c) => !(c as HTMLInputElement).checked)).toBe(true);
+  });
+});
+
 it("보기 구성을 가져오면 사이드바와 열 정의를 다시 읽는다", async () => {
   const current = await 본디("userViews", []) as UserView[];
   const added = { ...current[0], id: "imported-dashboard-test", name: "가져온 보고서" };

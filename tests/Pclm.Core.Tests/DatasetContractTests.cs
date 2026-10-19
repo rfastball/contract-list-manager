@@ -174,6 +174,26 @@ public class DatasetContractTests : IDisposable
     }
 
     /// <summary>
+    /// 표에서 기본으로 숨기는 열(<see cref="Views.HiddenByDefault"/>)이 그 뷰에 실제로 있고, 면 뷰에서는 <b>기본 열의 끝</b>에
+    /// 이어 선다(ADR-043 결정 5). 이름이 어긋나면 화면은 없는 열을 숨기고 새 열은 그대로 펼친다 — 아무것도 실패하지 않는다.
+    /// 끝에 덧붙지 않고 사이에 끼면 지금 보이는 열의 자리가 밀린다.
+    /// </summary>
+    [Fact]
+    public void 기본으로_숨기는_열은_그_뷰에_있고_기본_열의_끝에_선다()
+    {
+        foreach (var (view, hidden) in Views.HiddenByDefault)
+        {
+            Assert.Contains(view, Views.Names);
+            var columns = ColumnsOf(view);
+            foreach (var column in hidden) Assert.True(columns.Contains(column), $"{view} 에 {column} 이 없습니다");
+        }
+        foreach (var (view, entity) in new[] { ("v_공고", "notice"), ("v_계약", "contract"), ("v_접수", "request") })
+            Assert.Equal(Views.HiddenByDefault[view], Views.BaseColumns(entity).TakeLast(Views.HiddenByDefault[view].Count));
+        foreach (var view in new[] { "v_공고품목", "v_계약품목", "v_접수품목" })
+            Assert.Equal(Views.HiddenByDefault[view], ColumnsOf(view).TakeLast(Views.HiddenByDefault[view].Count));
+    }
+
+    /// <summary>
     /// 판을 붙여 부르던 옛 이름의 뷰가 남은 DB 를 열면 <b>하나도 남지 않는다</b>(ADR-034).
     ///
     /// <para>남으면 받는 쪽이 그것을 시트로 늘어놓고, 옛 뷰가 가리키던 표가 바뀌는 순간 깨진

@@ -433,6 +433,7 @@ public static class Mirror
         table.EndsWith("_item", StringComparison.Ordinal) ? "품목"
         : table == "notice_schedule" ? "일정"
         : table == "notice_officer_contact" ? "담당자"
+        : table == "notice_restricted_industry" ? "제한 업종"
         : table.EndsWith("_attachment", StringComparison.Ordinal) ? "첨부"
         : table == "erp_partner" ? "계약상대자"
         : table;

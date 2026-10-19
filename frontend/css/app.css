@@ -418,6 +418,10 @@ table.outline-items .num { text-align: right; font-variant-numeric: tabular-nums
 .set .check-hint { margin: 0 0 var(--sp-8); padding-left: 26px; }
 .set .check-hint:last-child { margin-bottom: 0; }
 
+/* 표의 추가 열 — 표마다 한 무리. 칸은 창 폭에 맞춰 여러 줄로 흐른다. 머리는 절 안의 h4 와 같은 말투다. */
+.shown-columns { margin: var(--sp-16) 0 0; padding: 0; border: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); column-gap: var(--sp-16); }
+.shown-columns legend { padding: 0; margin-bottom: var(--sp-6); font-size: var(--fs-body); font-weight: 650; }
+
 .field { display: block; margin-bottom: var(--sp-16); }
 .field .label { display: block; font-weight: 600; margin-bottom: var(--sp-6); }
 /* 구역 안에서 칸 하나에 다시 이름을 다는 자리. 구역 머리와 같은 굵기로 서면 둘 중 무엇이

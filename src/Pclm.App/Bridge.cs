@@ -70,7 +70,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "session", "status", "dashboard", "dataVersion", "현황", "sheet", "outline", "userColumns", "columnContext",
         "traceComputedColumn", "compileComputedColumn", "validateComputedSql", "planFreezeColumn",
         "userViews", "userViewContext", "traceUserViewColumn", "userViewSamples", "previewUserView", "exportViewPackage",
-        "deletionPlan", "settings",
+        "deletionPlan", "settings", "hiddenColumns",
         "extensionStatus", "captures", "mirror",
         "export", "exportSheet", "dataLocation", "revealDataFolder", "about", "openOther",
         // 창을 닫을 때 물을지와 정말 닫기. 자료가 아니라 창의 일이다.
@@ -246,6 +246,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "dataVersion" => DataVersion(),
         "현황" => new Pclm.Core.Storage.Status(_database).Report(),
         "sheet" => ReadSheet(Require(args, 0)),
+        // 표에서 기본으로 숨기는 열(ADR-043 결정 5) — 설정이 표마다 켤 수 있는 열을 늘어놓는다. 정본은 Views 한 벌이다.
+        "hiddenColumns" => Views.HiddenByDefault,
         "outline" => ReadOutline(),
         "userColumns" => UserColumns(args.ElementAtOrDefault(0)),
         "columnContext" => _store.ColumnContext(Require(args, 0)),
@@ -857,6 +859,9 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                                 && !elsewhere.Contains(c))
                     .ToList(),
             overrides = 읽기전용 ? [] : Overrides(entityType),
+            // 표에서 기본으로 숨기는 열(ADR-043 결정 5). 화면은 사람이 설정에서 켠 것만 펼친다 — 뷰와 엑셀 전체 내보내기는 그대로다.
+            // 시트와 함께 보내 표가 숨길 열을 모른 채 먼저 그려지는 일이 없게 한다.
+            hidden = Views.HiddenByDefault.GetValueOrDefault(view) ?? [],
             rows,
         };
     }

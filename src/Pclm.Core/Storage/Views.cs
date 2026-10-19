@@ -170,6 +170,8 @@ public static class Views
         "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
         "수요기관", "검사기관", "검수기관",
         "계약상대자", "대표자", "사업자등록번호", "상대자주소", "상대자전화", "상대자팩스",
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        "수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식",
     ];
 
     /// <summary>
@@ -188,6 +190,10 @@ public static class Views
         "수요기관", "세부품명", "세부품명번호", "수량", "단위", "납품기한", "인도조건",
         "담당부서", "담당자", "담당자전화", "담당자팩스",
         "관련공고", "공고건", "현행공고",
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        "계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태",
+        // 재무관(fncrNm). 「채권자」 로 담던 칸을 바로 읽은 것이다(스키마 V29).
+        "재무관",
     ];
 
     /// <inheritdoc cref="NoticeColumns"/>
@@ -200,7 +206,35 @@ public static class Views
         "외국산여부", "요청구분", "공개여부", "전담관", "담당과", "담당자", "선급금선고지", "선급금지급가능", "기타사항",
         "수요기관", "수요기관코드", "기관담당자", "기관담당자전화", "기관담당자팩스",
         "세부품명", "세부품명번호", "수량", "단위", "인도조건", "납품기한", "재고번호",
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        "공고종류", "추정가격",
     ];
+
+    /// <summary>
+    /// 표에서 <b>기본으로 숨기는 열</b> — 뷰마다(ADR-043 결정 5). 확정되어 새로 담기 시작한 필드의 열이다. 계약면에는 그대로
+    /// 있고(소비자·엑셀 내보내기는 전부를 받는다), 화면의 표만 보는 사람이 설정에서 켤 때까지 접어 둔다 — 지금 보이는 열은
+    /// 그대로 보인다. 화면은 이 한 벌을 다리(<c>Bridge</c>)로 받는다. 두 벌로 적으면 새 열을 더하고 여기를 빠뜨려도 아무것도
+    /// 실패하지 않고 표가 넓어지기만 하므로, 시험이 실제 뷰의 열과 대조한다.
+    ///
+    /// <para>계약 열은 <c>v_통합</c>·<c>v_통합차수</c> 에도 이름 그대로 실리므로(<see cref="ContractColumns"/>) 거기서도 숨긴다.
+    /// 공고·계약 열은 차수 뷰가 같은 열 한 벌을 쓴다.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> HiddenByDefault { get; } = Hidden();
+
+    private static Dictionary<string, IReadOnlyList<string>> Hidden()
+    {
+        string[] notice = ["계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태", "재무관"];
+        string[] contract = ["수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식"];
+        return new(StringComparer.Ordinal)
+        {
+            ["v_공고"] = notice, ["v_공고차수"] = notice,
+            ["v_공고품목"] = ["수요기관코드", "물품분류번호", "물품식별명", "규격번호", "조달요구번호"],
+            ["v_계약"] = contract, ["v_계약차수"] = contract, ["v_통합"] = contract, ["v_통합차수"] = contract,
+            ["v_계약품목"] = ["입찰분류번호", "입찰공고품목순번", "납품장소", "납품일수", "수요기관코드", "조달요구번호", "원산지"],
+            ["v_접수"] = ["공고종류", "추정가격"],
+            ["v_접수품목"] = ["물품분류번호", "납품부대명"],
+        };
+    }
 
     /// <summary>
     /// 이 자료 종류의 <b>기본 열</b> — 사람이 세운 열을 뺀 면 뷰의 열. 가공열의 원천으로 쓸 수 있는 것이 이것뿐이다
@@ -436,6 +470,18 @@ public static class Views
         (SELECT group_concat(v, ',') FROM (
             SELECT x.related AS v FROM notice_relation x
             WHERE x.notice_base = n.notice_base AND x.seq = n.seq
+            ORDER BY x.line_no))
+        """;
+
+    /// <summary>
+    /// 입찰참가 제한 업종명을 <b>줄 차례대로</b> <c>", "</c> 로 잇는다. 줄 하나가 업종 하나다 — 하나로 정할 수 없는 것을
+    /// 하나인 양 내지 않으려고 모두 잇는다(<see cref="RequestNumbers"/> 와 같은 이음쇠).
+    /// </summary>
+    private const string RestrictedIndustries = """
+        (SELECT group_concat(v, ', ') FROM (
+            SELECT x.name AS v FROM notice_restricted_industry x
+            WHERE x.notice_base = n.notice_base AND x.seq = n.seq
+              AND x.name IS NOT NULL AND x.name <> ''
             ORDER BY x.line_no))
         """;
 
@@ -927,7 +973,16 @@ public static class Views
             -- 키 열이라 Face 로 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 이 공고가 다른
             -- 건에 속한 것처럼 보이기만 한다(Views.KeyColumns).
             {Text(공고건("n.notice_base"))} AS 공고건,
-            {Text(건현행(공고건("n.notice_base"), "현행.notice_base || '-' || 현행.seq"))} AS 현행공고{noticeColumns}
+            {Text(건현행(공고건("n.notice_base"), "현행.notice_base || '-' || 현행.seq"))} AS 현행공고,
+
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 저쪽에 저장된 필드 연결이
+            -- 끊기지 않고, 표에서는 기본으로 숨는다(HiddenByDefault). 제한 업종은 여럿이라 줄 차례대로 잇는다.
+            {N("계약법구분", Text("n.contract_law"))},
+            {N("사업금액수수료합계", Money("n.project_fee_total"))},
+            {N("입찰참가제한업종", Text(RestrictedIndustries))},
+            {N("입찰진행상태", Text("n.bid_status"))},
+            -- 재무관(fncrNm). 공고담당자·집행관과 다른 사람이다. 「채권자」 로 섞여 담기던 것을 갈랐다(스키마 V29).
+            {N("재무관", Text("n.finance_officer"))}{noticeColumns}
         """;
 
     /// <summary>
@@ -971,7 +1026,16 @@ public static class Views
             {C("사업자등록번호", Text(PartyField("business_number")))},
             {C("상대자주소", Text(PartyField("address")))},
             {C("상대자전화", Text(PartyField("phone")))},
-            {C("상대자팩스", Text(PartyField("fax")))}{contractColumns}
+            {C("상대자팩스", Text(PartyField("fax")))},
+
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            {C("수요기관담당자ID", Text("c.agency_officer_id"))},
+            {C("외국산여부", YesNoWord("c.foreign_allowed"))},
+            {C("계약법구분", Text("c.contract_law"))},
+            {C("물가변동적용기준", Text("c.price_adjustment_basis"))},
+            {C("공개여부", Text("c.disclosure"))},
+            -- 공동수급 구성방식은 수집한 업체 줄에만 있다. 업체가 하나일 때만 싣는다 — 상대자 칸과 같은 규칙이다.
+            {C("공동수급구성방식", Text(PartnerOnly("joint_method")))}{contractColumns}
         """;
 
     /// <summary>
@@ -1031,12 +1095,24 @@ public static class Views
             {R("납품기한", Text(UniformRequestItem(RequestDeadline("i.delivery_due", "i.delivery_days"))))},
             -- 재고번호도 같은 규칙이지만 세부품명 옆이 아니라 끝에 붙인다 — 계약면은
             -- 늘리기만 하는 자리라, 사이에 끼우면 뒤 열의 엑셀 자리가 한 칸씩 밀린다.
-            {R("재고번호", Text(UniformRequestItem("i.stock_number")))}{requestColumns}
+            {R("재고번호", Text(UniformRequestItem("i.stock_number")))},
+
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            {R("공고종류", Text("r.notice_kind"))},
+            {R("추정가격", Money("r.estimated_price"))}{requestColumns}
         """;
 
     /// <summary>접수의 덮개. <see cref="N"/> 과 같다.</summary>
     private static string R(string name, string expression) =>
         Face("request", "r.request_base", "r.seq", name, expression);
+
+    /// <summary>
+    /// 수집한 업체 줄에만 있는 칸. <see cref="PartyField"/> 와 같은 규칙이되 상대자 표(<c>counterparty</c>)에는 이 칸이 없어
+    /// 물러설 자리가 없다 — 업체 줄이 하나일 때만 그 값이고, 없거나 여럿이면 빈 값이다.
+    /// </summary>
+    private static string PartnerOnly(string column) =>
+        $"CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) " +
+        $"WHEN 1 THEN (SELECT e.{column} FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) ELSE '' END";
 
     private static string PartyField(string column) =>
         $"CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) " +
@@ -1133,7 +1209,13 @@ public static class Views
             {Text("t.department")}                AS 담당부서,
             {Text("t.officer")}                   AS 담당자,
             {Text("t.phone")}                     AS 담당자전화,
-            {Text("t.fax")}                       AS 담당자팩스
+            {Text("t.fax")}                       AS 담당자팩스,
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            {Text("i.demand_agency_code")}        AS 수요기관코드,
+            {Text("i.classification_number")}     AS 물품분류번호,
+            {Text("i.item_identification_name")}  AS 물품식별명,
+            {Text("i.spec_number")}               AS 규격번호,
+            {Text("i.request_number")}            AS 조달요구번호
         FROM notice_item i
         JOIN notice n ON n.notice_base = i.notice_base AND n.seq = i.seq
         {LatestNotice}
@@ -1177,7 +1259,16 @@ public static class Views
             {Money("i.amount")}                   AS 금액,
             {Text("i.demand_agency")}             AS 수요기관,
             {DateText("i.delivery_due")}          AS 납품기한,
-            {Text("i.delivery_terms")}            AS 인도조건
+            {Text("i.delivery_terms")}            AS 인도조건,
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 입찰분류번호·입찰공고품목순번은 적힌 그대로의 참조다. 잇는 데 쓰지 않는다(ADR-040).
+            {Text("i.ref_notice_class")}          AS 입찰분류번호,
+            {Text("i.ref_notice_item")}           AS 입찰공고품목순번,
+            {Text("i.delivery_place")}            AS 납품장소,
+            {Text("CAST(i.delivery_days AS TEXT)")} AS 납품일수,
+            {Text("i.demand_agency_code")}        AS 수요기관코드,
+            {Text("i.request_number")}            AS 조달요구번호,
+            {Text("i.origin_country")}            AS 원산지
         FROM contract_item i
         JOIN contract c ON c.contract_base = i.contract_base AND c.seq = i.seq
         {LatestContract};
@@ -1224,7 +1315,10 @@ public static class Views
             {Text("i.spec_number")}               AS 규격번호,
             {Text("i.expense_request_number")}    AS 지출요청번호,
             COALESCE(k.notice_base || '-' || k.notice_seq, '') AS 입찰공고번호,
-            {Text("CAST(k.notice_line_no AS TEXT)")}           AS 공고순번
+            {Text("CAST(k.notice_line_no AS TEXT)")}           AS 공고순번,
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            {Text("i.classification_number")}     AS 물품분류번호,
+            {Text("i.delivery_unit")}             AS 납품부대명
         FROM request_item i
         JOIN request r ON r.request_base = i.request_base AND r.seq = i.seq
         {LatestRequest}
