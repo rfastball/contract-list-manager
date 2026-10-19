@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Pclm.Core.Storage;
@@ -208,7 +209,12 @@ public static class Flow
     /// 저장된·화면이 보낸 가공식을 v2 로 읽는다. v1 은 그 자리에서 옮긴다(§4.5) — 앞 판 화면이 보낸 것도 받는다.
     /// 모양이 틀리면 <see cref="InvalidOperationException"/>.
     /// </summary>
-    public static FlowFormula Parse(string json)
+    public static FlowFormula Parse(string json) => Read(json, identityOnly: false);
+
+    // 진단 때문에 계산할 수 없어도 저장된 식의 식별자는 재사용한다. 식 모양 검증은 그대로 한다.
+    internal static FlowFormula ReadForIdentity(string json) => Read(json, identityOnly: true);
+
+    private static FlowFormula Read(string json, bool identityOnly)
     {
         int version;
         try
@@ -218,6 +224,15 @@ public static class Flow
                 || !document.RootElement.TryGetProperty("version", out var v) || v.ValueKind != JsonValueKind.Number)
                 throw new InvalidOperationException("가공식의 판을 알 수 없습니다.");
             version = v.GetInt32();
+            // 판올림에서 뜻이 갈린 식은 원문을 보존하고 기존 깨진 열 진단으로 알린다. 사람이 식을 고쳐 저장하면
+            // 새 식만 정상 검증하며, 직렬화할 때 이 임시 진단은 떨어진다.
+            if (!identityOnly && JsonNode.Parse(json) is JsonObject root && root["migrationError"] is JsonObject error)
+            {
+                var current = root.DeepClone().AsObject();
+                current.Remove("migrationError");
+                if (JsonNode.DeepEquals(current, error["original"]))
+                    throw new InvalidOperationException(error["message"]?.GetValue<string>() ?? "판올림 뒤 식을 확인하세요.");
+            }
         }
         catch (JsonException) { throw new InvalidOperationException("가공식 형식이 올바르지 않습니다."); }
         catch (FormatException) { throw new InvalidOperationException("가공식의 판을 알 수 없습니다."); }

@@ -523,7 +523,7 @@ public sealed partial class Store(Database database)
                 ?? throw new InvalidOperationException("수정할 열이 없습니다.");
             string? id = null;
             if (old.Options is { } stored && stored.TrimStart().StartsWith('{'))
-                try { id = ComputedColumn.Parse(stored).Id; } catch (InvalidOperationException) { }
+                try { id = Flow.ReadForIdentity(stored).Id; } catch (InvalidOperationException) { }
             formula = formula with { Id = string.IsNullOrEmpty(id) ? Guid.NewGuid().ToString("N") : id };
         }
         else formula = formula with { Id = Guid.NewGuid().ToString("N") };

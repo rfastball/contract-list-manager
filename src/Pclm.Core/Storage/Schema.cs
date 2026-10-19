@@ -20,7 +20,7 @@ namespace Pclm.Core.Storage;
 public static class Schema
 {
     /// <summary>스키마 판. 올릴 때마다 <see cref="Steps"/> 에 단계를 하나 더하고 이것도 하나 올린다.</summary>
-    public const int Version = 29;
+    public const int Version = 30;
 
     /// <summary><see cref="Baseline"/> 이 짓는 판. 이보다 옛 판은 받지 않는다.</summary>
     public const int BaselineVersion = 19;
@@ -32,7 +32,7 @@ public static class Schema
     /// 갓 지은 파일의 스키마가 조용히 갈린다 — <c>contract/schema.txt</c> 박제가 그것을 붙든다.
     /// 빈 파일도 기준선 뒤에 이것을 밟으므로 둘은 언제나 같은 길을 지난다.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27, V28, V29];
+    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30];
 
     /// <summary>
     /// 이 판을 <b>지나는</b> 작업자료에 서식용 예시 보기를 한 번 심는다(<see cref="Database.Migrate"/> — docs/user-views.md §13).
@@ -46,6 +46,9 @@ public static class Schema
     /// (<see cref="Store.UpgradeExampleViews"/> — docs/user-views.md §13). 고쳤거나 지운 보기는 그대로 둔다.
     /// </summary>
     public const int ExampleViewUpgradeVersion = 27;
+
+    // v29 → v30: 출처와 사용자 열 충돌은 SchemaRepairs.Upgrade30 이 같은 판올림 트랜잭션에서 고친다.
+    private const string V30 = "-- 출처와 사용자 열 충돌을 고친다.";
 
     /// <summary>
     /// v28 → v29. <b>「채권자」 로 담던 칸이 실은 두 가지였다</b>(2026-10-16 사용자 결정). 물품·일반용역 공고의 <c>fncrNm</c> 은

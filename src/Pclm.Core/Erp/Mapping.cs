@@ -61,7 +61,7 @@ public static class Mapping
     /// </summary>
     public static MappingSet Read(string json)
     {
-        var value = WithMissingFields(WithoutRetiredFields(Normalize(json)));
+        var value = WithoutRetiredFields(WithMissingFields(Normalize(json)));
         Validate(value);
         return value;
     }

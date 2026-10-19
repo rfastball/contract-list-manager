@@ -176,7 +176,7 @@ export function App() {
   const gridQuery = gridSeed.query;
   const setGridQuery = (query: string) => setGridSeed({ query, focus: true });
   /** 떠 있는 표의 지금 검색어와 그 표의 본문 key. */
-  const liveQuery = useRef({ key: "", query: "" });
+  const liveQuery = useRef({ key: "", seed: "", query: "" });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [columnEntry, setColumnEntry] = useState<{ entityType: EntityType; field?: string; integrated: boolean } | null>(null);
   const [columnNavigation, setColumnNavigation] = useState<{ id: number; proceed: () => void }>();
@@ -996,10 +996,10 @@ export function App() {
         </div>
       ) : 보이는시트 ? (
         <Grid
-          key={`${bodyKey}:${gridQuery}`}
-          initialQuery={gridQuery}
+          key={`${bodyKey}:${gridQuery}:${JSON.stringify(보이는시트.columns)}`}
+          initialQuery={liveQuery.current.key === bodyKey && liveQuery.current.seed === gridQuery ? liveQuery.current.query : gridQuery}
           focusQuery={gridSeed.focus}
-          onQueryChange={(query) => { liveQuery.current = { key: bodyKey, query }; }}
+          onQueryChange={(query) => { liveQuery.current = { key: bodyKey, seed: gridQuery, query }; }}
           sheet={보이는시트}
           columns={columns}
           keyColumn={SHEETS[tab].keyColumn}

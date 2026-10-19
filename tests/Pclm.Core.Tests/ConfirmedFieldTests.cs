@@ -264,50 +264,72 @@ public sealed class ConfirmedFieldTests : IDisposable
         var node = JsonNode.Parse(JsonSerializer.Serialize(Mapping.Defaults(), Mapping.Json))!;
         JsonNode Profile(string id) => node["profiles"]!.AsArray().Single(p => (string)p!["id"]! == id)!;
         Profile("g2b-notice-a-v1")["fields"]!.AsArray().Single(f => (string)f!["target"]! == "finance_officer")!["target"] = "creditor";
+        Profile("g2b-notice-a-v1")["selectors"] = new JsonObject { ["fncrNm"] = "#custom-finance" };
+        Profile("g2b-notice-b-v1")["selectors"] = new JsonObject { ["grnteCrdrNm"] = "#retired-creditor" };
         Profile("g2b-notice-b-v1")["fields"]!.AsArray().Add(JsonNode.Parse("""{"source":"grnteCrdrNm","target":"creditor","transform":"text"}"""));
         var json = node.ToJsonString();
 
         var read = Mapping.Read(json);
         Assert.DoesNotContain(read.Profiles.SelectMany(p => p.Fields), f => f.Target == "creditor");
+        Assert.Equal("#custom-finance", read.Profiles.Single(p => p.Id == "g2b-notice-a-v1").Selectors!["fncrNm"]);
+        Assert.DoesNotContain("grnteCrdrNm", read.Profiles.Single(p => p.Id == "g2b-notice-b-v1").Selectors!.Keys);
         Assert.Equal("fncrNm", read.Profiles.Single(p => p.Id == "g2b-notice-a-v1").Fields.Single(f => f.Target == "finance_officer").Source);
         foreach (var original in Mapping.Defaults().Profiles)
             Assert.Equal(original.Fields.Select(f => f.Target).Order(), read.Profiles.Single(p => p.Id == original.Id).Fields.Select(f => f.Target).Order());
     }
 
-    /// <summary>
-    /// v29 판올림은 「채권자」 칸의 값 가운데 <b>재무관에서 왔다고 밝힐 수 있는 것만</b> 재무관으로 옮긴다 — 수집 기록이 그 칸을
-    /// 공고 A 가 채웠다고 적고 값도 같을 때다. 통합 조회가 채운 기관장 직함, 기록이 없는 옛 값, 기록과 갈린 값은 비운다.
-    /// </summary>
-    [Fact]
-    public void 재무관_판올림은_공고_A_가_채운_값만_옮긴다()
+    /// <summary>배포된 v29 를 거쳐도 실제 매핑·수집 원값으로 증명한 재무관만 남기고 새 대상으로 수집한 값은 보존한다.</summary>
+    [Theory]
+    [InlineData(28)]
+    [InlineData(29)]
+    public void 재무관_판올림은_실제_출처를_검증하고_새_수집값을_보존한다(int version)
     {
-        var path = Path.Combine(_root, "v28.pclm");
+        var path = Path.Combine(_root, $"v{version}.pclm");
         using (var c = new SqliteConnection($"Data Source={path};Pooling=False"))
         {
             c.Open();
             c.Execute(Schema.Baseline);
             foreach (var step in Schema.Steps.Take(28 - Schema.BaselineVersion)) c.Execute(step);
-            c.Execute("PRAGMA user_version = 28;");
-            string Doc(string profile, string value) => JsonSerializer.Serialize(new
+            string Doc(string profile, string target, string value) => JsonSerializer.Serialize(new
             {
-                profile, rows = new[] { new { table = "notice", sourceKey = "", values = new { creditor = value }, origins = new { creditor = profile } } },
+                profile, rows = new[] { new { table = "notice", sourceKey = "", values = new Dictionary<string,string> { [target] = value },
+                    origins = new Dictionary<string,string> { [target] = profile } } },
             });
-            foreach (var (b, value, profile) in new (string, string, string?)[] {
-                ("TESTN0001", "홍길동", "g2b-notice-a-v1"), ("TESTN0002", "시험 기관장", "g2b-notice-b-v1"),
-                ("TESTN0003", "옛 값", null), ("TESTN0004", "김철수", "g2b-notice-a-service-v1"), ("TESTN0005", "고친 값", "g2b-notice-a-v1") })
+            foreach (var (b, value, source) in new[] {
+                ("TESTN0001", "홍길동", "fncrNm"), ("TESTN0002", "시험 기관장", "grnteCrdrNm"),
+                ("TESTN0003", "옛 값", "unknown"), ("TESTN0004", "수집과 다른 값", "fncrNm") })
             {
+                const string profile = "g2b-notice-a-v1";
                 c.Execute("INSERT INTO notice_group VALUES(@b); INSERT INTO notice_series VALUES(@b,@b); " +
                           "INSERT INTO notice(notice_base,seq,creditor,updated_at) VALUES(@b,'000',@value,'2026-10-01')", new { b, value });
-                if (profile is not null)
-                    c.Execute("INSERT INTO erp_source VALUES('notice',@b,'000',@doc,'r','2026-10-01')",
-                        new { b, doc = Doc(profile, b == "TESTN0005" ? "수집한 값" : value) });
+                c.Execute("INSERT INTO erp_source VALUES('notice',@b,'000',@doc,'later-unrelated','2026-10-02')",
+                    new { b, doc = Doc(profile, "creditor", value) });
+                if (source == "unknown") continue;
+                var mapping = new { profiles = new[] { new { id = profile, fields = new[] { new { source, target = "creditor", transform = "text" } } } } };
+                c.Execute("INSERT INTO erp_mapping(revision,json,created_at) VALUES(@b,@json,'2026-10-01')", new { b, json = JsonSerializer.Serialize(mapping) });
+                var snapshot = new { profile, mappingRevision = b, data = new { pointInfo = new Dictionary<string,string> {
+                    [source] = b == "TESTN0004" ? "다른 원값" : value } } };
+                c.Execute("INSERT INTO erp_capture VALUES(@b,'h','h',@profile,@b,'000',@snapshot,'{}','2026-10-01')",
+                    new { b, profile, snapshot = JsonSerializer.Serialize(snapshot) });
             }
+            if (version == 29)
+            {
+                c.Execute(Schema.Steps[29 - Schema.BaselineVersion - 1]);
+                const string b = "TESTN0005", value = "새 재무관";
+                c.Execute("INSERT INTO notice_group VALUES(@b); INSERT INTO notice_series VALUES(@b,@b); " +
+                    "INSERT INTO notice(notice_base,seq,finance_officer,updated_at) VALUES(@b,'000',@value,'2026-10-03'); " +
+                    "INSERT INTO erp_source VALUES('notice',@b,'000',@doc,'new-default','2026-10-03')",
+                    new { b, value, doc = Doc("g2b-notice-a-v1", "finance_officer", value) });
+            }
+            c.Execute($"PRAGMA user_version = {version};");
         }
         var database = new Database(path);
         database.Migrate();
         using var read = database.OpenReadOnly();
-        Assert.Equal(new[] { "홍길동", "", "", "김철수", "" },
-            read.Query<string>("SELECT 재무관 FROM v_공고차수 ORDER BY 공고본번호"));
+        var expected = version == 29 ? new[] { "홍길동", "", "", "", "새 재무관" } : new[] { "홍길동", "", "", "" };
+        Assert.Equal(expected, read.Query<string>("SELECT 재무관 FROM v_공고차수 ORDER BY 공고본번호"));
+        database.Migrate();
+        Assert.Equal(expected, read.Query<string>("SELECT 재무관 FROM v_공고차수 ORDER BY 공고본번호"));
     }
 
     /// <summary>

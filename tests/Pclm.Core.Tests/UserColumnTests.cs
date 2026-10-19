@@ -1,4 +1,6 @@
-﻿using Microsoft.Data.Sqlite;
+using Dapper;
+using System.Text.Json.Nodes;
+using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
 using Pclm.Core.Storage;
 using Xunit;
@@ -98,6 +100,100 @@ public class UserColumnTests : IDisposable
         _store.AddUserColumn("contract", "담당", "text", ["가", "나"]);
 
         Assert.Empty(_store.UserColumns("contract").Single(c => c.FieldName == "담당").Choices);
+    }
+
+    /// <summary>새 기본 열과 겹친 기존 입력·가공열은 이름과 값을 보존하고, 모호한 SQL/이미 배포된 참조는 검토 전 빈값으로 격리한다.</summary>
+    [Theory]
+    [InlineData(27)]
+    [InlineData(29)]
+    public void 판올림은_기본_열과_겹친_사용자_자료와_식의_원문을_보존한다(int version)
+    {
+        _database.ReleasePool();
+        foreach (var suffix in new[] { "", "-wal", "-shm" }) File.Delete(_path + suffix);
+        const string old = "계약법구분", moved = "계약법구분_사용자3";
+        JsonNode Sql(string text, string id = "sql-id") => new JsonObject { ["version"] = 2, ["id"] = id, ["source"] = "sql", ["sql"] = text };
+        var sql = Sql("SELECT 현재.계약법구분");
+        var literal = Sql("SELECT '계약법구분'", "literal-id");
+        var number = new JsonObject { ["version"] = 2, ["id"] = "number-id", ["source"] = "flow",
+            ["flow"] = new JsonObject { ["from"] = new JsonObject { ["kind"] = "number", ["value"] = 42 }, ["steps"] = new JsonArray() } };
+        var linked = new JsonObject { ["version"] = 2, ["source"] = "flow", ["flow"] = new JsonObject {
+            ["from"] = new JsonObject { ["kind"] = "linked", ["link"] = "notice", ["field"] = old }, ["steps"] = new JsonArray() } };
+        var definition = new JsonObject { ["version"] = 2, ["contracts"] = "split", ["columns"] = new JsonArray {
+            new JsonObject { ["id"] = "flow-id", ["name"] = "값", ["formula"] = linked },
+            new JsonObject { ["id"] = "view-sql-id", ["name"] = "SQL값", ["formula"] = Sql("SELECT 공고.계약법구분") } } };
+        using (var c = new SqliteConnection($"Data Source={_path};Pooling=False"))
+        {
+            c.Open(); c.Execute(Schema.Baseline);
+            foreach (var step in Schema.Steps.Take(version - Schema.BaselineVersion)) c.Execute(step);
+            c.Execute($"PRAGMA user_version={version}");
+            c.Execute("""
+                INSERT INTO notice_group VALUES('NOTICECOL'); INSERT INTO notice_series VALUES('NOTICECOL','NOTICECOL');
+                INSERT INTO notice(notice_base,seq,updated_at) VALUES('NOTICECOL','000','2026-10-01');
+                INSERT INTO contract_series VALUES('CONTRACTCOL');
+                INSERT INTO contract(contract_base,seq,updated_at) VALUES('CONTRACTCOL','00','2026-10-01');
+                INSERT INTO request_series VALUES('REQUESTCOL');
+                INSERT INTO request(request_base,seq,updated_at) VALUES('REQUESTCOL','000','2026-10-01');
+                INSERT INTO user_column VALUES('notice','계약법구분','text',NULL,30),('notice','계약법구분_사용자','text',NULL,40),
+                    ('contract','수요기관담당자Id','text',NULL,40),('notice','JSON후보','choice','{"source":1}',70);
+                INSERT INTO notice_user_field VALUES('NOTICECOL','계약법구분','사용자법','2026-10-01'),
+                    ('NOTICECOL','계약법구분_사용자','기존 열','2026-10-01'),('NOTICECOL','계약법구분_사용자2','지운 열의 값','2026-10-01');
+                INSERT INTO request_user_field VALUES('REQUESTCOL','공고종류','숨은 입력','2026-10-01');
+                INSERT INTO contract_user_field VALUES('CONTRACTCOL','수요기관담당자ID','지운 ID 값','2026-10-01'),
+                    ('CONTRACTCOL','수요기관담당자Id','활성 Id 값','2026-10-01');
+                """);
+            c.Execute("INSERT INTO user_column VALUES('notice','법 복사','computed',@sql,50),('notice','문자','computed',@literal,60)," +
+                "('contract','물가변동적용기준','computed',@number,30)",
+                new { sql = sql.ToJsonString(), literal = literal.ToJsonString(), number = number.ToJsonString() });
+            c.Execute("INSERT INTO user_view VALUES('view-id','이전보기',@definition,10)", new { definition = definition.ToJsonString() });
+            if (version == 29) c.Execute("UPDATE notice SET contract_law='수집법'");
+        }
+        _database.Migrate();
+        using (var c = _database.OpenReadOnly())
+        {
+            Assert.Equal(version == 29 ? "수집법" : "", c.QuerySingle<string>("SELECT 계약법구분 FROM v_공고"));
+            Assert.Equal("사용자법", c.QuerySingle<string>($"SELECT {moved} FROM v_공고"));
+            Assert.Equal("기존 열", c.QuerySingle<string>("SELECT 계약법구분_사용자 FROM v_공고"));
+            Assert.Equal("지운 열의 값", c.QuerySingle<string>("SELECT value FROM notice_user_field WHERE field_name='계약법구분_사용자2'"));
+            Assert.Equal("숨은 입력", c.QuerySingle<string>("SELECT value FROM request_user_field WHERE field_name='공고종류_사용자'"));
+            Assert.Equal("42", c.QuerySingle<string>("SELECT 물가변동적용기준_사용자 FROM v_계약"));
+            Assert.Equal("활성 Id 값", c.QuerySingle<string>("SELECT 수요기관담당자Id_사용자2 FROM v_통합 WHERE 계약본번호='CONTRACTCOL'"));
+            Assert.Equal("지운 ID 값", c.QuerySingle<string>("SELECT value FROM contract_user_field WHERE field_name='수요기관담당자ID_사용자'"));
+            Assert.All(_store.UserColumns(), column => Assert.InRange(column.FieldName.Length, 1, 20));
+            Assert.Equal("number-id", c.QuerySingle<string>("SELECT 식별자 FROM v_가공열 WHERE 열이름='물가변동적용기준_사용자'"));
+            Assert.Equal("계약법구분", c.QuerySingle<string>("SELECT 문자 FROM v_공고")); // SQL 문자열 리터럴은 참조가 아니다.
+            Assert.Equal("", c.QuerySingle<string>("SELECT [법 복사] FROM v_공고"));
+            Assert.DoesNotContain(ViewColumns("v_공고"), name => name.Contains(':'));
+        }
+        Assert.Equal("{\"source\":1}", _store.UserColumns("notice").Single(c => c.FieldName == "JSON후보").Options);
+        Assert.Contains("확인", _store.BrokenColumns()[("notice", "법 복사")]);
+        var stored = _store.UserColumns("notice").Single(c => c.FieldName == "법 복사").Options!;
+        var preserved = JsonNode.Parse(stored)!;
+        Assert.Equal("SELECT 현재.계약법구분", (string?)preserved["sql"]);
+        Assert.Equal("sql-id", (string?)preserved["id"]);
+        Assert.Throws<InvalidOperationException>(() => _store.SaveComputedColumn("notice", "법 복사", stored, "법 복사"));
+        preserved["sql"] = $"SELECT 현재.{moved}";
+        _store.SaveComputedColumn("notice", "법 복사", preserved.ToJsonString(), "법 복사");
+        var recovered = _store.UserColumns("notice").Single(c => c.FieldName == "법 복사").Options!;
+        Assert.DoesNotContain("migrationError", recovered);
+        Assert.Equal("sql-id", (string?)JsonNode.Parse(recovered)!["id"]);
+        using (var identity = _database.OpenReadOnly())
+            Assert.Equal("sql-id", identity.QuerySingle<string>("SELECT 식별자 FROM v_가공열 WHERE 열이름='법 복사'"));
+        var view = _store.UserViews().Single(v => v.Id == "view-id");
+        Assert.Equal(version == 29 ? 2 : 1, view.Broken.Count);
+        var recovery = JsonNode.Parse(view.Definition.GetRawText())!;
+        var columns = recovery["columns"]!.AsArray();
+        Assert.Equal("flow-id", (string?)columns[0]!["id"]);
+        columns[0]!["formula"]!["flow"]!["from"]!["field"] = moved;
+        columns[1]!["formula"]!["sql"] = $"SELECT 공고.{moved}";
+        var input = new JsonObject { ["name"] = "이전보기", ["definition"] = recovery };
+        Assert.Empty(_store.SaveUserView(input.ToJsonString(), "view-id").Single(v => v.Id == "view-id").Broken);
+        _store.SetUserField(new("notice", "NOTICECOL", "000"), moved, "수정법");
+        _store.AddUserColumn("request", "공고종류_사용자", "text", []);
+        _database.Migrate();
+        using var final = _database.OpenReadOnly();
+        Assert.Equal("수정법", final.QuerySingle<string>("SELECT [법 복사] FROM v_공고"));
+        Assert.Equal("수정법", final.QuerySingle<string>("SELECT 값 FROM u_이전보기 WHERE 값 <> ''"));
+        Assert.Equal("숨은 입력", final.QuerySingle<string>("SELECT 공고종류_사용자 FROM v_접수"));
     }
 
     /// <summary>값은 열 이름으로 매달려 있다 — 이름만 바꾸면 적어 둔 것이 통째로 미아가 된다.</summary>

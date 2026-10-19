@@ -1,10 +1,11 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { useShownColumns } from "./SettingsPanel";
 import { ColumnManager } from "./ColumnManager";
 import { invoke, 복사자리, 사용자뷰초기화, 스위치, 창 } from "./mock";
-import type { ColumnTrace, FreezePlan, UserView } from "./types";
+import type { ColumnTrace, FreezePlan, Sheet, UserView } from "./types";
 import { EditorView } from "@codemirror/view";
 import { parseFlow, printFlow } from "./flow/syntax";
 
@@ -507,6 +508,87 @@ it("표시 설정은 즉시 적용하고 다시 열어도 유지하며 시스템
  */
 describe("설정 — 표의 추가 열", () => {
   const 머리 = (name: string) => screen.queryByRole("columnheader", { name });
+
+  it("열 구성이 바뀌면 숨은 정렬·셀 범위·커서를 버리고 현재 검색어는 지킨다", async () => {
+    const data: Sheet = {
+      name: "v_공고", columns: ["입찰공고번호", "공고명", "계약법구분", "검토여부", "비고"],
+      hidden: ["계약법구분"], editable: ["검토여부", "비고"], correctable: [], overrides: {},
+      rows: [
+        { 입찰공고번호: "N1", 공고명: "첫 공고", 계약법구분: "나", 검토여부: "첫 검토", 비고: "첫 비고" },
+        { 입찰공고번호: "N2", 공고명: "둘 공고", 계약법구분: "가", 검토여부: "둘 검토", 비고: "둘 비고" },
+      ],
+    };
+    가로채기("sheet", () => Promise.resolve(data));
+    localStorage.setItem("pclm.shownColumns", JSON.stringify({ v_공고: ["계약법구분"] }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
+    await user.type(await screen.findByRole("searchbox"), "공고");
+    await user.click(screen.getByRole("button", { name: "계약법구분 정렬" }));
+    await user.click(screen.getByText("둘 검토"));
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getByText("첫 검토"));
+    await user.keyboard("{/Shift}");
+    expect(screen.getByText("2셀 선택")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "설정" }));
+    const dialog = await screen.findByRole("dialog", { name: "설정" });
+    const notices = within(await within(dialog).findByRole("group", { name: "공고" }));
+    await user.click(notices.getByRole("checkbox", { name: "계약법구분" }));
+    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(머리("계약법구분")).toBeNull();
+    expect(screen.queryByRole("button", { name: /정렬 해제/ })).toBeNull();
+    expect(screen.queryByText("2셀 선택")).toBeNull();
+    expect(screen.getByRole("searchbox")).toHaveProperty("value", "공고");
+    expect(document.querySelector("td.cur")?.textContent).toBe("N1");
+    const board = document.querySelector(".grid-board")!;
+    fireEvent.keyDown(board, { key: "Delete" });
+    fireEvent.paste(board, { clipboardData: { getData: () => "잘못 들어갈 값" } });
+    expect(screen.queryByRole("dialog", { name: /변경 검토/ })).toBeNull();
+    expect(부름.mock.calls.filter(([method]) => ["setField", "setOverride", "batchEdit"].includes(method))).toEqual([]);
+  });
+
+  it("각 창은 최신 한 벌에 바꾼 열만 합치고, 늦은 저장소 이벤트도 지금 값으로 맞춘다", () => {
+    const first = renderHook(() => useShownColumns());
+    const second = renderHook(() => useShownColumns());
+    expect(localStorage.getItem("pclm.shownColumns")).toBeNull();
+    act(() => first.result.current[1]("v_공고", "계약법구분", true));
+    // 두 번째 창은 이벤트를 아직 받지 못해도 다른 표와 같은 표의 앞선 변경을 지킨다.
+    act(() => second.result.current[1]("v_계약", "공동수급구성방식", true));
+    act(() => second.result.current[1]("v_공고", "재무관", true));
+    const saved = { v_공고: ["계약법구분", "재무관"], v_계약: ["공동수급구성방식"] };
+    expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual(saved);
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "pclm.shownColumns", newValue: "{}" })));
+    expect(first.result.current[0]).toEqual(saved);
+    expect(second.result.current[0]).toEqual(saved);
+    act(() => first.result.current[1]("v_공고", "계약법구분", false));
+    expect(first.result.current[0].v_공고).toEqual(["재무관"]);
+    localStorage.clear();
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
+    expect(first.result.current[0]).toEqual({});
+    expect(second.result.current[0]).toEqual({});
+  });
+
+  it.each(["getItem", "setItem"] as const)("저장소 %s 제한 중에도 현재 창에서 연속으로 켜고 끈다", (method) => {
+    const denied = vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error("저장 제한"); });
+    try {
+      const { result } = renderHook(() => useShownColumns());
+      act(() => result.current[1]("v_공고", "계약법구분", true));
+      act(() => result.current[1]("v_계약", "공동수급구성방식", true));
+      act(() => result.current[1]("v_공고", "재무관", true));
+      act(() => result.current[1]("v_공고", "계약법구분", false));
+      expect(result.current[0]).toEqual({ v_공고: ["재무관"], v_계약: ["공동수급구성방식"] });
+      if (method === "setItem") {
+        denied.mockRestore();
+        localStorage.setItem("pclm.shownColumns", JSON.stringify({ v_접수: ["추정가격"], v_공고: ["입찰진행상태"] }));
+        act(() => window.dispatchEvent(new StorageEvent("storage", { key: "pclm.shownColumns" })));
+        act(() => result.current[1]("v_계약", "공동수급구성방식", false));
+        expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual({
+          v_접수: ["추정가격"], v_공고: ["입찰진행상태", "재무관"], v_계약: [],
+        });
+      }
+    } finally { denied.mockRestore(); }
+  });
 
   it("기본으로 숨는 열은 표에 없고, 설정에서 켜면 그 표에만 서고 다시 열어도 남는다", async () => {
     const user = userEvent.setup();

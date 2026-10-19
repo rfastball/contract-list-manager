@@ -14,7 +14,7 @@ type Props = {
   onDisplayChange: (preferences: DisplayPreferences) => void;
   /** 표마다 켠 「기본으로 숨는 열」. 바꾸는 즉시 표에 선다. */
   shownColumns: ShownColumns;
-  onShownColumnsChange: (shown: ShownColumns) => void;
+  onShownColumnsChange: (view: string, column: string, on: boolean) => void;
   onExportExcel: () => Promise<void>;
   exportBusy: boolean;
   onViewsImported: () => void;
@@ -82,20 +82,47 @@ export function useDisplayPreferences() {
  */
 export type ShownColumns = Record<string, string[]>;
 const SHOWN_KEY = "pclm.shownColumns";
+function readShownColumns(fallback: ShownColumns = {}): ShownColumns {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? "null");
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
+    return Object.fromEntries(Object.entries(saved as Record<string, unknown>)
+      .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
+      .map(([view, names]) => [view, names.filter((n): n is string => typeof n === "string")]));
+  } catch { return fallback; }
+}
 export function useShownColumns() {
-  const [shown, setShown] = useState<ShownColumns>(() => {
-    try {
-      const saved: unknown = JSON.parse(localStorage.getItem(SHOWN_KEY) ?? "null");
-      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return {};
-      return Object.fromEntries(Object.entries(saved as Record<string, unknown>)
-        .filter((entry): entry is [string, unknown[]] => Array.isArray(entry[1]))
-        .map(([view, names]) => [view, names.filter((n): n is string => typeof n === "string")]));
-    } catch { return {}; }
-  });
+  const [shown, setShown] = useState<ShownColumns>(() => readShownColumns());
+  const current = useRef(shown);
+  const pending = useRef<Record<string, Record<string, boolean>>>({});
+  const readLatest = () => {
+    const next = { ...readShownColumns(current.current) };
+    for (const [view, edits] of Object.entries(pending.current)) {
+      const changed = Object.keys(edits);
+      const names = (next[view] ?? []).filter((name) => !changed.includes(name));
+      next[view] = [...names, ...changed.filter((name) => edits[name])];
+    }
+    return next;
+  };
   useEffect(() => {
-    try { localStorage.setItem(SHOWN_KEY, JSON.stringify(shown)); } catch { /* 저장 제한 중에도 현재 창에는 적용한다. */ }
-  }, [shown]);
-  return [shown, setShown] as const;
+    const sync = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== SHOWN_KEY) return;
+      // 밀린 이벤트의 옛 값 대신 지금 저장된 한 벌을 읽는다. 읽기 제한 중에는 현재 창의 값을 지킨다.
+      current.current = readLatest();
+      setShown(current.current);
+    };
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
+  }, []);
+  const change = (view: string, column: string, on: boolean) => {
+    pending.current[view] = { ...pending.current[view], [column]: on };
+    const next = readLatest();
+    current.current = next;
+    setShown(next);
+    // 실패한 체크 변경만 다음 최신 설정에 다시 합쳐, 저장이 풀릴 때 다른 창의 선택을 덮지 않는다.
+    try { localStorage.setItem(SHOWN_KEY, JSON.stringify(next)); pending.current = {}; } catch { /* 현재 창에는 적용한다. */ }
+  };
+  return [shown, change] as const;
 }
 
 /**
@@ -563,7 +590,7 @@ function ConfirmSwitch({ plan, busy, onConfirm, onClose }: {
  * (<code>hiddenColumns</code>)을 읽는다. 누르는 그 자리에서 표에 서고 이 컴퓨터에 남는다. 열람 창에서도 된다 — 자료가 아니라
  * 보는 모양이다.
  */
-function ShownColumnsSection({ shown, onChange }: { shown: ShownColumns; onChange: (shown: ShownColumns) => void }) {
+function ShownColumnsSection({ shown, onChange }: { shown: ShownColumns; onChange: Props["onShownColumnsChange"] }) {
   const [hidden, setHidden] = useState<Record<string, string[]> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -573,11 +600,6 @@ function ShownColumnsSection({ shown, onChange }: { shown: ShownColumns; onChang
       (e) => { if (live) setError(e instanceof Error ? e.message : String(e)); });
     return () => { live = false; };
   }, []);
-
-  const toggle = (view: string, column: string, on: boolean) => {
-    const mine = shown[view] ?? [];
-    onChange({ ...shown, [view]: on ? [...mine.filter((c) => c !== column), column] : mine.filter((c) => c !== column) });
-  };
 
   const tables = SHOWN_TABLES.filter((t) => (hidden?.[t.view]?.length ?? 0) > 0);
   return (
@@ -594,7 +616,7 @@ function ShownColumnsSection({ shown, onChange }: { shown: ShownColumns; onChang
                 <input
                   type="checkbox"
                   checked={(shown[table.view] ?? []).includes(column)}
-                  onChange={(e) => toggle(table.view, column, e.target.checked)}
+                  onChange={(e) => onChange(table.view, column, e.target.checked)}
                 />
                 <span>{column}</span>
               </label>
