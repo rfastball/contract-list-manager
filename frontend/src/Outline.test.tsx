@@ -101,14 +101,14 @@ const tree: Tree = {
     },
     // 취소 뒤 재공고로 본번호가 갈린 건. 사슬은 하나이고 본문에는 재공고가 선다.
     {
-      key: "MBKLMH26930006/R26BK09011054",
-      request: 접수("MBKLMH26930006", "가스성분분석기 요청", ["MBKLMH26930006"]),
+      key: "AAAAAA26000001/R26BK00000009",
+      request: 접수("AAAAAA26000001", "가스성분분석기 요청", ["AAAAAA26000001"]),
       notice: {
-        groupBase: "R26BK09011054",
+        groupBase: "R26BK00000009",
         current: 공고("R26BK09012082", "000", "가스성분분석기 구매",
                     "2026/07/25 09:30:00", ["000"]),
         superseded: [
-          공고("R26BK09011054", "001", "가스성분분석기 구매",
+          공고("R26BK00000009", "001", "가스성분분석기 구매",
               "2026/07/09 14:20:00", ["000", "001"]),
         ],
       },
@@ -238,13 +238,13 @@ describe("Outline", () => {
 
     // 본문에 서는 것은 살아 있는 재공고다. 취소된 원공고는 이름표의 장수로만 남는다.
     expect(within(하나).getByText("R26BK09012082-000")).toBeTruthy();
-    expect(screen.queryByText("R26BK09011054-001")).toBeNull();
+    expect(screen.queryByText("R26BK00000009-001")).toBeNull();
     // 이름표는 공고번호째로 적는다 — 차수만 적으면 갈린 두 본번호의 `000` 이 두 번 나온다.
     expect(within(하나).getByText(
-      "차수 R26BK09012082-000 · R26BK09011054-000 · R26BK09011054-001")).toBeTruthy();
+      "차수 R26BK09012082-000 · R26BK00000009-000 · R26BK00000009-001")).toBeTruthy();
 
     // 접수와 계약이 그 한 사슬에 붙는다. 비어 있는 칸은 하나도 없다.
-    expect(within(하나).getByText("MBKLMH26930006-000")).toBeTruthy();
+    expect(within(하나).getByText("AAAAAA26000001-000")).toBeTruthy();
     expect(within(하나).getByText("R26TA0908046900")).toBeTruthy();
     expect(within(하나).queryByText("(아직 없음)")).toBeNull();
   });
@@ -259,12 +259,12 @@ describe("Outline", () => {
       <Outline
         tree={{
           chains: [{
-            key: "MBKLMH26930009/R26BK09011054",
-            request: 접수("MBKLMH26930009", "서로 가리키는 건", ["MBKLMH26930009"]),
+            key: "AAAAAA26000002/R26BK00000009",
+            request: 접수("AAAAAA26000002", "서로 가리키는 건", ["AAAAAA26000002"]),
             notice: {
-              groupBase: "R26BK09011054",
+              groupBase: "R26BK00000009",
               current: null,
-              superseded: [공고("R26BK09011054", "001", "서로 가리키는 공고",
+              superseded: [공고("R26BK00000009", "001", "서로 가리키는 공고",
                               "2026/07/09 14:20:00", ["000", "001"])],
             },
             contracts: [],

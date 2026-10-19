@@ -1400,14 +1400,14 @@ const 갈린건칸: OutlineNoticeGroup = {
 };
 
 const 갈린건접수: OutlineRequest = {
-  key: "MPKPLA26910450",
-  number: "MPKPLA26910450-000",
+  key: "AAAAAA26000003",
+  number: "AAAAAA26000003-000",
   title: "26년가람조립대구매",
   receivedOn: "2026/06/24",
   goodsAmount: "38,720,000",
   budgetAmount: "39,281,400",
   demandAgency: "가람군수지원단",
-  requestNumbers: ["MPKPLA26910450"],
+  requestNumbers: ["AAAAAA26000003"],
   revisions: ["000"],
 };
 
@@ -1431,7 +1431,7 @@ const outline: Outline = {
     { key: "MPKPLA26910412", request: 접수(2), notice: null, contracts: [] },
     { key: "R26TA09110804", request: null, notice: null, contracts: [계약(4, 0)] },
     {
-      key: `MPKPLA26910450/${갈린건}`,
+      key: `AAAAAA26000003/${갈린건}`,
       request: 갈린건접수,
       notice: 갈린건칸,
       contracts: [갈린건계약],
