@@ -336,8 +336,8 @@ public sealed class ScreensTests : IDisposable
         Assert.Equal(1, preview.ItemCount);
         var rows = preview.Document.Rows;
         var head = rows[0].Values;
-        // 공고 A 의 후처리 — 공고종류에 상태를 붙이고 일정 행을 세운다.
-        Assert.Equal("실공고(변경공고)", head["notice_kind"]);
+        // 종류와 상태는 따로 담고, 공고 A 의 후처리로 일정 행을 세운다.
+        Assert.Equal(("실공고", "변경공고"), (head["notice_kind"], head["source_status"]));
         Assert.Equal(new[] { "입찰서제출", "개찰" }, rows.Where(r => r.Table == "notice_schedule").Select(r => r.Values["name"]));
         Assert.Equal(("협상에의한계약", "국내입찰", "비예가"), (head["award_method"], head["international_kind"], head["price_estimation_method"]));
         Assert.Equal("과업내역에 따름", Assert.Single(rows, r => r.Table == "notice_item").Values["delivery_terms"]);

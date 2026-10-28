@@ -74,6 +74,8 @@ public sealed partial class Store
             else if (change.Operation == "revert") ClearOverride(connection, entity, change.Field);
             else SetOverride(connection, entity, change.Field, change.Value, change.Original);
         }
+        if (pending.Any(p => !p.User && p.Entity.EntityType == "notice" && p.Change.Field == "공고종류"))
+            Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
         transaction.Commit();
         return pending.Count;
     }

@@ -20,7 +20,7 @@ namespace Pclm.Core.Storage;
 public static class Schema
 {
     /// <summary>스키마 판. 올릴 때마다 <see cref="Steps"/> 에 단계를 하나 더하고 이것도 하나 올린다.</summary>
-    public const int Version = 30;
+    public const int Version = 32;
 
     /// <summary><see cref="Baseline"/> 이 짓는 판. 이보다 옛 판은 받지 않는다.</summary>
     public const int BaselineVersion = 19;
@@ -32,7 +32,7 @@ public static class Schema
     /// 갓 지은 파일의 스키마가 조용히 갈린다 — <c>contract/schema.txt</c> 박제가 그것을 붙든다.
     /// 빈 파일도 기준선 뒤에 이것을 밟으므로 둘은 언제나 같은 길을 지난다.</para>
     /// </summary>
-    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30];
+    public static readonly IReadOnlyList<string> Steps = [V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32];
 
     /// <summary>
     /// 이 판을 <b>지나는</b> 작업자료에 서식용 예시 보기를 한 번 심는다(<see cref="Database.Migrate"/> — docs/user-views.md §13).
@@ -46,6 +46,12 @@ public static class Schema
     /// (<see cref="Store.UpgradeExampleViews"/> — docs/user-views.md §13). 고쳤거나 지운 보기는 그대로 둔다.
     /// </summary>
     public const int ExampleViewUpgradeVersion = 27;
+
+    // v31 → v32: 출처가 입증된 공고종류의 옛 상태 합성을 걷고 표시 때 현재 상태를 결합한다.
+    private const string V32 = "-- 공고종류와 상태의 부분 수집을 일관되게 표시한다.";
+
+    // v30 → v31: 유일한 재공고를 현행으로 삼아 기존 품목 연결도 Database.Migrate 에서 다시 계산한다.
+    private const string V31 = "-- 현행 공고와 품목 연결을 새 선정 규칙으로 다시 계산한다.";
 
     // v29 → v30: 출처와 사용자 열 충돌은 SchemaRepairs.Upgrade30 이 같은 판올림 트랜잭션에서 고친다.
     private const string V30 = "-- 출처와 사용자 열 충돌을 고친다.";

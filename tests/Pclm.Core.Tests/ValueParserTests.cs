@@ -24,11 +24,12 @@ public class ValueParserTests
     [InlineData("-")]
     public void 금액이_아니면_null(string input) => Assert.Null(ValueParser.Money(input));
 
-    [Fact]
-    public void 공고번호는_붙임표로_차수를_가른다()
+    [Theory]
+    [InlineData("R26BK09017075 - 000", "R26BK09017075", "000")]
+    [InlineData("abc - 9", "abc", "9")]
+    public void 공고번호는_붙임표로_차수를_가른다(string input, string @base, string seq)
     {
-        var parsed = ValueParser.NoticeNumber("R26BK09017075 - 000");
-        Assert.Equal(("R26BK09017075", "000"), parsed);
+        Assert.Equal((@base, seq), ValueParser.NoticeNumber(input));
     }
 
     [Fact]
@@ -59,8 +60,20 @@ public class ValueParserTests
     [InlineData("가-나")]
     [InlineData("R26BK09017075 - 변경")]
     [InlineData("R26BK 090170 - 000")]
+    [InlineData("R26BK09017075-000-extra")]
+    [InlineData("R26BK09017075--000")]
+    [InlineData("-R26BK09017075-000")]
+    [InlineData("R26BK09017075-000-")]
+    [InlineData("R26BK09017075-")]
     public void 공고번호도_같은_잣대를_쓴다(string input) =>
         Assert.Null(ValueParser.NoticeNumber(input));
+
+    [Theory]
+    [InlineData("1.5")]
+    [InlineData("-1.5 대")]
+    [InlineData("999999999999")]
+    public void 소수나_정수범위_밖의_수량은_잘라_읽지_않는다(string input) =>
+        Assert.Null(ValueParser.Integer(input));
 
     /// <summary>
     /// 좌표를 그보다 더 좀히지는 않는다. 지자체·수의계약의 변형을 모르는 채로

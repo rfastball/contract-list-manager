@@ -15,6 +15,17 @@ public static class ComputedColumn
     /// <summary>저장된·화면이 보낸 가공식을 v2 로 읽는다(v1 은 옮긴다).</summary>
     public static FlowFormula Parse(string json) => Flow.Parse(json);
 
+    /// <summary>편집 화면은 격리된 식도 원문과 진단을 함께 읽는다. 계산·저장은 여전히 <see cref="Parse"/> 로 검사한다.</summary>
+    public static JsonElement ReadForEditing(string json)
+    {
+        var formula = Flow.ReadForIdentity(json);
+        using var document = JsonDocument.Parse(json);
+        // 표식을 빼면 원문 그대로 다시 저장해도 검토를 마친 식으로 처리된다.
+        return document.RootElement.TryGetProperty("migrationError", out _)
+            ? document.RootElement.Clone()
+            : JsonSerializer.SerializeToElement(formula, Flow.Json);
+    }
+
     /// <summary>
     /// 화면이 보낸 가공식을 이 자료 종류로 읽는다. v1 이면 옮기기 전에 <c>pick</c> 의 필드를 본다 — 옮기면
     /// 뒤에서 쓰이지 않는 <c>pick</c> 은 사라지므로, 없는 필드를 고른 v1 이 조용히 통과하지 않게 한다.

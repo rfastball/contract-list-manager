@@ -455,6 +455,26 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => host.Save(changed, next.BaseToken, Guid.NewGuid().ToString(), choices));
     }
 
+    [Theory]
+    [InlineData("g2b-contract-v1", "R26TA00000002", "00")]
+    [InlineData("g2b-contract-v1", "R26TA00000001", "01")]
+    [InlineData("g2b-contract-change-v1", "R26TA00000002", "00")]
+    [InlineData("g2b-contract-change-v1", "R26TA00000001", "01")]
+    public void 계약_품목은_모두_같은_계약과_변경차수에_속해야_한다(string profile, string otherBase, string otherSeq)
+    {
+        var mapping = Mapping.Defaults();
+        var table = mapping.Profiles.Single(p => p.Id == profile).Tables.Single(t => t.Target == "contract_item");
+        var data = JsonSerializer.SerializeToElement(new {
+            pointInfo = new { ctrtNoOrd = "R26TA00000001-00" },
+            tables = new Dictionary<string, object> { [table.Source] = new[] {
+                new { ctrtNo = "R26TA00000001", ctrtChgOrd = "00", ctrtItemSqno = 1, ctrtAmt = 1000 },
+                new { ctrtNo = otherBase, ctrtChgOrd = otherSeq, ctrtItemSqno = 2, ctrtAmt = 2000 },
+            } },
+        });
+        Assert.Equal("서로 다른 계약이나 변경차수의 품목을 한 문서로 저장할 수 없습니다.",
+            Assert.Throws<InvalidOperationException>(() => Mapping.Map(mapping, profile, data)).Message);
+    }
+
     [Fact]
     public void 매핑은_검증후_활성화하고_중복키와_민감필드를_거절한다()
     {
@@ -557,7 +577,7 @@ public sealed class ErpCaptureTests : IDisposable
 
 
     [Fact]
-    public void 명시키로만_연결하고_접수의_반복요구번호와_공고의_모호한_현행을_보존한다()
+    public void 명시접수로_묶고_유일한_재공고와_정정에_따라_현행과_품목연결을_계산한다()
     {
         var db = new Database(DbPath); var host = new ErpCapture(db); var set = Mapping.Defaults();
         var request = SampleRequest(set, "같은 이름");
@@ -576,6 +596,65 @@ public sealed class ErpCaptureTests : IDisposable
         Assert.Empty(c.Query(NoticeGroups.현행공고));
         Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM request_item_link")); // 차수가 다른 공고 품목 둘이면 고르지 않는다.
         Assert.Equal(2, c.ExecuteScalar<int>("SELECT count(*) FROM request_item WHERE request_number='REQ1'"));
+
+        // 종류와 상태를 따로 걷어도 기존 종류에 낡은 상태가 붙어 남지 않는다.
+        var initial = new CaptureInput("g2b-notice-a-v1", Mapping.Hash(set), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new { depth3 = "01179", bidPbancNo = "R26BK00000002", bidPbancOrd = "000",
+                pbancKndCd = "공440002", pbancSttsCd = "공400001" }, tables = new { }
+        }));
+        host.Save(initial, host.Inspect(initial).BaseToken, Guid.NewGuid().ToString(), new());
+        // 원공고번호 없이 상태만 재공고로 바뀐 부분 입력.
+        var renotice = new CaptureInput("g2b-notice-a-v1", Mapping.Hash(set), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new { depth3 = "01179", bidPbancNo = "R26BK00000002", bidPbancOrd = "000",
+                pbancSttsCd = "공400004" },
+            tables = new { }
+        }));
+        var changed = host.Inspect(renotice);
+        host.Save(renotice, changed.BaseToken, Guid.NewGuid().ToString(), changed.Changes.Where(ch => ch.Conflict).ToDictionary(ch => ch.Id, _ => "apply"));
+        Assert.Equal("실공고", c.QuerySingle<string>("SELECT notice_kind FROM notice WHERE notice_base='R26BK00000002'"));
+        Assert.Equal("실공고(재공고)", c.QuerySingle<string>("SELECT 공고종류 FROM v_공고 WHERE 공고본번호='R26BK00000002'"));
+        var kindOnly = initial with { Data = JsonSerializer.SerializeToElement(new {
+            pointInfo = new { depth3 = "01179", bidPbancNo = "R26BK00000002", bidPbancOrd = "000", pbancKndCd = "공440002" }, tables = new { }
+        }) };
+        host.Save(kindOnly, host.Inspect(kindOnly).BaseToken, Guid.NewGuid().ToString(), new());
+        Assert.Equal("실공고(재공고)", c.QuerySingle<string>("SELECT 공고종류 FROM v_공고 WHERE 공고본번호='R26BK00000002'"));
+        string? Current() => c.QuerySingleOrDefault<string>($"SELECT notice_base FROM ({NoticeGroups.현행공고})");
+        int ItemLinks() => c.ExecuteScalar<int>("SELECT count(*) FROM request_item_link");
+        Assert.Equal("R26BK00000002", Current());
+        Assert.Equal(1, ItemLinks());
+        Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM notice_relation"));
+
+        // v30 에서 미정으로 남은 품목 연결도 다시 수집하지 않고 판올림만으로 복구한다.
+        c.Execute("DELETE FROM request_item_link; PRAGMA user_version=30;");
+        db.Migrate();
+        Assert.Equal(Schema.Version, c.ExecuteScalar<int>("PRAGMA user_version"));
+        Assert.Equal(1, ItemLinks());
+
+        var store = new Store(db);
+        var entity = new EntityRef("notice", "R26BK00000002", "000");
+        store.SetOverride(entity, "공고종류", ""); // 빈 정정도 source_status 로 되살리지 않는다.
+        Assert.Null(Current());
+        Assert.Equal(0, ItemLinks());
+        store.ClearOverride(entity, "공고종류");
+        Assert.Equal("R26BK00000002", Current());
+        Assert.Equal(1, ItemLinks());
+
+        store.BatchEdit("v_공고", [new(entity.Display, "공고종류", "일반공고", "실공고(재공고)", "set")]);
+        Assert.Null(Current());
+        Assert.Equal(0, ItemLinks());
+        store.BatchEdit("v_공고", [new(entity.Display, "공고종류", "", "일반공고", "revert")]);
+        Assert.Equal("R26BK00000002", Current());
+        Assert.Equal(1, ItemLinks());
+
+        var original = new EntityRef("notice", "R26BK00000001", "000");
+        store.SetOverride(original, "공고종류", "재공고");
+        Assert.Null(Current()); // 재공고가 여럿이면 임의로 고르지 않는다.
+        Assert.Equal(0, ItemLinks());
+        store.ClearOverride(original, "공고종류");
+        Assert.Equal("R26BK00000002", Current());
+        Assert.Equal(1, ItemLinks());
     }
 
     [Fact]
@@ -641,6 +720,48 @@ public sealed class ErpCaptureTests : IDisposable
         ExplicitLinks.Resolve(db);
         Assert.Empty(c.Query("SELECT * FROM project_link UNION ALL SELECT * FROM request_link"));
         Assert.Empty(c.Query("SELECT * FROM request_item_link"));
+    }
+
+    [Fact]
+    public void 공고종류_판올림은_원천과_당시매핑이_입증한_합성값만_복구하고_정정을_보존한다()
+    {
+        var db = new Database(DbPath); var host = new ErpCapture(db); var mapping = Mapping.Defaults();
+        using var c = db.Open();
+        for (var i = 1; i <= 6; i++)
+        {
+            var b = $"R26BK0000000{i}";
+            var input = new CaptureInput("g2b-notice-a-v1", Mapping.Hash(mapping), JsonSerializer.SerializeToElement(new {
+                pointInfo = new { depth3 = "01179", bidPbancNo = b, bidPbancOrd = "000", pbancKndCd = "공440002", pbancSttsCd = "공400001" }, tables = new { }
+            }));
+            host.Save(input, host.Inspect(input).BaseToken, Guid.NewGuid().ToString(), new());
+            // v31의 종류는 일반공고로 남고 상태만 재공고로 바뀐 모습.
+            var json = c.QuerySingle<string>("SELECT document_json FROM erp_source WHERE entity_base=@b", new { b });
+            var document = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+            var head = document["rows"]![0]!;
+            head["values"]!["notice_kind"] = "실공고(일반공고)";
+            if (i == 2) head["origins"]!.AsObject().Remove("notice_kind");
+            c.Execute("UPDATE erp_source SET document_json=@json WHERE entity_base=@b; UPDATE notice SET notice_kind=@kind,source_status='재공고' WHERE notice_base=@b",
+                new { b, json = i == 6 ? "null" : document.ToJsonString(), kind = i == 3 ? "실공고(변경공고)" : "실공고(일반공고)" });
+            if (i is 4 or 5)
+            {
+                var snapshot = System.Text.Json.Nodes.JsonNode.Parse(c.QuerySingle<string>("SELECT snapshot_json FROM erp_capture WHERE entity_base=@b", new { b }))!;
+                snapshot["mappingRevision"] = i == 4 ? "missing" : "saved-custom";
+                c.Execute("UPDATE erp_capture SET snapshot_json=@json WHERE entity_base=@b", new { b, json = snapshot.ToJsonString() });
+            }
+        }
+        c.Execute("INSERT INTO erp_mapping(revision,json,created_at) VALUES('saved-custom',@json,'2026-10-01')", new { json = JsonSerializer.Serialize(mapping, Mapping.Json) });
+        var store = new Store(db); var entity = new EntityRef("notice", "R26BK00000001", "000");
+        store.SetOverride(entity, "공고종류", "사람 확정");
+        c.Execute("PRAGMA user_version=31");
+        db.Migrate();
+        Assert.Equal(new[] { "실공고", "실공고(일반공고)", "실공고(변경공고)", "실공고(일반공고)", "실공고", "실공고(일반공고)" },
+            c.Query<string>("SELECT notice_kind FROM notice ORDER BY notice_base"));
+        Assert.Equal("사람 확정", c.QuerySingle<string>("SELECT 공고종류 FROM v_공고 WHERE 공고본번호='R26BK00000001'"));
+        Assert.Equal("실공고", System.Text.Json.Nodes.JsonNode.Parse(c.QuerySingle<string>("SELECT document_json FROM erp_source WHERE entity_base='R26BK00000001'"))!["rows"]![0]!["values"]!["notice_kind"]!.GetValue<string>());
+        store.ClearOverride(entity, "공고종류");
+        Assert.Equal("실공고(재공고)", c.QuerySingle<string>("SELECT 공고종류 FROM v_공고 WHERE 공고본번호='R26BK00000001'"));
+        db.Migrate();
+        Assert.Equal("실공고(재공고)", c.QuerySingle<string>("SELECT 공고종류 FROM v_공고 WHERE 공고본번호='R26BK00000001'"));
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Pclm.Core.Domain;
+using Pclm.Core.Erp;
 using Pclm.Core.Storage;
 using Xunit;
 
@@ -55,6 +56,54 @@ public class NoticeGroupTests : IDisposable
         Assert.Equal(2, rows.Count);
         Assert.All(rows, r => Assert.Equal("R26BK09011054", r["공고건"]));
         Assert.All(rows, r => Assert.Equal("R26BK09012082-000", r["현행공고"]));
+    }
+
+    [Theory]
+    [InlineData("재공고", null, true)]
+    [InlineData("실공고(재공고)", null, true)]
+    [InlineData("실공고", "재공고", true)]
+    [InlineData("재공고", "일반공고", true)]
+    [InlineData("취소공고", "재공고", false)]
+    [InlineData("", "재공고", true)]
+    [InlineData(null, "재공고", true)]
+    [InlineData("등록공고", "재공고", false)]
+    [InlineData("재공고 아님", null, false)]
+    [InlineData("실공고(재공고예정)", null, false)]
+    [InlineData("등록공고", null, false)]
+    public void 여러_현행_후보중_재공고_하나만_고른다(string? kind, string? status, bool selected)
+    {
+        Put("R26BK00000001", "000");
+        _store.UpsertNotice(new NoticeRecord { NoticeBase = "R26BK00000002", Seq = "000", NoticeKind = kind });
+        using (var c = _database.Open())
+        {
+            c.Execute("UPDATE notice SET source_status=@status WHERE notice_base='R26BK00000002'", new { status });
+            c.Execute("""
+                INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base)
+                VALUES('R26BK00000001','000',1,'REQ'),('R26BK00000002','000',1,'REQ');
+                """);
+        }
+        ExplicitLinks.Resolve(_database);
+
+        var expected = selected ? "R26BK00000002-000" : "";
+        Assert.All(Rows(), row => Assert.Equal(expected, row["현행공고"]));
+        Assert.Equal(selected ? expected : null, Assert.Single(new Outline(_database).Build().Chains).Notice!.Current?.Number);
+    }
+
+    [Fact]
+    public void 재공고_우선보다_최신차수와_명시_대체관계가_앞선다()
+    {
+        _store.UpsertNotice(new NoticeRecord { NoticeBase = "R26BK00000001", Seq = "000", NoticeKind = "재공고" });
+        Put("R26BK00000001", "001");
+        Put("R26BK00000002", "000", "R26BK00000001-000");
+
+        // 재공고인 옛 차수를 후보에 다시 넣지 않는다. 최신 차수 둘은 여전히 모호하다.
+        Assert.All(Rows(), row => Assert.Equal("", row["현행공고"]));
+        _store.UpsertNotice(new NoticeRecord { NoticeBase = "R26BK00000001", Seq = "001", NoticeKind = "재공고" });
+        Assert.All(Rows(), row => Assert.Equal("R26BK00000001-001", row["현행공고"]));
+
+        // 명시적으로 대체된 재공고는 빠지고, 남은 일반공고 하나를 그대로 현행으로 삼는다.
+        Put("R26BK00000002", "000", "R26BK00000001-001");
+        Assert.All(Rows(), row => Assert.Equal("R26BK00000002-000", row["현행공고"]));
     }
 
     /// <summary>

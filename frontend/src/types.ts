@@ -25,11 +25,6 @@ export type Sheet = {
   correctable: string[];
   /** 이미 고쳐 둔 칸. 줄 키 → 열 이름 → **고치기 전에 그 자리에 있던 값**. */
   overrides: Record<string, Record<string, string>>;
-  /**
-   * 표에서 기본으로 숨기는 열(다리의 <code>Views.HiddenByDefault</code>, ADR-043 결정 5). 새로 담기 시작한 필드의 열이라
-   * 사람이 설정에서 켠 것만 펼친다. 뷰와 엑셀 전체 내보내기에는 그대로 있다. 맞춤 뷰처럼 없는 표는 비어 있다.
-   */
-  hidden?: string[];
   rows: Row[];
 };
 
@@ -666,6 +661,8 @@ export type PlanImportResult = {
   skipped: number;
   /** 없던 필수 **머리글 이름**. 하나라도 있으면 **한 줄도 들어가지 않았다**. */
   missingRequired: string[];
+  /** 행 값이 규약에 맞지 않으면 한 줄도 저장하지 않고 원인을 반환한다. */
+  errors: string[];
   /** 실제로 잡힌 머리글. 어느 열이 들어갔는지 사람이 눈으로 확인하는 자리다. */
   found: string[];
   ok: boolean;
@@ -682,3 +679,10 @@ export type Cell = { 이름: string; 수: number; 거르개: string | null };
 export type Group = { 이름: string; cells: Cell[] };
 
 export type StatusReport = { groups: Group[] };
+
+/** 이 컴퓨터에서만 쓰는 나라장터 자동 수집 조건. DB나 제출본으로 옮기지 않는다. */
+export type AutoCaptureSettings = {
+  enabled: boolean;
+  name: string;
+  lastResult?: { state: string; message: string; entity?: string | null } | null;
+};

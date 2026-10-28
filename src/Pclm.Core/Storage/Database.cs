@@ -270,6 +270,7 @@ public sealed class Database
                 {
                     Execute(connection, Schema.Steps[v - Schema.BaselineVersion], transaction);
                     if (v == 29) SchemaRepairs.Upgrade30(connection, transaction, current);
+                    if (v == 31) SchemaRepairs.Upgrade32(connection, transaction);
                 }
 
                 // v26 은 그 판의 예시를 심고, v27 은 손대지 않은 그것을 지금 구성으로 갈아 끼운다 — v25 에서 오면 둘 다 밟는다.

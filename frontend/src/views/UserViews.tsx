@@ -6,7 +6,7 @@ import type { Sheet, UserView, UserViewContext, UserViewContracts, UserViewPrevi
 import type { FormulaV2 } from "../flow/ast";
 import { docWord } from "../flow/ast";
 import { checkFlow } from "../flow/check";
-import { ColumnFlow } from "../columns/ColumnFlow";
+import { ColumnFlow, type FlowCodeDraft } from "../columns/ColumnFlow";
 import { Icon } from "../columns/icons";
 import { Collect } from "./Collect";
 import { RecordScript, type RowState } from "./RecordScript";
@@ -75,7 +75,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [codeProblem, setCodeProblem] = useState("");
+  const [codeDrafts, setCodeDrafts] = useState<Record<string, FlowCodeDraft>>({});
   const [notice, setNotice] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
   const columnNameInput = useRef<HTMLInputElement>(null);
@@ -87,7 +87,9 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
 
   const env = useMemo(() => envOf(context), [context]);
   const current = stable(draft);
-  const dirty = !!draft && current !== baseline;
+  const codeIssue = draft?.columns.find(c => codeDrafts[c.id]?.problem);
+  const codeProblem = codeIssue ? codeDrafts[codeIssue.id].problem : "";
+  const dirty = !!draft && (current !== baseline || !!codeProblem);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const fold = draft?.contracts === "fold";
   // 표본은 그 뷰의 줄에서 고른다 — 줄은 모으기와 담긴 문서 종류가 정한다. 이름·차례가 바뀌어도 다시 찾지 않는다.
@@ -105,6 +107,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
     savedDraft.current = next?.id ? next : null;
     setTableMode(!!next?.id);
     setDraft(next); setBaseline(fresh ? stable(next) : "");
+    setCodeDrafts({});
     setEditing(null); setSelected(next?.columns[0]?.id ?? null); setError(""); setNotice("");
     setSampleQuery(""); setEdge(null); setSampleIndex(0); setDrawer(false); setReturning(false);
     setOrigins({}); setOpened(n => n + 1);
@@ -261,6 +264,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
     : !draft.columns.length ? "열을 하나 이상 추가하세요."
     : names.size ? `이름이 비었거나 겹치는 열이 ${names.size}개 있습니다.`
     : emptyCount ? `식을 정하지 않은 열이 ${emptyCount}개 있습니다.`
+    : codeIssue ? `‘${codeIssue.name.trim() || "이름 없는 열"}’ 열의 흐름식을 고치세요. ${codeProblem}`
     : brokenCount ? `식이 깨진 열이 ${brokenCount}개 있습니다.`
     : "";
   const canSave = !readOnly && !busy && !!draft && !reason && (dirty || !draft.id);
@@ -268,7 +272,6 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
   async function save(): Promise<boolean> {
     if (!draft || busy || readOnly) return false;
     if (reason) { setError(`저장할 수 없습니다. ${reason}`); return false; }
-    if (editingCol && codeProblem) { setError(`흐름식을 읽을 수 없어 저장하지 않았습니다 — ${codeProblem}`); return false; }
     setBusy(true); setError("");
     try {
       const name = draft.name.trim();
@@ -455,7 +458,11 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
           {names.get(editingCol.id) && <p className="uv-row-error"><Icon name="alert" size={14} /><span>{names.get(editingCol.id)}</span></p>}
           <div className="uv-editor-scroll">
             {contextStatus}
-            <ColumnFlow key={editingCol.id} onCodeProblem={setCodeProblem} userView sampleKeys={traceKeys} formula={editingCol.formula} context={context} env={env} readOnly={readOnly || busy}
+            <ColumnFlow key={editingCol.id} codeDraft={codeDrafts[editingCol.id] ?? null} onCodeDraftChange={buffer => setCodeDrafts(previous => {
+              const next = { ...previous };
+              if (buffer) next[editingCol.id] = buffer; else delete next[editingCol.id];
+              return next;
+            })} userView sampleKeys={traceKeys} formula={editingCol.formula} context={context} env={env} readOnly={readOnly || busy}
               onChange={(formula: FormulaV2 | null) => patchColumn(editingCol.id, { formula })}
               onSuggestName={name => { if (!editingCol.name.trim()) patchColumn(editingCol.id, { name: uniqueName(name, draft.columns, "") }); }} />
           </div>
@@ -495,7 +502,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
       {reason && !error && <p className="column-hint" id="uv-pending-reason">지금은 저장할 수 없습니다. {reason}</p>}
       {error && <p className="warn" role="alert">{error}</p>}
       <div className="column-controls"><button className="action" disabled={busy} onClick={() => setPending(null)}>계속 편집</button>
-        <button className="action" disabled={busy} onClick={() => { const next = pending.run; setPending(null); setBaseline(current); next(); }}>변경 버리기</button>
+        <button className="action" disabled={busy} onClick={() => { const next = pending.run; setPending(null); setBaseline(current); setCodeDrafts({}); next(); }}>변경 버리기</button>
         <button className="action primary" disabled={busy || !!reason} title={reason || undefined} aria-describedby={reason && !error ? "uv-pending-reason" : undefined}
           onClick={async () => { const next = pending.run; if (await save()) { setPending(null); next(); } }}>저장 후 이동</button></div>
     </Modal>}

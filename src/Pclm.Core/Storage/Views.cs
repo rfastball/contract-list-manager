@@ -170,7 +170,7 @@ public static class Views
         "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
         "수요기관", "검사기관", "검수기관",
         "계약상대자", "대표자", "사업자등록번호", "상대자주소", "상대자전화", "상대자팩스",
-        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
         "수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식",
     ];
 
@@ -190,7 +190,7 @@ public static class Views
         "수요기관", "세부품명", "세부품명번호", "수량", "단위", "납품기한", "인도조건",
         "담당부서", "담당자", "담당자전화", "담당자팩스",
         "관련공고", "공고건", "현행공고",
-        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
         "계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태",
         // 재무관(fncrNm). 「채권자」 로 담던 칸을 바로 읽은 것이다(스키마 V29).
         "재무관",
@@ -206,18 +206,13 @@ public static class Views
         "외국산여부", "요청구분", "공개여부", "전담관", "담당과", "담당자", "선급금선고지", "선급금지급가능", "기타사항",
         "수요기관", "수요기관코드", "기관담당자", "기관담당자전화", "기관담당자팩스",
         "세부품명", "세부품명번호", "수량", "단위", "인도조건", "납품기한", "재고번호",
-        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+        // 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
         "공고종류", "추정가격",
     ];
 
     /// <summary>
-    /// 표에서 <b>기본으로 숨기는 열</b> — 뷰마다(ADR-043 결정 5). 확정되어 새로 담기 시작한 필드의 열이다. 계약면에는 그대로
-    /// 있고(소비자·엑셀 내보내기는 전부를 받는다), 화면의 표만 보는 사람이 설정에서 켤 때까지 접어 둔다 — 지금 보이는 열은
-    /// 그대로 보인다. 화면은 이 한 벌을 다리(<c>Bridge</c>)로 받는다. 두 벌로 적으면 새 열을 더하고 여기를 빠뜨려도 아무것도
-    /// 실패하지 않고 표가 넓어지기만 하므로, 시험이 실제 뷰의 열과 대조한다.
-    ///
-    /// <para>계약 열은 <c>v_통합</c>·<c>v_통합차수</c> 에도 이름 그대로 실리므로(<see cref="ContractColumns"/>) 거기서도 숨긴다.
-    /// 공고·계약 열은 차수 뷰가 같은 열 한 벌을 쓴다.</para>
+    /// V28 이후 확정되어 도입한 열(ADR-043). 당시 기본 숨김 목록이었으나 현재 화면에는 모두 표시한다.
+    /// 기존 자료의 스키마 복구와 판올림 검증에서 도입 열을 식별하는 데 사용한다.
     /// </summary>
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> HiddenByDefault { get; } = Hidden();
 
@@ -923,7 +918,7 @@ public static class Views
             n.seq                         AS 차수,
 
             {N("공고명", Text("n.title"))},
-            {N("공고종류", Text("n.notice_kind"))},
+            {N("공고종류", Text(NoticeGroups.Kind("n.notice_kind", "n.source_status")))},
             {N("게시일시", DateText("n.posted_at"))},
             {N("입찰방식", Text("n.bid_method"))},
             {N("낙찰방법", Text("n.award_method"))},
@@ -976,7 +971,7 @@ public static class Views
             {Text(건현행(공고건("n.notice_base"), "현행.notice_base || '-' || 현행.seq"))} AS 현행공고,
 
             -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 저쪽에 저장된 필드 연결이
-            -- 끊기지 않고, 표에서는 기본으로 숨는다(HiddenByDefault). 제한 업종은 여럿이라 줄 차례대로 잇는다.
+            -- 끊기지 않는다. 제한 업종은 여럿이라 줄 차례대로 잇는다.
             {N("계약법구분", Text("n.contract_law"))},
             {N("사업금액수수료합계", Money("n.project_fee_total"))},
             {N("입찰참가제한업종", Text(RestrictedIndustries))},
@@ -1028,7 +1023,7 @@ public static class Views
             {C("상대자전화", Text(PartyField("phone")))},
             {C("상대자팩스", Text(PartyField("fax")))},
 
-            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
             {C("수요기관담당자ID", Text("c.agency_officer_id"))},
             {C("외국산여부", YesNoWord("c.foreign_allowed"))},
             {C("계약법구분", Text("c.contract_law"))},
@@ -1097,7 +1092,7 @@ public static class Views
             -- 늘리기만 하는 자리라, 사이에 끼우면 뒤 열의 엑셀 자리가 한 칸씩 밀린다.
             {R("재고번호", Text(UniformRequestItem("i.stock_number")))},
 
-            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
             {R("공고종류", Text("r.notice_kind"))},
             {R("추정가격", Money("r.estimated_price"))}{requestColumns}
         """;
@@ -1210,7 +1205,7 @@ public static class Views
             {Text("t.officer")}                   AS 담당자,
             {Text("t.phone")}                     AS 담당자전화,
             {Text("t.fax")}                       AS 담당자팩스,
-            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
             {Text("i.demand_agency_code")}        AS 수요기관코드,
             {Text("i.classification_number")}     AS 물품분류번호,
             {Text("i.item_identification_name")}  AS 물품식별명,
@@ -1260,7 +1255,7 @@ public static class Views
             {Text("i.demand_agency")}             AS 수요기관,
             {DateText("i.delivery_due")}          AS 납품기한,
             {Text("i.delivery_terms")}            AS 인도조건,
-            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
             -- 입찰분류번호·입찰공고품목순번은 적힌 그대로의 참조다. 잇는 데 쓰지 않는다(ADR-040).
             {Text("i.ref_notice_class")}          AS 입찰분류번호,
             {Text("i.ref_notice_item")}           AS 입찰공고품목순번,
@@ -1316,7 +1311,7 @@ public static class Views
             {Text("i.expense_request_number")}    AS 지출요청번호,
             COALESCE(k.notice_base || '-' || k.notice_seq, '') AS 입찰공고번호,
             {Text("CAST(k.notice_line_no AS TEXT)")}           AS 공고순번,
-            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 끝에 덧붙인다 — 표에서는 기본으로 숨는다(HiddenByDefault).
+            -- 확정되어 담기 시작한 필드(ADR-043, 스키마 V28). 기존 필드 순서를 지키도록 끝에 덧붙인다.
             {Text("i.classification_number")}     AS 물품분류번호,
             {Text("i.delivery_unit")}             AS 납품부대명
         FROM request_item i

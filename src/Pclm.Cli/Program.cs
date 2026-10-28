@@ -1,42 +1,30 @@
 using Pclm.Core.Erp;
 using System.Text;
 using Pclm.Core.Storage;
+using Pclm.Cli;
 
 Console.OutputEncoding = Encoding.UTF8;
 
+CliArguments parsed;
+try { parsed = CliArguments.Parse(args); }
+catch (ArgumentException error)
+{
+    Console.Error.WriteLine(error.Message);
+    Environment.Exit(2);
+    return;
+}
 var command = args.Length > 0 ? args[0].ToLowerInvariant() : "help";
 // 창과 같은 홈의 쪽지를 본다. 갈라 두면 같은 컴퓨터에 자료가 여럿 생기고,
 // 밖에서 읽는 쪽은 어느 것이 진짜인지 알 수 없다. --home 은 개발·시험 격리의 문이다.
 // --db 는 걷었다 — 모르는 깃발로 흘려보내면 시험 자료를 연 줄 알고 실제 자료를 고친다.
-if (Flag("--db"))
-{
-    Console.Error.WriteLine("--db 는 없어졌습니다. 시험 자료는 --home <폴더> 로 따로 여세요.");
-    Environment.Exit(2);
-    return;
-}
 var homeArg = Option("--home");
-if (Flag("--home") && homeArg is null)
-{
-    Console.Error.WriteLine("--home 뒤에 폴더를 적으세요.");
-    Environment.Exit(2);
-    return;
-}
 var home = homeArg is null ? Home.Default : new Home(homeArg);
-
-// 값을 받지 않는 깃발. Positional 이 뒤에 오는 자리 인자를 옵션 값으로 삼키지 않게 알려 준다.
-string[] switches = ["--계열", "--예"];
 
 // --file 은 다른 자료를 열어 본다. 창의 열람과 같은 길이다 — 원본을 읽기 전용으로 홈에 한 벌 떠서
 // 그 사본을 읽는다. 원본은 판도 뷰도 바뀌지 않는다(ADR-031). 읽는 명령에만 받는다: 쓰는 명령이
 // 받으면 고친 것이 사본과 함께 사라지는데 사람은 고친 줄 안다.
 string[] viewCommands = ["status", "현황", "export"];
 var fileArg = Option("--file");
-if (Flag("--file") && fileArg is null)
-{
-    Console.Error.WriteLine("--file 뒤에 열어 볼 파일을 적으세요.");
-    Environment.Exit(2);
-    return;
-}
 if (fileArg is not null && !viewCommands.Contains(command))
 {
     Console.Error.WriteLine($"--file 은 열람 전용입니다 — {string.Join(" · ", viewCommands)} 에만 씁니다. {command} 는 작업자료에서 하세요.");
@@ -138,13 +126,15 @@ void Plan()
 
     if (!result.Ok)
     {
+        foreach (var error in result.Errors) Console.Error.WriteLine(error);
         // 무엇이 없는지와 무엇이 있었는지를 함께 적는다. 없는 것만 보여 주면
         // 사람은 파일이 통째로 잘못됐다고 여기고 만다.
-        Console.Error.WriteLine($"없는 열: {string.Join(", ", result.MissingRequired)}");
+        if (result.MissingRequired.Count > 0)
+            Console.Error.WriteLine($"없는 열: {string.Join(", ", result.MissingRequired)}");
         if (result.Found.Count > 0)
             Console.Error.WriteLine($"읽은 열: {string.Join(", ", result.Found)}");
 
-        Console.Error.WriteLine("\n한 줄도 넣지 않았습니다. 첫 줄이 표본의 머리글인지 보세요.");
+        Console.Error.WriteLine("\n한 줄도 넣지 않았습니다. 엑셀의 오류를 확인하세요.");
         Environment.Exit(2);
         return;
     }
@@ -345,7 +335,7 @@ void Set()
         Console.WriteLine("사람이 채우는 열\n");
         foreach (var group in store.UserColumns().GroupBy(c => c.EntityType))
         {
-            Console.WriteLine($"  [{(group.Key == "contract" ? "계약" : "공고")}]");
+            Console.WriteLine($"  [{EntityLabel(group.Key)}]");
             foreach (var c in group)
                 Console.WriteLine($"    {c.FieldName,-12} {c.Kind,-7} {string.Join(" / ", c.Choices)}");
         }
@@ -457,7 +447,7 @@ void Remove()
     var whole = Flag("--계열");
     var plan = store.PlanDeletion(entity, whole);
 
-    Console.WriteLine($"{(plan.EntityType == "notice" ? "공고" : "계약")}  {plan.Display}  {plan.Title}\n");
+    Console.WriteLine($"{EntityLabel(plan.EntityType)}  {plan.Display}  {plan.Title}\n");
     Console.WriteLine($"  쌓인 차수   {string.Join(" · ", plan.Revisions)}");
     Console.WriteLine($"  지울 것     {(whole ? "전 차수" : $"{entity.Seq} 차수 하나")}");
     Console.WriteLine($"  딸린 줄     {plan.ChildRows}");
@@ -504,30 +494,15 @@ void Help() => Console.WriteLine("""
       --file <파일>                     다른 자료를 열어 본다 — status · 현황 · export 만, 읽기 전용
 
     <키> 는 계약번호·공고번호·접수번호다. 접수는 아무 요청번호로도 찾는다.
+    -- 뒤의 값은 옵션으로 해석하지 않는다. 예: pclm fix <키> 공고명 -- --긴급
     쌓이는 자리는 pclm status 가 첫 줄에 적는다.
     """);
 
-string? Option(string name)
+string? Option(string name) => parsed.Option(name);
+bool Flag(string name) => parsed.Flag(name);
+List<string> Positional() => parsed.Positionals;
+string EntityLabel(string entityType) => entityType switch
 {
-    var i = Array.IndexOf(args, name);
-    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-}
-
-bool Flag(string name) => Array.IndexOf(args, name) >= 0;
-
-// 명령 뒤의 자리 인자만. --옵션과 그 뒤에 붙는 값을 함께 건너뛴다 —
-// 건너뛰지 않으면 "set 키 열 값 --home 폴더" 에서 경로가 값에 딸려 들어간다.
-// 값을 받지 않는 깃발은 저 혼자 건너뛴다.
-List<string> Positional()
-{
-    var result = new List<string>();
-
-    for (var i = 1; i < args.Length; i++)
-    {
-        if (!args[i].StartsWith("--")) { result.Add(args[i]); continue; }
-        if (switches.Contains(args[i])) continue;
-        i++; // 옵션의 값
-    }
-
-    return result;
-}
+    "request" => "접수", "notice" => "공고", "contract" => "계약",
+    _ => throw new InvalidOperationException($"모르는 자료 종류입니다: {entityType}"),
+};

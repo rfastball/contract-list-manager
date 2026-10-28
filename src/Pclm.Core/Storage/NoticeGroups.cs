@@ -7,6 +7,14 @@ namespace Pclm.Core.Storage;
 /// <summary>수집된 관련공고·접수 참조로 공고건을 재구성한다.</summary>
 public static class NoticeGroups
 {
+    /// <summary>종류와 상태는 따로 수집한다. 이미 완성된 다른 화면의 공고종류는 그대로 표시한다.</summary>
+    internal static string Kind(string kind, string status) => $"""
+        CASE WHEN NULLIF({kind}, '') IS NOT NULL AND {status} IN ('일반공고','변경공고','취소공고','재공고')
+          AND {kind} NOT IN ('일반공고','변경공고','취소공고','재공고')
+          AND {kind} NOT LIKE '%(일반공고)' AND {kind} NOT LIKE '%(변경공고)'
+          AND {kind} NOT LIKE '%(취소공고)' AND {kind} NOT LIKE '%(재공고)'
+        THEN {kind} || '(' || {status} || ')' ELSE COALESCE(NULLIF({kind}, ''), {status}) END
+        """;
     /// <summary>
     /// 이 본번호가 속한 <b>건</b>. 계열이 없으면 <c>null</c> — 문서가 들어온 적 없는 번호다.
     ///
@@ -20,21 +28,30 @@ public static class NoticeGroups
             "SELECT group_base FROM notice_series WHERE notice_base = @b;",
             new { b = noticeBase }, transaction);
 
-    /// <summary>명시 대체 관계와 차수로 결정되는 유일한 현행 공고. 여럿이면 선택하지 않는다.</summary>
-    public const string 현행공고 = """
+    /// <summary>명시 대체 관계와 차수로 남긴 후보가 하나이거나, 여러 후보 중 재공고가 하나면 현행이다.</summary>
+    public static readonly string 현행공고 = $"""
         SELECT group_base, notice_base, seq FROM (
-            SELECT 계열.group_base AS group_base, 현행.notice_base AS notice_base, 현행.seq AS seq,
-                   COUNT(*) OVER (PARTITION BY 계열.group_base) AS 후보수
-            FROM notice 현행
-            JOIN notice_series 계열 ON 계열.notice_base = 현행.notice_base
-            WHERE CAST(현행.seq AS INTEGER) =
-                  (SELECT MAX(CAST(x.seq AS INTEGER)) FROM notice x WHERE x.notice_base = 현행.notice_base)
-              AND NOT EXISTS (
-                  SELECT 1 FROM notice_relation r
-                  WHERE r.related_base = 현행.notice_base AND r.related_seq = 현행.seq
-                    AND r.notice_base <> 현행.notice_base)
+            SELECT 유효.*, COUNT(*) OVER (PARTITION BY group_base) AS 후보수,
+                   SUM(재공고) OVER (PARTITION BY group_base) AS 재공고수
+            FROM (
+                SELECT 계열.group_base, 현행.notice_base, 현행.seq,
+                       CASE WHEN COALESCE(
+                           (SELECT o.value FROM field_override o
+                            WHERE o.entity_type = 'notice' AND o.base = 현행.notice_base
+                              AND o.seq = 현행.seq AND o.column_name = '공고종류'),
+                           {Kind("현행.notice_kind", "현행.source_status")})
+                           IN ('재공고', '실공고(재공고)') THEN 1 ELSE 0 END AS 재공고
+                FROM notice 현행
+                JOIN notice_series 계열 ON 계열.notice_base = 현행.notice_base
+                WHERE CAST(현행.seq AS INTEGER) =
+                      (SELECT MAX(CAST(x.seq AS INTEGER)) FROM notice x WHERE x.notice_base = 현행.notice_base)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM notice_relation r
+                      WHERE r.related_base = 현행.notice_base AND r.related_seq = 현행.seq
+                        AND r.notice_base <> 현행.notice_base)
+            ) 유효
         ) 후보
-        WHERE 후보수 = 1
+        WHERE 후보수 = 1 OR (후보수 > 1 AND 재공고수 = 1 AND 재공고 = 1)
         """;
 
     internal static void Rebuild(SqliteConnection connection, SqliteTransaction? transaction)

@@ -66,10 +66,10 @@ describe("보기", () => {
     const user = userEvent.setup();
     render(<UserViews readOnly={false} />);
     const result = within(await screen.findByRole("region", { name: "보기 결과" }));
-    const table = within(await result.findByRole("table"));
+    const table = within(await result.findByRole("grid", { name: "자료 목록" }));
     expect(table.getAllByRole("columnheader").slice(1).map(c => c.textContent)).toEqual(["접수번호", "공고번호", "계약번호", "공고명", "대표품명", "진행"]);
     expect(table.getAllByRole("row")).toHaveLength(46);
-    expect(table.getByRole("cell", { name: "R26TA0911050300, R26TA0911050800" })).toBeTruthy();
+    expect(table.getByRole("gridcell", { name: /R26TA0911050300, R26TA0911050800/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "미리보기" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "열 목록" })).toBeNull();
     expect(부름.mock.calls.some(([m]) => m === "previewUserView" || m === "userViewSamples")).toBe(false);
@@ -79,7 +79,7 @@ describe("보기", () => {
     expect(await screen.findByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "공고문서");
     expect(screen.getByRole("complementary", { name: "열 목록" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "표로 돌아가기" }));
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -93,7 +93,7 @@ describe("보기", () => {
     expect(await screen.findByRole("heading", { name: "이 보기에 표시할 자료가 없습니다" })).toBeTruthy();
     부름.mockImplementation(본디);
     view.rerender(<UserViews readOnly={false} refreshVersion={1} />);
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "미리보기" })).toBeNull();
   });
 
@@ -109,11 +109,11 @@ describe("보기", () => {
     expect(screen.getByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "버릴 이름");
     await user.click(screen.getByRole("button", { name: "표로 돌아가기" }));
     await user.click(within(await screen.findByRole("dialog", { name: "저장하지 않은 보기 변경" })).getByRole("button", { name: "변경 버리기" }));
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "공고문서" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "보기 편집" }));
     await user.click((await changeName('보고 "보기"')).getByRole("button", { name: "저장 후 이동" }));
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: '보고 "보기"' })).toBeTruthy();
     expect(부름.mock.calls.filter(([m]) => m === "sheet").at(-1)![1]).toEqual(['u_보고 "보기"']);
     await user.click(screen.getByRole("button", { name: "보기 편집" }));
@@ -133,7 +133,7 @@ describe("보기", () => {
     await user.click(confirm.getByRole("button", { name: "계속 편집" }));
     await user.type(screen.getByRole("textbox", { name: "보기 이름" }), "공고문서");
     await user.click(screen.getByRole("button", { name: "표로 돌아가기" }));
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
   });
 
   it("머리는 사용자가 정한 이름이고, 첫 보기가 한 줄 = 조달 건으로 표본과 함께 선다", async () => {
@@ -304,7 +304,7 @@ describe("보기", () => {
     expect(screen.queryByRole("group", { name: "계약이 여럿인 건" })).toBeNull();
     await user.click(within(열보기().getByRole("region", { name: "공고" })).getByRole("checkbox", { name: "공고명" }));
     await user.click(screen.getByRole("button", { name: "저장" }));
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "월간보고" })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "보기 이름" })).toBeNull();
   });
@@ -375,28 +375,56 @@ describe("보기", () => {
     await waitFor(() => expect(document.activeElement).toBe(줄(back, "계약번호")));
   });
 
-  it("흐름식 문구가 읽을 수 없거나 빈 채로 있으면 보기를 저장하지 않고 까닭을 말한다", async () => {
-    const { user, record } = await 뷰열기();
+  it("미완성 흐름식은 탭과 열 닫기에도 남고, 이동에서 버리거나 고친 뒤에만 저장한다", async () => {
+    const onDirtyChange = vi.fn();
+    const { user, record, view } = await 뷰열기({ onDirtyChange });
     줄(record, "계약번호").focus();
     await user.keyboard("{Enter}");
-    const editor = within(await screen.findByRole("region", { name: "열 편집" }));
+    let editor = within(await screen.findByRole("region", { name: "열 편집" }));
     await user.click(editor.getByRole("tab", { name: "흐름식" }));
-    const code = await editor.findByRole("textbox", { name: "흐름식" });
-    const view = EditorView.findFromDOM(code.closest(".cm-editor") as HTMLElement)!;
-    const 쓰기 = (text: string) => act(() => { view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }); });
-    // 읽히는 글로 초안을 바꾼 뒤 읽을 수 없게 둔다 — 단계에는 고친 식이 남는다.
-    const 원래 = view.state.doc.toString();
-    쓰기(`${원래} |> 다듬기`);
-    expect(await editor.findByText("단계 1개로 반영했습니다.")).toBeTruthy();
+    const 코드 = () => EditorView.findFromDOM(screen.getByRole("textbox", { name: "흐름식" }).closest(".cm-editor") as HTMLElement)!;
+    await editor.findByRole("textbox", { name: "흐름식" });
+    const 쓰기 = (text: string) => act(() => { const code = 코드(); code.dispatch({ changes: { from: 0, to: code.state.doc.length, insert: text } }); });
+    const 원래 = 코드().state.doc.toString();
+    // 저장된 AST를 고치지 않은 채 원문만 깨뜨려도 미저장 변경이다.
     쓰기(`${원래} |> 없는동사`);
     expect(await editor.findByText(/^이 식을 읽을 수 없습니다: /)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("alert")).textContent).toMatch(/^흐름식을 읽을 수 없어 저장하지 않았습니다 — /);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole("button", { name: "저장" })).toHaveProperty("disabled", true);
+    await user.click(editor.getByRole("tab", { name: "단계" }));
+    await user.click(editor.getByRole("tab", { name: "흐름식" }));
+    expect(코드().state.doc.toString()).toBe(`${원래} |> 없는동사`);
+    await user.click(editor.getByRole("button", { name: "공고문서" }));
+    expect(await screen.findByRole("region", { name: "미리보기" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "표로 돌아가기" }));
+    let guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 보기 변경" }));
+    expect(guard.getByRole("button", { name: "저장 후 이동" })).toHaveProperty("disabled", true);
+    await user.click(guard.getByRole("button", { name: "계속 편집" }));
+    줄(within(screen.getByRole("region", { name: "미리보기" })), "계약번호").focus();
+    await user.keyboard("{Enter}");
+    editor = within(await screen.findByRole("region", { name: "열 편집" }));
+    await user.click(editor.getByRole("tab", { name: "흐름식" }));
+    expect(코드().state.doc.toString()).toBe(`${원래} |> 없는동사`);
     쓰기("");
     expect(await editor.findByText("식이 비어 있습니다. 단계에는 마지막으로 읽은 식이 남아 있습니다.")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "저장" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("흐름식을 읽을 수 없어 저장하지 않았습니다 — 식이 비어 있습니다");
+    await user.click(editor.getByRole("tab", { name: "SQL" }));
+    await user.click(editor.getByRole("tab", { name: "흐름식" }));
+    expect(코드().state.doc.toString()).toBe("");
+    const proceed = vi.fn();
+    view.rerender(<UserViews readOnly={false} onDirtyChange={onDirtyChange} navigationRequest={{ id: 1, proceed }} />);
+    guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 보기 변경" }));
+    expect(proceed).not.toHaveBeenCalled();
+    await user.click(guard.getByRole("button", { name: "변경 버리기" }));
+    expect(proceed).toHaveBeenCalledOnce();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    expect(코드().state.doc.toString()).toBe(원래);
     expect(부름.mock.calls.some(([m]) => m === "saveUserView")).toBe(false);
+    쓰기(`${원래} |> 다듬기`);
+    await user.click(screen.getByRole("button", { name: "저장" }));
+    expect(await screen.findByRole("grid")).toBeTruthy();
+    const saved = 부름.mock.calls.find(([m]) => m === "saveUserView")!;
+    expect(JSON.parse(saved[1][0] as string).definition.columns.find((c: { name: string }) => c.name === "계약번호").formula.flow.steps).toEqual([{ op: "trim" }]);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 
   it("편집기 보표의 표본 A 는 미리보기가 보는 표본이고, 고르개 목록의 다음 둘이 뒤따른다", async () => {
@@ -529,7 +557,7 @@ describe("보기", () => {
       formula: { version: 2, source: "flow", flow: { from: { kind: "linked", link: "request", field: "접수번호" }, steps: [] } } });
     expect(await screen.findByText("‘공고문서’ 보기를 저장했습니다.")).toBeTruthy();
     expect(screen.getByText("저장됨")).toBeTruthy();
-    const table = within(await screen.findByRole("table"));
+    const table = within(await screen.findByRole("grid", { name: "자료 목록" }));
     expect(table.queryByRole("columnheader", { name: /진행/ })).toBeNull();
     expect(screen.queryByRole("region", { name: "미리보기" })).toBeNull();
   });
@@ -546,7 +574,7 @@ describe("보기", () => {
     await waitFor(() => expect(부름).toHaveBeenCalledWith("deleteUserView", ["uv-0001"]));
     expect(await screen.findByText("‘공고문서’ 보기를 지웠습니다.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^공고문서/ })).toBeNull();
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "계약서류" })).toBeTruthy();
     expect(onViewsChange.mock.lastCall![0].map((view: { name: string }) => view.name)).toEqual(["계약서류", "서식용 예시"]);
   });
@@ -611,7 +639,7 @@ describe("보기", () => {
 
   it("열람 중이면 보기를 고칠 수 없다고 말하고 고치는 단추를 세우지 않는다", async () => {
     render(<UserViews readOnly />);
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.getByText("열람 중이라 보기를 고칠 수 없습니다.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "보기 만들기" })).toBeNull();
     expect(screen.queryByRole("button", { name: "저장" })).toBeNull();

@@ -82,14 +82,14 @@ describe("원천 상태", () => {
       원천상태(status(인사("0.9.0")), false).text,
       원천상태(status({ ...인사("0.9.0"), live: [붙음("0.9.0")] }), true).text,
     ];
-    expect(말).toEqual(["확장 설치 필요", "확장 연결 기다림", "Chrome 연결됨", "확장이 옛 판", "연결 안 됨", "열람 창 · 수집 안 함"]);
+    expect(말).toEqual(["확장 설치 필요", "확장 연결 기다림", "연결됨", "확장이 옛 판", "연결 안 됨", "열람 창 · 수집 안 함"]);
     // 옛 판의 인사 흔적만 남고 지금 붙은 것이 없으면 옛 판이 아니라 끊긴 것이다.
     expect(원천상태(status(인사("0.8.0")), false).kind).toBe("offline");
   });
 
-  it("여럿이 붙어 있으면 이름을 잇고, 가장 먼저 붙은 때부터 연결됨이다", () => {
+  it("여럿이 붙어 있으면 가장 먼저 붙은 때부터 연결됨이다", () => {
     const s = status({ live: [붙음("0.9.0", "2026-10-05T10:02:00", "Edge"), 붙음("0.9.0", "2026-10-05T09:12:00")] });
-    expect(원천상태(s, false)).toMatchObject({ kind: "live", text: "Edge · Chrome 연결됨", since: "2026-10-05T09:12:00" });
+    expect(원천상태(s, false)).toMatchObject({ kind: "live", text: "연결됨", since: "2026-10-05T09:12:00" });
   });
 
   it("끊겼을 때의 마지막 연결은 인사 흔적과 오늘의 기록 중 늦은 것이다", () => {
@@ -109,21 +109,21 @@ describe("원천 상태", () => {
 
   it("사이드바 수집 상태를 문구와 상태점으로 함께 구별한다", async () => {
     render(<App />);
-    const source = await screen.findByRole("tab", { name: /^나라장터/ });
-    await waitFor(() => expect(source.textContent).toContain("Chrome 연결됨"));
+    const source = await screen.findByRole("tab", { name: /^나라장터 수집/ });
+    await waitFor(() => expect(source.textContent).toContain("연결됨"));
     expect(source.querySelector(".intake-dot")!.className).toContain("ok");
     cleanup();
 
     스위치.확장 = "옛 판";
     render(<App />);
-    const stale = await screen.findByRole("tab", { name: /^나라장터/ });
+    const stale = await screen.findByRole("tab", { name: /^나라장터 수집/ });
     await waitFor(() => expect(stale.textContent).toContain("확장이 옛 판"));
     expect(stale.querySelector(".intake-dot")!.className).toContain("warn");
     cleanup();
 
     스위치.확장 = "끊김";
     render(<App />);
-    const offline = await screen.findByRole("tab", { name: /^나라장터/ });
+    const offline = await screen.findByRole("tab", { name: /^나라장터 수집/ });
     await waitFor(() => expect(offline.textContent).toContain("연결 안 됨"));
     expect(offline.querySelector(".intake-dot")!.className).toContain("neutral");
   });
@@ -131,10 +131,10 @@ describe("원천 상태", () => {
   it("확장 상태는 화면과 상관없이 다시 읽어, 브라우저가 붙고 끊기면 사이드바가 저절로 바뀐다", async () => {
     스위치.확장 = "끊김";
     render(<App />);
-    const source = await screen.findByRole("tab", { name: /^나라장터/ });
+    const source = await screen.findByRole("tab", { name: /^나라장터 수집/ });
     await waitFor(() => expect(source.textContent).toContain("연결 안 됨"));
     스위치.확장 = "연결";
-    await waitFor(() => expect(source.textContent).toContain("Chrome 연결됨"), { timeout: 4000 });
+    await waitFor(() => expect(source.textContent).toContain("연결됨"), { timeout: 4000 });
   }, 10000);
 });
 
@@ -261,7 +261,7 @@ describe("나라장터 화면", () => {
     const conduit = await screen.findByRole("region", { name: "수집 통로" }, { timeout: 4000 });
     expect(within(conduit).getByText("연결됨 · 09:12부터")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "확장 설치" })).toBeNull();
-    expect(screen.getByRole("tab", { name: /^나라장터/ }).textContent).toContain("Chrome 연결됨");
+    expect(screen.getByRole("tab", { name: /^나라장터 수집/ }).textContent).toContain("연결됨");
   }, 15000);
 
   it("붙어 있으면 통로에 브라우저·확장·작업자료를 실선으로 잇고 「연결됨 · HH:MM부터」 를 말한다", async () => {

@@ -195,6 +195,118 @@ public sealed class MirrorTests : IDisposable
         host.Save(input, preview.BaseToken, Guid.NewGuid().ToString(), Mirror.DefaultChoices(preview, new HashSet<string>()));
     }
 
+    [Fact]
+    public void 자동수집_설정은_로컬에서_기본꺼짐이며_이름을_선택적으로_저장한다()
+    {
+        var home = new Home(Path.Combine(_root, "자동설정"));
+        Assert.False(AutoCapturePreferences.Read(home).Enabled);
+        var settings = new AutoCapturePreferences(true, "합성 담당자");
+        settings.Write(home);
+        Assert.Equal("합성 담당자", AutoCapturePreferences.Read(home).Name);
+        (settings with { Name = "" }).Write(home);
+        Assert.Equal(new AutoCapturePreferences(true), AutoCapturePreferences.Read(home));
+        File.WriteAllText(AutoCapturePreferences.PathFor(home), """{"enabled":true,"name":"합성 담당자","rules":[{"screen":"01579","enabled":true,"source":"ctrtNm","text":"옛 조건"}]}""");
+        Assert.Equal(settings, AutoCapturePreferences.Read(home));
+        Assert.Throws<InvalidOperationException>(() => (settings with { Name = new string('가', 201) }).Write(home));
+        foreach (var invalid in new[] { "{", "{\"enabled\":true,\"name\":null}", JsonSerializer.Serialize(settings with { Name = new string('가', 201) }, Mapping.Json) })
+        {
+            File.WriteAllText(AutoCapturePreferences.PathFor(home), invalid);
+            Assert.False(AutoCapturePreferences.Read(home).Enabled);
+        }
+    }
+
+    [Fact]
+    public void 자동수집은_현재담당자_정확일치와_새읽기_대상_규칙을_모두_확인한다()
+    {
+        var home = new Home(Path.Combine(_root, "자동홈"));
+        using var c = _db.OpenReadOnly();
+        var dataset = c.QuerySingle<string>("SELECT dataset_id FROM pclm_file");
+        home.WriteConfig(DbPath, dataset);
+        var now = DateTimeOffset.UtcNow;
+        var input = Contract("00", "합성 담당자", "20260914", (1, 1, 1000));
+        var data = JsonNode.Parse(input.Data.GetRawText())!;
+        data["pointInfo"]!["ctrtPicNm"] = " 합성 담당자 ";
+        input = input with { Data = JsonSerializer.SerializeToElement(data) };
+        var preferences = new AutoCapturePreferences(true, "합성 담당자");
+        JsonElement Tab(CaptureInput? snapshot = null, string state = "supported", bool stable = true, long age = 0, string? target = null) =>
+            JsonSerializer.SerializeToElement(new { state, menu = (snapshot ?? input).Screen, datasetId = target ?? dataset, snapshot = snapshot ?? input,
+                readiness = new { stable, observedAt = now.ToUnixTimeMilliseconds() - age, documentId = "synthetic-document" } }, Mapping.Json);
+        var automatic = new AutoCapture(_db, home);
+        Assert.Equal("hold", automatic.TrySave(Tab(), new(), now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(state: "reading"), preferences, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(stable: false), preferences, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(age: 8001), preferences, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(target: "other-dataset"), preferences, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(input with { MappingRevision = "old" }), preferences, now).State);
+        var withoutStaff = Contract("01", "담당자 없는 합성 계약", "20260915", (1, 1, 1000));
+        Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff), preferences, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(), preferences with { Name = "담당자" }, now).State);
+        Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        Assert.Equal("stored", automatic.TrySave(Tab(), preferences with { Name = "  합성 담당자  " }, now).State);
+        Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        // 새 coordinator도 같은 내용을 보고 영수증을 늘리지 않는다.
+        Assert.Equal("unchanged", new AutoCapture(_db, home).TrySave(Tab(), preferences, now).State);
+        Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff, stable: false), preferences with { Name = "" }, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff, target: "other"), preferences with { Name = "" }, now).State);
+        Assert.Equal("stored", automatic.TrySave(Tab(withoutStaff), preferences with { Name = "  " }, now).State);
+        Assert.Equal(2, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        var request = new CaptureInput("g2b-request-v1", Mapping.Hash(Mapping.Defaults()), JsonSerializer.SerializeToElement(new
+        {
+            pointInfo = new { ctrtDmndBizNm = "합성 접수", wrtYmd = "20260927", dmndInstBizPicNm = "합성 담당자", depth1 = "01001", depth2 = "01117", depth3 = "" },
+            tables = new Dictionary<string, object> { ["mf_wfm_container_gridView"] = new[] {
+                new { ctrtDmndRcptNo = "RC001", ctrtDmndRcptOrd = "000", ctrtDmndRcptItemSqno = "001", ndfsPrcmDmndNo = "REQ1", ctrtDmndQty = "1" },
+            } },
+        }), "live", Screen: "01117");
+        Assert.Equal("hold", automatic.TrySave(Tab(request), preferences, now).State); // 기관담당자로 업무 담당자를 대신하지 않는다.
+        Assert.Equal("stored", automatic.TrySave(Tab(request), preferences with { Name = "" }, now).State);
+        Assert.Equal(3, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        home.WriteConfig(Path.Combine(_root, "다른.pclm"), "other");
+        Assert.Equal("hold", automatic.TrySave(Tab(), preferences, now).State);
+    }
+
+    [Fact]
+    public void 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈칸_사람정정은_유지한다()
+    {
+        var home = new Home(Path.Combine(_root, "자동변경"));
+        using var c = _db.Open();
+        var dataset = c.QuerySingle<string>("SELECT dataset_id FROM pclm_file");
+        home.WriteConfig(DbPath, dataset);
+        var now = DateTimeOffset.UtcNow;
+        var preferences = new AutoCapturePreferences(true, "합성 담당자");
+        var automatic = new AutoCapture(_db, home);
+        CaptureInput WithStaff(CaptureInput input, bool include = true)
+        {
+            var data = JsonNode.Parse(input.Data.GetRawText())!;
+            if (include) data["pointInfo"]!["ctrtPicNm"] = " 합성 담당자 ";
+            else data["pointInfo"]!.AsObject().Remove("ctrtPicNm");
+            return input with { Data = JsonSerializer.SerializeToElement(data) };
+        }
+        JsonElement Tab(CaptureInput input) => JsonSerializer.SerializeToElement(new { state = "supported", menu = "01579", datasetId = dataset, snapshot = input,
+            readiness = new { stable = true, observedAt = now.ToUnixTimeMilliseconds(), documentId = "document" } }, Mapping.Json);
+        var first = WithStaff(Contract("00", "합성 A", "20260914", (1, 1, 1000), (2, 1, 1000)));
+        Assert.Equal("stored", automatic.TrySave(Tab(first), preferences, now).State);
+        var second = WithStaff(Contract("00", "합성 B", "20260914", (1, 1, 1000), (2, 1, 1000)));
+        Assert.Equal("stored", automatic.TrySave(Tab(second), preferences, now).State);
+        Assert.Equal("합성 B", c.QuerySingle<string>("SELECT title FROM contract"));
+        Assert.Equal("stored", automatic.TrySave(Tab(first), preferences, now).State);
+        Assert.Equal("합성 A", c.QuerySingle<string>("SELECT title FROM contract"));
+        Assert.Equal(3, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        automatic.TrySave(Tab(first), preferences, now);
+        Assert.Equal(3, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        Assert.Equal("hold", automatic.TrySave(Tab(WithStaff(first, false)), preferences, now).State); // DB의 담당자를 조건으로 보충하지 않는다.
+        c.Execute("INSERT INTO field_override(entity_type,base,seq,column_name,value,original,updated_at) VALUES('contract','R26TA00000001','00','계약건명','사람 정정','합성 A','before')");
+        var partial = JsonNode.Parse(first.Data.GetRawText())!;
+        partial["pointInfo"]!["ctrtNm"] = "";
+        partial["pointInfo"]!["dmstUntyGrpNm"] = "추가 합성 기관";
+        partial["tables"] = new JsonObject();
+        Assert.Equal("stored", automatic.TrySave(Tab(first with { Data = JsonSerializer.SerializeToElement(partial) }), preferences, now).State);
+        Assert.Equal(2, c.ExecuteScalar<int>("SELECT count(*) FROM contract_item"));
+        Assert.Equal("합성 A", c.QuerySingle<string>("SELECT title FROM contract"));
+        Assert.Equal("사람 정정", c.QuerySingle<string>("SELECT value FROM field_override"));
+        Assert.Equal("추가 합성 기관", c.QuerySingle<string>("SELECT demand_agency FROM contract"));
+    }
+
     /// <summary>투영이 아무것도 남기지 않았는가 — 다른 연결이 본 data_version 과 업무 표의 줄 수.</summary>
     private (long Version, long Rows) Footprint(SqliteConnection watcher) => (
         watcher.ExecuteScalar<long>("PRAGMA data_version"),
@@ -258,6 +370,26 @@ public sealed class MirrorTests : IDisposable
         Assert.Equal(((bool?)true, (bool?)true), (shot.TotalsWithDefaults, shot.TotalsWithoutMissing));
 
         Assert.Equal(before, Footprint(watcher));
+    }
+
+    [Fact]
+    public void 현행이_미정이면_공고_후보를_모두_비추고_정해지면_그_공고만_비춘다()
+    {
+        using var c = _db.Open();
+        foreach (var number in new[] { "R26BK00000001", "R26BK00000002" })
+            c.Execute("""
+                INSERT INTO notice_group VALUES(@number);
+                INSERT INTO notice_series VALUES(@number,@number);
+                INSERT INTO notice(notice_base,seq,title,updated_at) VALUES(@number,'000','시험 공고','2026-10-01');
+                INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base) VALUES(@number,'000',1,'RC001');
+                """, new { number });
+        var input = Contract("00", "시험 구매", "20261001", (1, 1, 1000));
+        Save(input);
+        Assert.Empty(c.Query(NoticeGroups.현행공고));
+        var notice = Assert.Single(Mirror.Project(_db, input).Place, p => p.Kind == "공고");
+        Assert.Equal(("linked", "R26BK00000002-000 · R26BK00000001-000"), (notice.State, notice.Number));
+        new Store(_db).SetOverride(new EntityRef("notice", "R26BK00000002", "000"), "공고종류", "재공고");
+        Assert.Equal("R26BK00000002-000", Assert.Single(Mirror.Project(_db, input).Place, p => p.Kind == "공고").Number);
     }
 
     [Fact]

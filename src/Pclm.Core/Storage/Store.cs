@@ -944,7 +944,11 @@ public sealed partial class Store(Database database)
     public void SetOverride(EntityRef entity, string columnName, string value)
     {
         using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
         SetOverride(connection, entity, columnName, value);
+        if (entity.EntityType == "notice" && columnName == "공고종류")
+            Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
+        transaction.Commit();
     }
 
     private static void SetOverride(SqliteConnection connection, EntityRef entity, string columnName, string value, string? originalValue = null)
@@ -971,7 +975,11 @@ public sealed partial class Store(Database database)
     public void ClearOverride(EntityRef entity, string columnName)
     {
         using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
         ClearOverride(connection, entity, columnName);
+        if (entity.EntityType == "notice" && columnName == "공고종류")
+            Pclm.Core.Erp.ExplicitLinks.Resolve(connection, transaction);
+        transaction.Commit();
     }
 
     private static void ClearOverride(SqliteConnection connection, EntityRef entity, string columnName)

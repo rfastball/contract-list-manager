@@ -227,7 +227,15 @@ describe("App", () => {
     expect(unstaged.getAttribute("aria-pressed")).toBe("true");
     expect(within(screen.getByRole("table", { name: "단계별 조달 자료" })).getAllByRole("row")).toHaveLength(2);
     const reviewRow = screen.getByRole("row", { name: "현행 검토 건" });
-    expect(within(reviewRow).getByText("자료 확인 필요 1").getAttribute("title")).toBe("현행 공고를 확인하세요.");
+    const issueToggle = within(reviewRow).getByText("자료 확인 필요 1");
+    const issueDetails = issueToggle.closest("details")!;
+    expect(issueDetails.open).toBe(false);
+    await user.click(issueToggle);
+    expect(issueDetails.open).toBe(true);
+    expect(within(issueDetails).getByRole("listitem").textContent).toBe("현행 공고를 확인하세요.");
+    await user.click(issueToggle);
+    expect(issueDetails.open).toBe(false);
+    expect(issueToggle.tagName).toBe("SUMMARY");
     expect(within(reviewRow).getAllByText("단계 미정")).toHaveLength(1);
   });
 
@@ -532,7 +540,7 @@ describe("App", () => {
     부름.mockImplementation(본디);
     await user.click(screen.getByRole("tab", { name: /^공고/ }));
     await user.click(저장됨);
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "보기 이름" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "보기 편집" }));
     expect(await screen.findByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "월간보고");
@@ -605,7 +613,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "설정" }));
 
     const dialog = await screen.findByRole("dialog", { name: "설정" });
-    const 이름 = within(dialog).getByDisplayValue("홍길동");
+    const 이름 = within(dialog).getByLabelText("제출자 이름");
     await user.clear(이름);
     await user.type(이름, "김철수");
 
@@ -708,7 +716,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "목록으로 돌아가기" }));
     await user.click(screen.getByRole("tab", { name: /^계약/ }));
 
-    expect(await screen.findByRole("columnheader", { name: /담당/ })).toBeTruthy();
+    expect(await screen.findByRole("columnheader", { name: "담당", exact: true })).toBeTruthy();
   });
 
   /** 창 닫기도 탭을 옮길 때와 같은 확인을 거친다 — 앱은 깃발을 보고 닫기를 멈춘 뒤 「닫기 요청」 을 보낸다. */
@@ -840,7 +848,7 @@ describe("App", () => {
     await screen.findByRole("columnheader", { name: /계약건명/ });
 
     // 같은 건명이 여러 줄에 서므로 글자가 아니라 자리로 짚는다 (0행은 머리글).
-    const 건명 = () => within(screen.getAllByRole("row")[1]).getAllByRole("cell")[4];
+    const 건명 = () => within(screen.getAllByRole("row")[1]).getAllByRole("gridcell")[4];
 
     await user.click(건명());
     await user.keyboard("{F2}");
@@ -862,7 +870,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("tab", { name: /^계약/ }));
     await screen.findByRole("columnheader", { name: /계약건명/ });
-    const 건명 = () => within(screen.getAllByRole("row")[1]).getAllByRole("cell")[4];
+    const 건명 = () => within(screen.getAllByRole("row")[1]).getAllByRole("gridcell")[4];
     await user.click(건명());
     await user.keyboard("{F2}");
     await user.clear(screen.getByRole("textbox"));

@@ -75,7 +75,7 @@ export type SourceKind = "unknown" | "readonly" | "setup" | "waiting" | "stale" 
 
 export type SourceState = {
   kind: SourceKind;
-  /** 사이드바 원천 밑의 한 줄. 짧고 바뀌지 않는다 — 들어온 순간은 흐름과 +N 이 말한다. */
+  /** 사이드바 원천 밑의 상태 한 줄. 들어온 순간은 흐름과 +N 이 말한다. */
   text: string;
   /** 가장 늦게 인사한 브라우저. 인사 기록이 없으면 null. */
   latest: ExtensionContact | null;
@@ -124,7 +124,7 @@ export function 원천상태(status: ExtensionStatus | null | undefined, readOnl
   if (status === undefined) return { ...base, kind: "unknown", text: "" };
   if (!status?.prepared) return { ...base, kind: "setup", text: "확장 설치 필요" };
   if (stale) return { ...base, kind: "stale", text: "확장이 옛 판" };
-  if (live.length > 0) return { ...base, kind: "live", text: `${붙은이름(live)} 연결됨` };
+  if (live.length > 0) return { ...base, kind: "live", text: "연결됨" };
   if (!lastSeen) return { ...base, kind: "waiting", text: "확장 연결 기다림" };
   return { ...base, kind: "offline", text: "연결 안 됨" };
 }
@@ -224,12 +224,11 @@ type ChainProps = {
 export function SourceChain({ selected, focusable, onSelect, source, totals, arrivals, seeing, onSee }: ChainProps) {
   return (
     <div className="source-navigation">
-      <h2 className="sidebar-section-title">수집</h2>
       <button id="tab-나라장터" role="tab" className="tab intake-tab"
         aria-selected={selected === "나라장터"} aria-controls="workspace"
         tabIndex={focusable === "나라장터" ? 0 : -1}
         onClick={() => onSelect("나라장터")}>
-        <span className="intake-name">나라장터
+        <span className="intake-name">나라장터 수집
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
         </span>
         <span className="intake-status" role="status">
@@ -238,7 +237,6 @@ export function SourceChain({ selected, focusable, onSelect, source, totals, arr
         </span>
       </button>
       <div className="source-views">
-        <h2 className="sidebar-section-title">자료</h2>
         {KINDS.map((k) => {
           const n = arrivals.counts[k];
           const total = totals?.[k];

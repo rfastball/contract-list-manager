@@ -31,8 +31,11 @@ public sealed record PlanImportResult(
     IReadOnlyList<string> MissingRequired,
     IReadOnlyList<string> Found)
 {
-    /// <summary>필수 머리글이 다 있었는가. 거짓이면 DB 는 손대지 않은 채다.</summary>
-    public bool Ok => MissingRequired.Count == 0;
+    /// <summary>입력값 오류. 행 번호와 필드 이름을 담는다.</summary>
+    public IReadOnlyList<string> Errors { get; init; } = [];
+
+    /// <summary>필수 머리글과 입력값이 올바른가. 거짓이면 DB 는 손대지 않은 채다.</summary>
+    public bool Ok => MissingRequired.Count == 0 && Errors.Count == 0;
 }
 
 /// <summary>
@@ -149,6 +152,13 @@ public sealed class PlanImport(Database database)
             var number = values["request_number"];
             if (number.Length == 0) { skipped++; continue; }
 
+            var quantity = ValueParser.Integer(values["quantity"]);
+            if (values["quantity"].Length > 0 && quantity is null)
+                return new PlanImportResult(rows, 0, 0, skipped, [], read)
+                {
+                    Errors = [$"{r}행 지시수량 「{values["quantity"]}」은 정수가 아닙니다."]
+                }; // 트랜잭션을 완료하지 않아 앞서 읽은 정상 행의 변경도 모두 되돌린다.
+
             if (seen.Add(number)) created++; else updated++;
 
             connection.Execute(
@@ -184,7 +194,7 @@ public sealed class PlanImport(Database database)
                     ItemName = Text(values["item_name"]),
                     Currency = Text(values["currency"]),
                     Unit = Text(values["unit"]),
-                    Quantity = ValueParser.Integer(values["quantity"]),
+                    Quantity = quantity,
                     RequestingUnit = Text(values["requesting_unit"]),
                     RequestingOfficer = Text(values["requesting_officer"]),
                     RequestingPhone = Text(values["requesting_phone"]),

@@ -7,6 +7,16 @@ function pclmScreenCode() {
   return code;
 }
 
+// 칸을 찾는 자리 — 업무 영역(#mf_wfm_container) 안과, 그 화면이 띄운 창. 나라장터는 「미리보기」 같은 창을 업무 영역 밖에
+// 붙이되 ID 머리는 그 영역의 것(mf_wfm_container_…)을 단다 — 01179 의 게시일시는 그 창에만 있다. 영역 밖의 창은 보이는
+// 것만 본다: 닫힌 창의 칸은 지금 보는 문서의 값이라고 할 수 없다. 프로필이 고른 선택자가 있으면 그것만 따른다.
+function pclmFieldElements(selector) {
+  if (selector) return [...document.querySelectorAll(selector)];
+  const area = document.getElementById("mf_wfm_container");
+  return [...document.querySelectorAll('#mf_wfm_container [id], [id^="mf_wfm_container_"]')]
+    .filter(e => area?.contains(e) || e.checkVisibility({ checkVisibilityCSS: true }));
+}
+
 // MAIN world에서만 실행한다. 선언형 프로필의 필드만 돌려주며 원본 표 전체를 전송하지 않는다.
 // 수집하는 화면(ADR-037)은 hello 의 매핑에서 screen 을 단 프로필이다 — 그 프로필이 그 화면의 고유키도 들고 있다. 받는지는
 // 화면의 메뉴 번호가 그 목록에 있는가로만 정하고, 화면 하나에 프로필 하나다. 번호를 읽지 못했거나 목록에 없거나 목록이 비었으면
@@ -34,7 +44,7 @@ function pclmReadMapped(profiles) {
   // 보이는 칸에 없을 때만 쓴다(차수처럼 번호 옆에 따로 표시하지 않는 값).
   const scalar = (key, selector, strict) => {
     const shown = [], hidden = [];
-    for (const e of document.querySelectorAll(selector || "#mf_wfm_container [id]")) {
+    for (const e of pclmFieldElements(selector)) {
       const c = component(e.id);
       let ref; try { ref = c?.getRef?.(); } catch { continue; }
       const bound = String(ref || "").split(/[.:/]/).at(-1) === key;
@@ -116,6 +126,25 @@ function pclmReadMapped(profiles) {
   return { profile: p.id, data: { pointInfo, tables }, scope: "live", rowMatches: {}, screen: code };
 }
 
+// 자동 관찰은 매핑이 허용한 원값·표만 읽는다. 조용한 현재 자료를 뜻하며 전체 탭 로딩 완료를 보장하지 않는다.
+function pclmObserveMapped(profiles = window.__pclmProfiles) {
+  window.__pclmProfiles = profiles;
+  let snapshot, error, unsupported = false;
+  try { snapshot = pclmReadMapped(profiles); }
+  catch (e) { error = e.message; unsupported = Boolean(e.unsupported); }
+  const busy = document.readyState === "loading" || [...document.querySelectorAll('#__processbarIFrame, #mf_wfm_container [aria-busy="true"]')]
+    .some(e => e.checkVisibility({ checkVisibilityCSS: true }));
+  const tabs = [...document.querySelectorAll('#mf_wfm_container [role="tab"]')]
+    .map(e => [e.id, e.getAttribute("aria-selected")]);
+  const print = JSON.stringify([location.href, pclmScreenCode(), snapshot || error, tabs, busy]);
+  const now = Date.now(), previous = window.__pclmObservation;
+  const since = previous?.print === print ? previous.since : now;
+  const documentId = previous?.documentId || crypto.randomUUID();
+  const readiness = { stable: Boolean(snapshot) && !busy && now - since >= 1000, observedAt: now, documentId };
+  window.__pclmObservation = { print, since, documentId };
+  return { snapshot, error, unsupported, readiness, print };
+}
+
 // 지금 보는 화면(ADR-036)의 「화면 그대로」 — 수집 규칙이 읽는 칸마다 화면에 적힌 이름표와 보이는 글. 값은 화면에 보인
 // 그대로다(서식 그대로, 꾸미지 않는다). 품목 표는 줄마다 「순번 품명」 / 「수량단위 · 금액」 의 원값. 수집 규칙에 없는
 // 화면(profile 없음)은 내보내기의 화면 필드를 앞에서 40줄까지. export.js 가 함께 들어와 있어야 한다(pclmLabel·pclmExportPage).
@@ -155,7 +184,7 @@ function pclmScreenRows(profile, snapshot) {
   const elementOf = key => {
     const selector = profile.selectors?.[key];
     const found = [];
-    for (const e of document.querySelectorAll(selector || "#mf_wfm_container [id]")) {
+    for (const e of pclmFieldElements(selector)) {
       let ref; try { ref = component(e.id)?.getRef?.(); } catch { continue; }
       const bound = String(ref || "").split(/[.:/]/).at(-1) === key;
       if (!selector && !bound && e.id !== key && !e.id.endsWith("_" + key)) continue;

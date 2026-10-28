@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pclm.Core\Pclm.Core.csproj" />
+    <Compile Include="..\..\src\Pclm.Cli\CliArguments.cs" Link="CliArguments.cs" />
   </ItemGroup>
 
 </Project>

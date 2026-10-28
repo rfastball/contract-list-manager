@@ -212,7 +212,7 @@ it("지금 보는 화면: 포트가 열린 동안 나라장터 탭을 알고 읽
   w.chrome.scripting.executeScript.mockImplementation(async (args: any) => {
     const tabId = args.target.tabId;
     if (args.files) return [];
-    if (!args.args) return [{ result: prints[tabId] }]; // 지문
+    if (!args.args) return [{ result: { print: prints[tabId] } }]; // 매핑 원값 지문
     reads.push(tabId);
     return [{ documentId: "doc" + tabId, result: tabId === 1
       ? { screen: "계약 상세", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: { ctrtNoOrd: "R26TA00000001-00" }, tables: {} }, scope: "live", rowMatches: {} } }
@@ -304,6 +304,58 @@ it("활성 매핑은 표의 전체 행과 복합키를 읽고 허용하지 않�
   expect(result.data.tables[table.source][1].ctrtDmndRcptItemSqno).toBe("002");
   expect(result.data.tables[table.source][0].ctrtDmndQty).toBe("0");
   expect(JSON.stringify(result)).not.toContain("보내면 안 되는 값");
+});
+
+it("자동 관찰은 DOM 표시가 같은 원값·표의 후속 로딩을 알아채고 화면을 조작하지 않는다", () => {
+  vi.useFakeTimers(); vi.setSystemTime(10000); screen();
+  const profile = JSON.parse(mappingJson).profiles.find((p: any) => p.id === "g2b-contract-v1");
+  const grid = profile.tables[0].source;
+  document.body.innerHTML = `<div id="mf_wfm_container"><span id="mf_wfm_container_ctrtNoOrd"></span><span id="mf_wfm_container_ctrtNm">변하지 않은 표시</span><div id="${grid}"></div><button type="button" role="tab" aria-selected="true">합성 탭</button></div>`;
+  const values: Record<string, string> = { ctrtNoOrd: "R26TA99999999-00", ctrtNm: "합성 원값" };
+  let rows: any[] = [];
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01579" }, $p: { getComponentById: (id: string) => id === grid
+    ? { getDataList: () => ({ getAllJSON: () => rows }) }
+    : { getRef: () => "data:dma_pointInfo." + id.replace("mf_wfm_container_", ""), getValue: () => values[id.replace("mf_wfm_container_", "")] } } };
+  fakeWindow.top = fakeWindow;
+  const observe = new Function("document", "window", "location", "profiles", captureSource + "; return pclmObserveMapped(profiles);");
+  const run = () => observe(document, fakeWindow, { origin: "https://www.g2b.go.kr", href: "https://www.g2b.go.kr/synthetic" }, [profile]);
+  const click = vi.spyOn(HTMLElement.prototype, "click"), focus = vi.spyOn(HTMLElement.prototype, "focus");
+  const first = run(); expect(first.readiness.stable).toBe(false);
+  vi.setSystemTime(11000); expect(run().readiness.stable).toBe(true);
+  values.ctrtNm = "늦은 원값";
+  expect(run()).toMatchObject({ snapshot: { data: { pointInfo: { ctrtNm: "늦은 원값" } } }, readiness: { stable: false } });
+  vi.setSystemTime(12000); expect(run().readiness.stable).toBe(true);
+  rows = [{ ctrtNo: "R26TA99999999", ctrtChgOrd: "00", ctrtItemSqno: 1, ctrtQty: 3 }];
+  expect(run().readiness.stable).toBe(false);
+  vi.setSystemTime(13000); expect(run().readiness.stable).toBe(true);
+  document.querySelector("[role=tab]")!.setAttribute("aria-selected", "false");
+  expect(run().readiness.stable).toBe(false);
+  expect(run().readiness.documentId).toBe(first.readiness.documentId);
+  expect(click).not.toHaveBeenCalled(); expect(focus).not.toHaveBeenCalled();
+});
+
+it("다시 읽는 동안 문서가 바뀌면 이전 응답을 버리고 새 문서에 고정한 읽기만 보고한다", async () => {
+  vi.useFakeTimers();
+  const w = worker();
+  const tab = { id: 1, windowId: 10, url: "https://www.g2b.go.kr/a" };
+  w.chrome.tabs.query.mockResolvedValue([tab]);
+  let generation = 1, release: (value: any) => void = () => {};
+  w.chrome.scripting.executeScript.mockImplementation(async (args: any) => {
+    if (args.files) return [{ documentId: "doc" + generation }];
+    if (!args.args) return [];
+    if (generation === 1) return await new Promise(resolve => { release = resolve; });
+    return [{ documentId: "doc2", result: { screen: "새 문서", menu: "01579", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: { ctrtNm: "새 값" }, tables: {} } } } }];
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  generation = 2;
+  const updated = w.chrome.tabs.onUpdated.addListener.mock.lastCall![0];
+  updated(1, { status: "loading" }, tab); updated(1, { status: "complete" }, tab);
+  release([{ documentId: "doc1", result: { screen: "옛 문서", snapshot: { profile: "g2b-contract-v1", data: { pointInfo: { ctrtNm: "옛 값" }, tables: {} } } } }]);
+  await vi.advanceTimersByTimeAsync(300);
+  const reported = w.ports[0].posted.filter(m => m.method === "tabs").at(-1)!.params.tabs[0];
+  expect(reported.screen).toBe("새 문서"); expect(reported.snapshot.data.pointInfo.ctrtNm).toBe("새 값");
+  expect(w.chrome.scripting.executeScript.mock.calls.filter(([args]: any) => args.args).map(([args]: any) => args.target.documentIds)).toEqual([["doc1"], ["doc2"]]);
+  expect(w.chrome.tabs.update).not.toHaveBeenCalled(); expect(w.chrome.windows.update).not.toHaveBeenCalled();
 });
 
 it("변경계약서 작성 화면은 번호·차수를 품목 표에서 읽고, 바뀌기 전 업체 표는 보내지 않는다", () => {
@@ -489,6 +541,43 @@ it("원값을 먼저 읽고, 숨은 칸의 차수를 쓰고, 부가 필드의 �
   parts.mf_wfm_container_dmstB = bound("ctrtNoOrd", "R26TA00000001-01");
   document.getElementById("mf_wfm_container_dmstB")!.setAttribute("data-hidden", "");
   expect(run).toThrow("필드가 여러 값으로 관찰됩니다: ctrtNoOrd"); // 문서 번호의 충돌은 막는다.
+});
+
+it("입찰공고 상세의 게시일시는 업무 영역 밖에 붙은 「미리보기」 창에서 읽고, 닫힌 창의 칸은 읽지 않는다", () => {
+  // 실제 화면에서 확인한 짜임 — 창은 #mf_wfm_container 밖에 서고 ID 머리만 그 영역의 것이다.
+  Object.defineProperty(Element.prototype, "checkVisibility", { configurable: true, value(this: Element) { return !this.closest("[data-hidden]"); } });
+  const notice = JSON.parse(mappingJson).profiles.find((p: any) => p.id === "g2b-notice-a-v1");
+  const preview = "mf_wfm_container_PNPE027_01_wframe_popupCnts_mainWframe_";
+  document.body.innerHTML = `<h2 id="mf_wfm_cntsHeader_spnHeaderTitle">입찰공고 상세</h2>
+    <div id="mf_wfm_container"><table><tbody>
+      <tr><th>입찰공고번호</th><td><input id="mf_wfm_container_ibxBidPbancNo" value="R26BK00000001"></td></tr>
+      <tr><td><input id="mf_wfm_container_ibxBidPbancOrd" value="000"></td></tr></tbody></table></div>
+    <div id="mf_wfm_container_PNPE027_01"><table><tbody>
+      <tr><th>게시일시</th><td><span id="${preview}spnPbancPstgDt">2026/09/01 10:30:00</span></td></tr></tbody></table></div>
+    <div id="mf_wfm_container_PNPE027_00" data-hidden><span id="mf_wfm_container_PNPE027_00_spnPbancPstgDt"></span></div>`;
+  const bound = (key: string, value: string) => ({ getRef: () => "data:dma_pointInfo." + key, getValue: () => value });
+  const parts: Record<string, any> = {
+    mf_wfm_container_ibxBidPbancNo: bound("bidPbancNo", "R26BK00000001"),
+    mf_wfm_container_ibxBidPbancOrd: bound("bidPbancOrd", "000"),
+    [preview + "spnPbancPstgDt"]: bound("pbancPstgDt", "2026/09/01 10:30:00"),
+    // 닫힌 채 남은 창 — 다른 공고의 값이다. 열린 창이 없을 때도 이것을 집으면 안 된다.
+    mf_wfm_container_PNPE027_00_spnPbancPstgDt: bound("pbancPstgDt", "2026/01/01 09:00:00"),
+  };
+  const fakeWindow: any = { com: { gfnGetMenuNo: () => "01179" }, $p: { getComponentById: (id: string) => parts[id] ?? null } };
+  fakeWindow.top = fakeWindow;
+  const read = new Function("document", "window", "location", "profiles", captureSource + exportSource +
+    "; const snapshot = pclmReadMapped(profiles); return { snapshot, rows: pclmScreenRows(profiles[0], snapshot) };");
+  const run = () => read(document, fakeWindow, { origin: "https://www.g2b.go.kr" }, [notice]);
+
+  const open = run();
+  expect(open.snapshot.data.pointInfo).toMatchObject({ bidPbancNo: "R26BK00000001", bidPbancOrd: "000", pbancPstgDt: "2026/09/01 10:30:00" });
+  // 「화면 그대로」 도 같은 칸을 짚는다.
+  expect(open.rows).toContainEqual(expect.objectContaining({ label: "게시일시", text: "2026/09/01 10:30:00", source: "pbancPstgDt" }));
+
+  document.getElementById("mf_wfm_container_PNPE027_01")!.setAttribute("data-hidden", "");
+  const closed = run();
+  expect(closed.snapshot.data.pointInfo).not.toHaveProperty("pbancPstgDt"); // 걷지 않은 칸 — 앱은 담긴 값을 그대로 둔다.
+  expect(closed.rows.map((r: any) => r.source)).not.toContain("pbancPstgDt");
 });
 
 // 무압축 ZIP 을 풀어 항목마다 CRC 와 XML 을 확인한다.

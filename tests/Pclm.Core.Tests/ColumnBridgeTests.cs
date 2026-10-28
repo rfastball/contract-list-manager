@@ -70,6 +70,9 @@ public sealed class ColumnBridgeTests : IDisposable
         Assert.Equal("책상, 책상, 의자", Read("SELECT 품명들 FROM v_공고 WHERE 입찰공고번호 = 'TESTN1-000'"));
         Assert.Equal("모니터", Read("SELECT 품명들 FROM v_공고차수 WHERE 입찰공고번호 = 'TESTN2-000'"));
         Assert.Equal("text", Read("SELECT 결과타입 FROM v_가공열 WHERE 열이름 = '품명들'"));
+        var editable = ComputedColumn.ReadForEditing(_store.UserColumns("notice").Single(c => c.FieldName == "품명들").Options!);
+        Assert.Equal("sql", editable.GetProperty("source").GetString());
+        Assert.False(editable.TryGetProperty("flow", out _));
         // 수를 내는 SQL 도 글로 찍히고, 없는 값은 NULL 이 아니라 빈 글이다.
         _store.SaveComputedColumn("notice", "품목수", Sql("SELECT count(*) FROM v_공고품목 WHERE 입찰공고번호 = 현재.입찰공고번호"));
         _store.SaveComputedColumn("notice", "없는값", Sql("SELECT 세부품명 FROM v_공고품목 WHERE 입찰공고번호 = '없음'"));
@@ -163,6 +166,8 @@ public sealed class ColumnBridgeTests : IDisposable
         Assert.Equal(2, broken.Count);
         Assert.Contains("v_없는뷰", broken[("notice", "품목수")]);
         Assert.Contains("형식", broken[("contract", "계약품목수")]);
+        Assert.Throws<InvalidOperationException>(() => ComputedColumn.ReadForEditing(
+            _store.UserColumns("contract").Single(c => c.FieldName == "계약품목수").Options!));
         Assert.Equal("text", Read("SELECT 결과타입 FROM v_가공열 WHERE 열이름 = '품목수'"));
 
         // 다른 열을 저장하는 일도 막히지 않는다. 깨진 열을 고쳐 저장하면 깨짐이 걷힌다.
@@ -170,6 +175,43 @@ public sealed class ColumnBridgeTests : IDisposable
         _store.SaveComputedColumn("notice", "품목수", Sql("SELECT count(*) FROM v_공고품목 WHERE 입찰공고번호 = 현재.입찰공고번호"), "품목수");
         Assert.Equal("3", Read("SELECT 품목수 FROM v_공고 WHERE 입찰공고번호 = 'TESTN1-000'"));
         Assert.Equal([("contract", "계약품목수")], _store.BrokenColumns().Keys);
+    }
+
+    [Theory]
+    [InlineData("sql")]
+    [InlineData("flow")]
+    public void 판올림_진단이_붙은_식도_편집하고_고친_뒤에만_저장한다(string source)
+    {
+        var json = source == "sql" ? Sql("SELECT 현재.계약법구분") : Flow(new { kind = "field", field = "계약법구분" });
+        _store.SaveComputedColumn("notice", "진단열", json);
+        var original = JsonNode.Parse(_store.UserColumns("notice").Single(c => c.FieldName == "진단열").Options!)!;
+        var id = (string?)original["id"];
+        var preserved = original.DeepClone();
+        const string message = "판올림 뒤 읽을 열을 확인하세요.";
+        preserved["migrationError"] = new JsonObject { ["message"] = message, ["original"] = original };
+        using (var connection = _database.Open())
+            connection.Execute("UPDATE user_column SET options=@options WHERE field_name='진단열'",
+                new { options = preserved.ToJsonString() });
+        _database.RefreshViews();
+
+        var stored = _store.UserColumns("notice").Single(c => c.FieldName == "진단열").Options!;
+        var editable = ComputedColumn.ReadForEditing(stored);
+        Assert.True(JsonNode.DeepEquals(preserved, JsonNode.Parse(editable.GetRawText())));
+        Assert.Equal(message, _store.BrokenColumns()[("notice", "진단열")]);
+        Assert.Equal("", Read("SELECT 진단열 FROM v_공고 WHERE 입찰공고번호='TESTN1-000'"));
+        Assert.Equal(message, Assert.Throws<InvalidOperationException>(() => ComputedColumn.Parse(editable.GetRawText())).Message);
+        Assert.Throws<InvalidOperationException>(() => ComputedColumn.Expression("notice", editable.GetRawText()));
+        Assert.Throws<InvalidOperationException>(() => _store.SaveComputedColumn("notice", "이름만수정", editable.GetRawText(), "진단열"));
+
+        var edited = JsonNode.Parse(editable.GetRawText())!;
+        if (source == "sql") edited["sql"] = "SELECT 현재.공고명";
+        else edited["flow"]!["from"]!["field"] = "공고명";
+        _store.SaveComputedColumn("notice", "진단열", edited.ToJsonString(), "진단열");
+        var saved = ComputedColumn.ReadForEditing(_store.UserColumns("notice").Single(c => c.FieldName == "진단열").Options!);
+        Assert.Equal(id, saved.GetProperty("id").GetString());
+        Assert.False(saved.TryGetProperty("migrationError", out _));
+        Assert.Empty(_store.BrokenColumns());
+        Assert.Equal("시험 공고 하나", Read("SELECT 진단열 FROM v_공고 WHERE 입찰공고번호='TESTN1-000'"));
     }
 
     // ── 보표·꺼내기 ─────────────────────────────────────────────

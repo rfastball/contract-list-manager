@@ -527,9 +527,9 @@ public static class Mirror
             {
                 var current = c.QuerySingleOrDefault<string>(
                     "SELECT 현행공고 FROM v_공고 WHERE 공고건=@group AND 현행공고<>'' LIMIT 1", new { group }, tx)
-                    ?? c.Query<string>("SELECT notice_base FROM notice_series WHERE group_base=@group ORDER BY notice_base DESC", new { group }, tx)
-                        .Select(b => Latest("notice", b)).FirstOrDefault(n => n is not null);
-                if (current is not null) notice = new("공고", "linked", current, true);
+                    ?? string.Join(" · ", c.Query<string>("SELECT notice_base FROM notice_series WHERE group_base=@group ORDER BY notice_base DESC", new { group }, tx)
+                        .Select(b => Latest("notice", b)).OfType<string>());
+                if (!string.IsNullOrEmpty(current)) notice = new("공고", "linked", current, true);
             }
             if (request is null && c.QuerySingleOrDefault<string>("SELECT request_base FROM request_link WHERE notice_group=@group", new { group }, tx) is { } r
                 && Latest("request", r) is { } shownRequest)

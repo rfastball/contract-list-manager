@@ -41,6 +41,10 @@
 .db-title strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
 .db-title small { display: block; color: var(--n-ink-soft); margin-top: var(--sp-2); }
 .db-row-issue { display: inline-block; margin-top: var(--sp-4); color: var(--n-ink-soft); font-size: var(--fs-caption); }
+.db-issue-disclosure { display: block; }
+.db-issue-disclosure summary { width: fit-content; cursor: pointer; text-decoration: underline; text-underline-offset: .2em; }
+.db-issue-disclosure[open] { padding: var(--sp-8); border: 1px solid var(--n-border-strong); border-radius: var(--rad-control); background: var(--a-card); }
+.db-issue-disclosure .db-issues { margin-bottom: 0; }
 .db-document-links { min-width: 13rem; }
 .db-document-links .quiet-link { display: block; font-size: var(--fs-caption); padding-block: var(--sp-2); text-align: left; }
 .db-date, .db-money { font-variant-numeric: tabular-nums; white-space: nowrap; }

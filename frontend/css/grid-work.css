@@ -31,6 +31,10 @@ table.grid .range-selected, table.grid .row-selected td { background: var(--a-se
 table.grid tr:hover .range-selected, table.grid .row-selected:hover td { background: var(--a-sel); }
 .grid-board .cell { user-select: none; }
 .grid-board:focus-within td.cur { outline-color: var(--a-primary); }
+.grid-board th.cur { outline: 2px solid var(--a-border); outline-offset: -2px; }
+.grid-board:focus th.cur { outline-color: var(--a-primary); }
+.grid-status:focus-visible { outline: 2px solid var(--a-primary); outline-offset: -2px; }
+.grid-key-help { flex-basis: 100%; }
 .batch-review { width: min(58rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; }
 .batch-preview { overflow: auto; min-height: 0; margin: var(--sp-12) 0; }
 .batch-preview table { border-collapse: collapse; width: 100%; }

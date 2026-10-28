@@ -169,11 +169,13 @@ public class ReportsTests : IDisposable
         Assert.Contains(terminated.Issues, s => s.Contains("금액"));
     }
 
-    [Fact]
-    public void 브리핑은_현행_취소와_모호한_현행을_가공하지_않는다()
+    [Theory]
+    [InlineData("취소공고")]
+    [InlineData("실공고(취소공고)")]
+    public void 브리핑은_현행_취소와_모호한_현행을_가공하지_않는다(string kind)
     {
         _store.UpsertNotice(Notice("000") with { NoticeKind = "등록공고" });
-        _store.UpsertNotice(Notice("001") with { NoticeKind = "취소공고" });
+        _store.UpsertNotice(Notice("001") with { NoticeKind = kind });
         _store.UpsertNotice(new NoticeRecord { NoticeBase = "LOOP1", Seq = "000", RelatedNotices = ["LOOP2-000"] });
         _store.UpsertNotice(new NoticeRecord { NoticeBase = "LOOP2", Seq = "000", RelatedNotices = ["LOOP1-000"] });
         var report = new Reports(_database).Dashboard(At);
@@ -205,6 +207,20 @@ public class ReportsTests : IDisposable
         Assert.Equal(0, report.ContractsWithAmount);
         _store.SetOverride(new("notice", "R26BK09017075", "000"), "게시일시", "0001/01/01");
         Assert.Single(new Reports(_database).Dashboard(At).Rows, r => r.Stage is null);
+    }
+
+    [Theory]
+    [InlineData("2026-10-09", "2026-10-10", "open")]
+    [InlineData("2026-10-09 08:00:00", "2026-10-09 09:00:00", "awaitingContract")]
+    [InlineData("10/09/2026", "2026-10-10", null)]
+    [InlineData("2026-02-30", "2026-10-10", null)]
+    public void ISO_날짜_정정도_KST로_읽되_다른_날짜꼴을_추정하지_않는다(string posted, string opening, string? stage)
+    {
+        _store.UpsertNotice(Notice("000") with { NoticeKind = "등록공고" });
+        var entity = new EntityRef("notice", "R26BK09017075", "000");
+        _store.SetOverride(entity, "게시일시", posted);
+        _store.SetOverride(entity, "개찰일시", opening);
+        Assert.Equal(stage, Assert.Single(new Reports(_database).Dashboard(At).Rows).Stage);
     }
 
     [Fact]
@@ -242,6 +258,7 @@ public class ReportsTests : IDisposable
     [InlineData("draft", "requestOnly", null)]
     [InlineData("future", "requestOnly", null)]
     [InlineData("cancelled", "requestOnly", "취소공고")]
+    [InlineData("cancelledComposite", "requestOnly", "취소공고")]
     [InlineData("unreadable", "requestOnly", "게시일시")]
     [InlineData("posted", "open", null)]
     public void 공고_대기는_접수_후_게시된_현행_공고가_없는_건이다(string scenario, string stage, string? issue)
@@ -256,9 +273,9 @@ public class ReportsTests : IDisposable
         {
             case "draft": _store.UpsertNotice(Made("000", null)); break;
             case "future": _store.UpsertNotice(Made("000", new DateTime(2026, 10, 10))); break;
-            case "cancelled":
+            case "cancelled": case "cancelledComposite":
                 _store.UpsertNotice(Made("000", new DateTime(2026, 10, 1)));
-                _store.UpsertNotice(Made("001", new DateTime(2026, 10, 2), "취소공고"));
+                _store.UpsertNotice(Made("001", new DateTime(2026, 10, 2), scenario == "cancelled" ? "취소공고" : "실공고(취소공고)"));
                 break;
             case "unreadable":
                 _store.UpsertNotice(Made("000", new DateTime(2026, 10, 1)));
@@ -298,7 +315,7 @@ public class ReportsTests : IDisposable
             new() { LineNo = 2, ItemName = "계약기한 적용" },
             new() { LineNo = 3, ItemName = "오늘", DeliveryDue = new DateTime(2026, 10, 9) },
             new() { LineNo = 4, ItemName = "30일", DeliveryDue = new DateTime(2026, 11, 8) }] });
-        _store.SetOverride(new("contract", "R26TA09110507", "10"), "납품기한", "2026/10/16");
+        _store.SetOverride(new("contract", "R26TA09110507", "10"), "납품기한", "2026-10-16");
         _store.UpsertContract(new ContractRecord { ContractBase = "ENDED", Seq = "00", Terminated = true,
             DeliveryDue = new DateTime(2026, 10, 9) });
         var report = new Reports(new Database(_path, Access.Read)).Dashboard(At);
@@ -306,7 +323,7 @@ public class ReportsTests : IDisposable
         var delivery = Assert.Single(report.Deliveries, d => d.Number == "R26TA0911050710");
         Assert.Equal("시험 업체", delivery.Party);
         Assert.Equal("기관", delivery.Agency);
-        Assert.Equal(new DeliveryDeadline("2026/10/16", "2026-10-16", 7), delivery.Due);
+        Assert.Equal(new DeliveryDeadline("2026-10-16", "2026-10-16", 7), delivery.Due);
         Assert.Equal([1, 2, 3, 4], delivery.Items.Select(i => i.LineNo));
         Assert.Equal(-1, delivery.Items[0].Due.DaysRemaining);
         Assert.Null(delivery.Items[1].Due.Date); // 원래 품목값은 보존; 조회에서 명시 계약기한을 적용한다.

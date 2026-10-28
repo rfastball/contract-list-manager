@@ -9,7 +9,7 @@ import { PLANNING_ENABLED, USER_VIEWS_ENABLED } from "./features";
 import { Dock } from "./Mirror";
 import { KINDS, NaraPanel, SourceChain, use들어옴, 원천상태, 브라우저이름, type Kind } from "./Nara";
 import { Outline, initialOutlineState, type OutlineState } from "./Outline";
-import { SettingsPanel, useDisplayPreferences, useShownColumns } from "./SettingsPanel";
+import { SettingsPanel, useDisplayPreferences } from "./SettingsPanel";
 import { Status } from "./Status";
 import { UserViews } from "./views/UserViews";
 import type {
@@ -21,7 +21,7 @@ import type {
 
 /**
  * 기본 화면은 대시보드다. 기존 통합 탭 계약을 유지하며 자료 개요와 통합 탐색을 함께 제공한다.
- * 그다음은 수집의 나라장터, 자료의 접수·공고·계약이다. 계획·현황은 기능 스위치로 입구를 숨긴다.
+ * 그다음은 나라장터 수집, 접수·공고·계약이다. 계획·현황은 기능 스위치로 입구를 숨긴다.
  */
 type Tab = "통합" | "나라장터" | "계획" | "접수" | "공고" | "계약" | "현황";
 
@@ -144,7 +144,6 @@ const 거르개풀기 = (packed: string) => {
 
 export function App() {
   const [display, setDisplay] = useDisplayPreferences();
-  const [shownColumns, setShownColumns] = useShownColumns();
   const [tab, setTab] = useState<Tab>("통합");
   const [dashboardShape, setDashboardShape] = useState<Shape>("브리핑");
   const [listShape, setListShape] = useState<Exclude<Shape, "브리핑">>("구조");
@@ -218,6 +217,7 @@ export function App() {
   const [tree, setTree] = useState<Tree | null>(null);
   const [dashboard, setDashboard] = useState<DashboardReport | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [autoCaptureSettings, setAutoCaptureSettings] = useState<import("./types").AutoCaptureSettings | null>(null);
   /** 지우려고 세어 둔 것. 계열 전체와 차수 하나를 함께 받아 사람이 고르게 한다. */
   const [doomed, setDoomed] = useState<{ rows: Row[]; entityType: EntityType; integrated: boolean } | null>(null);
   const [location, setLocation] = useState<DataLocation | null>(null);
@@ -689,16 +689,6 @@ export function App() {
     ? { ...거른시트, editable: [], correctable: [], overrides: {} }
     : 거른시트;
 
-  /**
-   * 기본으로 숨는 열(다리가 시트와 함께 보낸다, ADR-043 결정 5)은 사람이 설정에서 켠 것만 남긴다. <b>Grid 는 건드리지
-   * 않는다</b> — 받은 열을 그리는 것이 전부라, 복사·현재 표 내보내기도 보이는 열만 담는다. 차수 표는 본 표의 선택을 따른다.
-   * 엑셀 전체 내보내기는 다리가 뷰를 그대로 싣는다.
-   */
-  const 켠열 = tab === "현황" || tab === "나라장터" ? [] : shownColumns[SHEETS[tab].view] ?? [];
-  const 보이는시트 = 고칠시트 && 고칠시트.hidden?.length
-    ? { ...고칠시트, columns: 고칠시트.columns.filter((c) => !고칠시트.hidden!.includes(c) || 켠열.includes(c)) }
-    : 고칠시트;
-
   /** 지금 보고 있는 갈래. 그 갈래로 들어온 것은 이미 본 것이라 +N 에 세지 않는다. */
   const arrivals = use들어옴(captures, isKind(tab) ? tab : null);
   const source = 원천상태(extension, readOnly);
@@ -751,9 +741,10 @@ export function App() {
    * 없는데 아무 말 없이 지나가면 「설정」 단추가 죽은 것처럼 보인다.
    */
   const openSettings = () => {
-    if (settings) { setSettingsOpen(true); return; }
+    const readAuto = () => { if (!readOnly) void call<import("./types").AutoCaptureSettings>("autoCaptureSettings").then(setAutoCaptureSettings, (e: Error) => { setAutoCaptureSettings(null); say(`자동 수집 설정을 읽지 못했습니다. ${e.message}`, true); }); };
+    if (settings) { setSettingsOpen(true); readAuto(); return; }
     void call<Settings>("settings").then(
-      (read) => { setSettings(read); setSettingsOpen(true); },
+      (read) => { setSettings(read); setSettingsOpen(true); readAuto(); },
       (e: Error) => say(`설정을 읽지 못했습니다. ${e.message}`, true));
   };
   const pick = (t: Tab, then?: () => void) => navigate(() => { setGridQuery(""); setTab(t); setDockWide(false); then?.(); });
@@ -830,10 +821,6 @@ export function App() {
         title.focus();
       }}>지금 보는 화면으로 건너뛰기</a>
       <aside className="sidebar" aria-label="작업 탐색">
-        <div className="brand">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 16h5" /></svg>
-          <strong>계약 목록</strong>
-        </div>
         {/* 수집 상태와 자료 탐색을 분리한다. 방향키는 보이는 메뉴만 따른다. */}
         <nav className="tabs" role="tablist" aria-label="자료 종류" aria-orientation="vertical"
           onKeyDown={(e) => {
@@ -928,7 +915,7 @@ export function App() {
         )}
       </header>
       <div className="view-bar" hidden={tab === "통합" && shape === "브리핑"}>
-        {(tab === "통합" && shape === "구조" || !보이는시트?.rows.length) && tab !== "현황" && !(tab === "통합" && shape === "브리핑") && <button className="action quiet" onClick={() => manageColumns()}>열 관리</button>}
+        {(tab === "통합" && shape === "구조" || !고칠시트?.rows.length) && tab !== "현황" && !(tab === "통합" && shape === "브리핑") && <button className="action quiet" onClick={() => manageColumns()}>열 관리</button>}
         {summary && tab !== "통합" && (
           <div className="stat" aria-label="전체 자료 수">
             <span>접수 <b>{summary.requestBases}</b></span>
@@ -982,7 +969,7 @@ export function App() {
       ) : tab === "통합" && shape === "구조" ? (
         tree ? <Outline tree={tree} state={outlineState} onStateChange={setOutlineState} onSetup={() => pick("나라장터")}
           onOpen={(kind, number, revisions) => { setGridQuery(number); setTab(kind); setListShape(revisions ? "차수" : "표"); }} /> : <div className="empty-state">읽는 중…</div>
-      ) : 보이는시트?.rows.length === 0 ? (
+      ) : 고칠시트?.rows.length === 0 ? (
         <div className="empty-state">
           <h2>{tab === "계획" && filter ? "이 조건에 맞는 계획이 없습니다" : `아직 ${tab} 자료가 없습니다`}</h2>
           <p>{tab === "계획"
@@ -994,13 +981,13 @@ export function App() {
               ? <button className="action primary" onClick={openSettings}>계획 엑셀 설정</button>
               : <button className="action primary" onClick={() => pick("나라장터")}>나라장터 열기</button>}
         </div>
-      ) : 보이는시트 ? (
+      ) : 고칠시트 ? (
         <Grid
-          key={`${bodyKey}:${gridQuery}:${JSON.stringify(보이는시트.columns)}`}
+          key={`${bodyKey}:${gridQuery}:${JSON.stringify(고칠시트.columns)}`}
           initialQuery={liveQuery.current.key === bodyKey && liveQuery.current.seed === gridQuery ? liveQuery.current.query : gridQuery}
           focusQuery={gridSeed.focus}
           onQueryChange={(query) => { liveQuery.current = { key: bodyKey, seed: gridQuery, query }; }}
-          sheet={보이는시트}
+          sheet={고칠시트}
           columns={columns}
           keyColumn={SHEETS[tab].keyColumn}
           identityColumns={SHEETS[tab].identity}
@@ -1008,7 +995,7 @@ export function App() {
           onCorrect={correct}
           // 계획 행은 지우는 개체가 아니다 — 손잡이를 넘기지 않으면 단추가 서지 않는다. 열람 중에도 그렇다.
           onDeleteRows={tab === "계획" || readOnly ? undefined : rows => setDoomed({ rows, entityType: SHEETS[tab].entityType!, integrated: tab === "통합" })}
-          onBatchEdit={readOnly || !(보이는시트.editable.length + 보이는시트.correctable.length) ? undefined : batchEdit}
+          onBatchEdit={readOnly || !(고칠시트.editable.length + 고칠시트.correctable.length) ? undefined : batchEdit}
           onManageColumns={tab === "계획" ? undefined : manageColumns}
           onExport={exportGrid}
         />
@@ -1045,8 +1032,6 @@ export function App() {
           settings={settings}
           display={display}
           onDisplayChange={setDisplay}
-          shownColumns={shownColumns}
-          onShownColumnsChange={setShownColumns}
           onExportExcel={exportExcel}
           exportBusy={saving}
           onViewsImported={() => void reloadViewConfiguration()}
@@ -1059,6 +1044,16 @@ export function App() {
           readOnly={readOnly}
           windowPrefs={windowPrefs}
           onSaveWindowPrefs={saveWindowPrefs}
+          autoCaptureSettings={autoCaptureSettings}
+          onSaveAutoCaptureSettings={async value => {
+            try {
+              const next = await call<import("./types").AutoCaptureSettings>("saveAutoCaptureSettings", JSON.stringify(value));
+              setAutoCaptureSettings(next);
+            } catch (e) {
+              say(`자동 수집 설정을 저장하지 못했습니다. ${e instanceof Error ? e.message : String(e)}`, true);
+              throw e;
+            }
+          }}
           onOpenOther={() => void openOther()}
           onPickWorkfile={pickWorkfile}
           onSwitchWorkfile={switchWorkfile}

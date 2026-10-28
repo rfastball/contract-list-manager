@@ -1,7 +1,5 @@
 /* 탐색은 현재 화면을, 수집 상태는 나라장터 연결을 말한다. */
 .sidebar { padding: var(--sp-16) var(--sp-12); }
-.sidebar .brand { grid-template-columns: 20px minmax(0, 1fr); column-gap: var(--sp-8); }
-.sidebar .brand strong { padding-left: 0; }
 .source-navigation, .source-views { display: flex; flex-direction: column; min-width: 0; }
 .source-views { gap: var(--sp-2); margin-top: var(--sp-12); padding-top: var(--sp-12); border-top: 1px solid var(--n-border-strong); }
 .sidebar .tab, .sidebar .nav-link { min-height: 2.5rem; padding: var(--sp-8) var(--sp-10); }
@@ -32,19 +30,21 @@
 /* 작은 창에서도 연결 상태와 건수를 보존한다. 표만 가로 스크롤한다. */
 @media (max-width: 760px) {
   .sidebar { gap: var(--sp-6) var(--sp-12); padding: var(--sp-8) var(--sp-12); max-height: 45dvh; overflow-y: auto; }
-  .sidebar .brand { display: flex; }
-  .sidebar .tabs { order: 0; flex-basis: 100%; min-width: 0; overflow: visible; }
-  .source-navigation { width: 100%; gap: var(--sp-6); }
+  .sidebar .tabs { order: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--sp-8); flex-basis: 100%; min-width: 0; overflow: visible; }
+  .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); width: 100%; gap: var(--sp-6); }
   .sidebar .tab.intake-tab { flex-direction: row; justify-content: flex-start; flex-wrap: wrap; gap: var(--sp-4) var(--sp-12); min-width: 0; min-height: 2.5rem; }
   .intake-name { width: auto; }
-  .source-views { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-4); margin: 0; padding-top: var(--sp-6); }
+  .source-views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); margin: 0; padding: 0; border: 0; }
   .sidebar .overview-tab { margin: 0; text-align: left; min-width: 0; }
   .sidebar .tab.record-tab { flex-wrap: wrap; min-width: 0; justify-content: flex-start; gap: var(--sp-2) var(--sp-6); }
   .record-counts { justify-content: flex-start; }
   .sidebar .sidebar-bottom { flex-direction: row; align-items: center; margin: 0; padding: 0; border: 0; }
+  .sidebar-lists { width: auto; flex: 1 1 0; }
   .sidebar .nav-link { min-height: 2.5rem; }
 }
 
 @media (max-width: 480px) {
+  .sidebar .tabs { grid-template-columns: minmax(0, 1fr); }
+  .source-navigation { grid-template-columns: minmax(0, 1fr); }
   .source-views { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -1,8 +1,7 @@
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { useShownColumns } from "./SettingsPanel";
 import { ColumnManager } from "./ColumnManager";
 import { invoke, 복사자리, 사용자뷰초기화, 스위치, 창 } from "./mock";
 import type { ColumnTrace, FreezePlan, Sheet, UserView } from "./types";
@@ -74,7 +73,7 @@ describe("설정 — 제출·취합", () => {
   /** 제출본은 저장된 이름으로 뜬다 — 칸에 적고 저장하지 않은 이름은 만들기 전에 먼저 저장한다. */
   it("저장하지 않은 이름으로 제출본을 만들면 그 이름을 먼저 저장하고 만든다", async () => {
     const { user, dialog } = await 설정열기();
-    const 이름 = within(dialog).getByDisplayValue("홍길동");
+    const 이름 = within(dialog).getByLabelText("제출자 이름");
     await user.clear(이름);
     await user.type(이름, "김철수");
 
@@ -90,7 +89,7 @@ describe("설정 — 제출·취합", () => {
   it("이름을 저장하지 못하면 제출본을 만들지 않고, 이미 저장된 이름이면 다시 저장하지 않는다", async () => {
     가로채기("saveSettings", () => Promise.reject(new Error("시험용 저장 실패")));
     const { user, dialog } = await 설정열기();
-    const 이름 = within(dialog).getByDisplayValue("홍길동");
+    const 이름 = within(dialog).getByLabelText("제출자 이름");
     await user.clear(이름);
     await user.type(이름, "김철수");
     await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
@@ -148,6 +147,35 @@ describe("설정 — 제출·취합", () => {
     await user.click(within(dialog).getByRole("button", { name: "제출본 취합하기…" }));
 
     expect(await screen.findByText(/합칠 제출본을 찾지 못했습니다/)).toBeTruthy();
+  });
+});
+
+describe("설정 — 자동 수집", () => {
+  it("사용 여부는 즉시, 이름은 입력 완료 후 저장하고 실패해도 입력을 유지한다", async () => {
+    const { user, dialog } = await 설정열기();
+    const section = await within(dialog).findByRole("region", { name: "자동 수집" });
+    const enabled = within(section).getByRole("checkbox", { name: "자동 수집 사용" }) as HTMLInputElement;
+    expect(enabled.checked).toBe(false);
+    expect(within(section).queryByRole("button")).toBeNull();
+    const name = within(section).getByLabelText(/^담당자 이름/) as HTMLInputElement;
+    await user.clear(name); await user.type(name, "합성 이름");
+    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(0);
+    await user.click(enabled);
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "합성 이름" })]));
+    await waitFor(() => expect(name.disabled).toBe(false));
+    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(1);
+    await user.clear(name);
+    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(1);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "" })]));
+    await waitFor(() => expect(name.disabled).toBe(false));
+    await user.type(name, "키보드 이름"); await user.tab({ shift: true });
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "키보드 이름" })]));
+    await waitFor(() => expect(name.disabled).toBe(false));
+    가로채기("saveAutoCaptureSettings", () => Promise.reject(new Error("저장 실패")));
+    await user.clear(name); await user.type(name, "유지할 이름"); await user.tab();
+    expect((await within(section).findByRole("alert")).textContent).toContain("저장 실패");
+    expect(name.value).toBe("유지할 이름");
   });
 });
 
@@ -366,20 +394,29 @@ it("가공열을 값으로 굳히면 다리가 센 칸을 보이고 그 수로 �
 });
 
 /** 깨진 정의는 목록과 정의줄에서 까닭과 함께 드러난다 — 뷰에서는 빈 값으로 나가고 있다. */
-it("깨진 가공열은 목록 꼬리와 정의줄에 까닭을 보인다", async () => {
+it("깨진 가공열은 원문과 까닭을 보이고 이름만 바꿔도 식과 마이그레이션 진단을 보존한다", async () => {
+  const original = { version: 2 as const, id: "x", source: "sql" as const, sql: "SELECT count(*) FROM v_없는뷰" };
+  const migrationError = { message: "이전 가공식을 옮기지 못했습니다.", original };
+  const formula = { ...original, migrationError };
   const props = {
     initialEntity: "notice" as const, initialField: "품목수", onClose: vi.fn(),
     onAddColumn: vi.fn(), onUpdateColumn: vi.fn(), onRemoveColumn: vi.fn(), onMoveColumn: vi.fn(), onSaveComputed: vi.fn(), onFreezeColumn: vi.fn(),
   };
+  const user = userEvent.setup();
   가로채기("validateComputedSql", () => Promise.resolve({ ok: false, error: "no such table: v_없는뷰", samples: [], final: [] }));
   render(<ColumnManager {...props} columns={[{ entityType: "notice", fieldName: "품목수", kind: "computed", choices: [],
-    formula: { version: 2, id: "x", source: "sql", sql: "SELECT count(*) FROM v_없는뷰" }, broken: "no such table: v_없는뷰" }]} />);
+    formula, broken: migrationError.message }]} />);
   const ui = within(await screen.findByRole("region", { name: "열 관리" }));
   expect(ui.getByRole("button", { name: /^품목수 · 식 · 깨진 식/ })).toBeTruthy();
-  expect((await ui.findByRole("alert")).textContent).toContain("no such table: v_없는뷰");
+  expect((await ui.findByRole("alert")).textContent).toContain(migrationError.message);
   expect(ui.getAllByText("깨진 식").length).toBeGreaterThan(1);
+  expect((await ui.findByRole("textbox", { name: "SQL" })).textContent).toBe(original.sql);
   // SQL 편집면은 다리의 검증 결과를 그대로 보인다.
   expect(await ui.findByText("저장할 수 없습니다: no such table: v_없는뷰")).toBeTruthy();
+  await user.clear(ui.getByLabelText("열 이름"));
+  await user.type(ui.getByLabelText("열 이름"), "품목수변경");
+  await user.click(ui.getByRole("button", { name: "저장" }));
+  await waitFor(() => expect(props.onSaveComputed).toHaveBeenCalledWith("notice", "품목수변경", formula, "품목수"));
 });
 
 it("입력열은 저장할 때만 바꾸며 실패한 초안과 이동 취소를 보존한다", async () => {
@@ -421,13 +458,13 @@ const 흐름식글 = (editor: HTMLElement) => EditorView.findFromDOM(editor.clos
 
 /**
  * 흐름식 편집기는 연 열의 식을 보인다. 열을 바꿔도 앞 열의 글이 남으면 한 글자 치는 순간 그 글로 새 열을 덮는다.
- * 문구를 비우거나 읽을 수 없게 둔 채 저장하면 단계에 남은 옛 식이 조용히 저장된다 — 그동안 저장을 막는다.
+ * 문구를 비우거나 읽을 수 없게 둬도 탭과 이동 확인에서 지키고, 다시 읽히면 그 식을 저장한다.
  */
 it("흐름식 편집기는 다른 열로 옮기면 그 열의 식을 보이고, 읽을 수 없거나 빈 문구로는 저장하지 않는다", async () => {
   const 품명 = parseFlow('품목 |> 꺼내기 세부품명 |> 잇기 ", "').flow;
   const 번호 = parseFlow('품목 |> 꺼내기 세부품명번호 |> 잇기 " / "').flow;
   const props = {
-    initialEntity: "notice" as const, initialField: "품명 나열", onClose: vi.fn(),
+    initialEntity: "notice" as const, initialField: "품명 나열", onClose: vi.fn(), onDirtyChange: vi.fn(),
     onAddColumn: vi.fn(), onUpdateColumn: vi.fn(), onRemoveColumn: vi.fn(), onMoveColumn: vi.fn(), onSaveComputed: vi.fn(async () => {}), onFreezeColumn: vi.fn(),
   };
   const user = userEvent.setup();
@@ -441,27 +478,43 @@ it("흐름식 편집기는 다른 열로 옮기면 그 열의 식을 보이고, 
 
   await user.click(ui.getByRole("button", { name: /^번호 나열 · 식/ }));
   await user.click(await ui.findByRole("tab", { name: "흐름식" }));
-  const editor = await ui.findByRole("textbox", { name: "흐름식" });
+  let editor = await ui.findByRole("textbox", { name: "흐름식" });
   expect(흐름식글(editor)).toBe(printFlow(번호));
 
-  // 읽히는 글로 고쳐 초안을 바꾼 뒤 문구를 비운다 — 단계에는 고친 식이 남지만 저장은 하지 않는다.
-  흐름식쓰기(editor, '품목 |> 꺼내기 세부품명번호 |> 잇기 ", "');
+  // 유효한 식을 고치기 전 원문만 비워도 바깥 창과 목록 이동에 미저장 상태를 알린다.
   흐름식쓰기(editor, "");
   expect(await ui.findByText("식이 비어 있습니다. 단계에는 마지막으로 읽은 식이 남아 있습니다.")).toBeTruthy();
-  await user.click(ui.getByRole("button", { name: "저장" }));
-  expect((await ui.findByRole("alert")).textContent).toBe("흐름식을 읽을 수 없어 저장하지 않았습니다 — 식이 비어 있습니다");
+  expect(props.onDirtyChange).toHaveBeenLastCalledWith(true);
+  expect(ui.getByRole("button", { name: "저장" })).toHaveProperty("disabled", true);
+  await user.click(ui.getByRole("tab", { name: "단계" }));
+  await user.click(ui.getByRole("tab", { name: "흐름식" }));
+  editor = await ui.findByRole("textbox", { name: "흐름식" });
+  expect(흐름식글(editor)).toBe("");
+  await user.click(within(ui.getByRole("group", { name: "자료 종류" })).getByRole("button", { name: "계약" }));
+  let guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 열 변경" }));
+  expect(guard.getByRole("button", { name: "저장 후 이동" })).toHaveProperty("disabled", true);
+  await user.click(guard.getByRole("button", { name: "계속 편집" }));
+  expect(흐름식글(editor)).toBe("");
 
   흐름식쓰기(editor, "품목 |> 없는동사");
   expect(await ui.findByText(/^이 식을 읽을 수 없습니다: .+단계에는 마지막으로 읽은 식이 남아 있습니다\.$/)).toBeTruthy();
-  await user.click(ui.getByRole("button", { name: "저장" }));
-  expect((await ui.findByRole("alert")).textContent).toMatch(/^흐름식을 읽을 수 없어 저장하지 않았습니다 — /);
+  expect(ui.getByRole("button", { name: "저장" })).toHaveProperty("disabled", true);
   expect(props.onSaveComputed).not.toHaveBeenCalled();
+  await user.click(ui.getByRole("button", { name: "닫기" }));
+  guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 열 변경" }));
+  await user.click(guard.getByRole("button", { name: "변경 버리기" }));
+  expect(props.onDirtyChange).toHaveBeenLastCalledWith(false);
+  await user.click(ui.getByRole("button", { name: /^번호 나열 · 식/ }));
+  await user.click(ui.getByRole("tab", { name: "흐름식" }));
+  editor = await ui.findByRole("textbox", { name: "흐름식" });
+  expect(흐름식글(editor)).toBe(printFlow(번호));
 
   // 다시 읽히면 저장한다 — 그 식 그대로.
   흐름식쓰기(editor, '품목 |> 꺼내기 세부품명번호 |> 잇기 ", "');
   await user.click(ui.getByRole("button", { name: "저장" }));
   await waitFor(() => expect(props.onSaveComputed).toHaveBeenCalledOnce());
   expect(props.onSaveComputed.mock.calls[0]).toMatchObject(["notice", "번호 나열", { source: "flow", flow: parseFlow('품목 |> 꺼내기 세부품명번호 |> 잇기 ", "').flow }, "번호 나열"]);
+  expect(props.onDirtyChange).toHaveBeenLastCalledWith(false);
 });
 
 
@@ -502,159 +555,51 @@ it("표시 설정은 즉시 적용하고 다시 열어도 유지하며 시스템
   expect(document.documentElement.dataset.theme).toBeUndefined();
 });
 
-/**
- * 새로 담기 시작한 열은 표에서 기본으로 숨는다(ADR-043 결정 5). 숨는 것은 다리가 시트와 함께 보낸 열뿐이고, 켠 것은 그 표에만
- * 서고 이 컴퓨터에 남는다. 지금 보이는 열은 그대로다.
- */
-describe("설정 — 표의 추가 열", () => {
-  const 머리 = (name: string) => screen.queryByRole("columnheader", { name });
-
-  it("열 구성이 바뀌면 숨은 정렬·셀 범위·커서를 버리고 현재 검색어는 지킨다", async () => {
-    const data: Sheet = {
-      name: "v_공고", columns: ["입찰공고번호", "공고명", "계약법구분", "검토여부", "비고"],
-      hidden: ["계약법구분"], editable: ["검토여부", "비고"], correctable: [], overrides: {},
-      rows: [
-        { 입찰공고번호: "N1", 공고명: "첫 공고", 계약법구분: "나", 검토여부: "첫 검토", 비고: "첫 비고" },
-        { 입찰공고번호: "N2", 공고명: "둘 공고", 계약법구분: "가", 검토여부: "둘 검토", 비고: "둘 비고" },
-      ],
+describe("수집 열 표시", () => {
+  it("모든 표와 전체 차수에 수집 열을 함께 표시하고 설정에는 추가 열 항목이 없다", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const checkColumns = async (view: string) => {
+      await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", [view]));
+      const sheet = await 본디("sheet", [view]) as Sheet;
+      await waitFor(() => expect(screen.getAllByRole("columnheader").slice(1).map(h => within(h).getByRole("button", { name: / 정렬$/ }).textContent)).toEqual(sheet.columns));
     };
-    가로채기("sheet", () => Promise.resolve(data));
-    localStorage.setItem("pclm.shownColumns", JSON.stringify({ v_공고: ["계약법구분"] }));
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
-    await user.type(await screen.findByRole("searchbox"), "공고");
-    await user.click(screen.getByRole("button", { name: "계약법구분 정렬" }));
-    await user.click(screen.getByText("둘 검토"));
-    await user.keyboard("{Shift>}");
-    await user.click(screen.getByText("첫 검토"));
-    await user.keyboard("{/Shift}");
-    expect(screen.getByText("2셀 선택")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "설정" }));
-    const dialog = await screen.findByRole("dialog", { name: "설정" });
-    const notices = within(await within(dialog).findByRole("group", { name: "공고" }));
-    await user.click(notices.getByRole("checkbox", { name: "계약법구분" }));
-    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
-    expect(머리("계약법구분")).toBeNull();
-    expect(screen.queryByRole("button", { name: /정렬 해제/ })).toBeNull();
-    expect(screen.queryByText("2셀 선택")).toBeNull();
-    expect(screen.getByRole("searchbox")).toHaveProperty("value", "공고");
-    expect(document.querySelector("td.cur")?.textContent).toBe("N1");
-    const board = document.querySelector(".grid-board")!;
-    fireEvent.keyDown(board, { key: "Delete" });
-    fireEvent.paste(board, { clipboardData: { getData: () => "잘못 들어갈 값" } });
-    expect(screen.queryByRole("dialog", { name: /변경 검토/ })).toBeNull();
-    expect(부름.mock.calls.filter(([method]) => ["setField", "setOverride", "batchEdit"].includes(method))).toEqual([]);
-  });
-
-  it("각 창은 최신 한 벌에 바꾼 열만 합치고, 늦은 저장소 이벤트도 지금 값으로 맞춘다", () => {
-    const first = renderHook(() => useShownColumns());
-    const second = renderHook(() => useShownColumns());
-    expect(localStorage.getItem("pclm.shownColumns")).toBeNull();
-    act(() => first.result.current[1]("v_공고", "계약법구분", true));
-    // 두 번째 창은 이벤트를 아직 받지 못해도 다른 표와 같은 표의 앞선 변경을 지킨다.
-    act(() => second.result.current[1]("v_계약", "공동수급구성방식", true));
-    act(() => second.result.current[1]("v_공고", "재무관", true));
-    const saved = { v_공고: ["계약법구분", "재무관"], v_계약: ["공동수급구성방식"] };
-    expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual(saved);
-    act(() => window.dispatchEvent(new StorageEvent("storage", { key: "pclm.shownColumns", newValue: "{}" })));
-    expect(first.result.current[0]).toEqual(saved);
-    expect(second.result.current[0]).toEqual(saved);
-    act(() => first.result.current[1]("v_공고", "계약법구분", false));
-    expect(first.result.current[0].v_공고).toEqual(["재무관"]);
-    localStorage.clear();
-    act(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
-    expect(first.result.current[0]).toEqual({});
-    expect(second.result.current[0]).toEqual({});
-  });
-
-  it.each(["getItem", "setItem"] as const)("저장소 %s 제한 중에도 현재 창에서 연속으로 켜고 끈다", (method) => {
-    const denied = vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error("저장 제한"); });
-    try {
-      const { result } = renderHook(() => useShownColumns());
-      act(() => result.current[1]("v_공고", "계약법구분", true));
-      act(() => result.current[1]("v_계약", "공동수급구성방식", true));
-      act(() => result.current[1]("v_공고", "재무관", true));
-      act(() => result.current[1]("v_공고", "계약법구분", false));
-      expect(result.current[0]).toEqual({ v_공고: ["재무관"], v_계약: ["공동수급구성방식"] });
-      if (method === "setItem") {
-        denied.mockRestore();
-        localStorage.setItem("pclm.shownColumns", JSON.stringify({ v_접수: ["추정가격"], v_공고: ["입찰진행상태"] }));
-        act(() => window.dispatchEvent(new StorageEvent("storage", { key: "pclm.shownColumns" })));
-        act(() => result.current[1]("v_계약", "공동수급구성방식", false));
-        expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual({
-          v_접수: ["추정가격"], v_공고: ["입찰진행상태", "재무관"], v_계약: [],
-        });
+    for (const [tab, view] of [["접수", "v_접수"], ["공고", "v_공고"], ["계약", "v_계약"]]) {
+      await user.click(await screen.findByRole("tab", { name: new RegExp(`^${tab}`) }));
+      await checkColumns(view);
+      if (tab !== "접수") {
+        await user.click(screen.getByRole("button", { name: "전체 차수" }));
+        await checkColumns(`${view}차수`);
+        await user.click(screen.getByRole("button", { name: "최신" }));
       }
-    } finally { denied.mockRestore(); }
-  });
-
-  it("기본으로 숨는 열은 표에 없고, 설정에서 켜면 그 표에만 서고 다시 열어도 남는다", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("tab", { name: /^공고/ }));
-    await screen.findByRole("columnheader", { name: "현행공고" });
-    expect(머리("계약법구분")).toBeNull();
-    expect(머리("입찰진행상태")).toBeNull();
-    expect(머리("검토여부")).toBeTruthy();
-
+    }
+    await user.click(screen.getByRole("tab", { name: /^대시보드/ }));
+    await user.click(screen.getByRole("button", { name: "표" }));
+    await checkColumns("v_통합");
+    await user.click(screen.getByRole("button", { name: "전체 차수" }));
+    await checkColumns("v_통합차수");
     await user.click(screen.getByRole("button", { name: "설정" }));
     const dialog = await screen.findByRole("dialog", { name: "설정" });
-    expect(within(dialog).getByRole("heading", { name: "표의 추가 열" })).toBeTruthy();
-    const 공고 = within(await within(dialog).findByRole("group", { name: "공고" }));
-    expect(공고.getAllByRole("checkbox").map((c) => c.closest("label")!.textContent))
-      .toEqual(["계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태", "재무관"]);
-    expect(within(within(dialog).getByRole("group", { name: "접수" })).getAllByRole("checkbox").map((c) => c.closest("label")!.textContent))
-      .toEqual(["공고종류", "추정가격"]);
-    await user.click(공고.getByRole("checkbox", { name: "계약법구분" }));
-    expect((공고.getByRole("checkbox", { name: "계약법구분" }) as HTMLInputElement).checked).toBe(true);
-    await user.click(within(dialog).getByRole("button", { name: "닫기" }));
+    expect(within(dialog).queryByText("표의 추가 열")).toBeNull();
 
-    // 켠 열은 숨기 전의 제자리(기본 열의 끝, 사람 열 앞)에 선다. 켜지 않은 열은 그대로 숨는다.
-    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
-    expect(within(screen.getByRole("table")).getAllByText("국가계약법").length).toBeGreaterThan(0);
-    expect(머리("입찰진행상태")).toBeNull();
-    const 머리들 = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(머리들.findIndex((t) => t?.startsWith("계약법구분"))).toBeGreaterThan(머리들.findIndex((t) => t?.startsWith("현행공고")));
-    expect(JSON.parse(localStorage.getItem("pclm.shownColumns")!)).toEqual({ "v_공고": ["계약법구분"] });
-
-    // 다른 표에는 번지지 않는다 — 접수의 계약법구분은 본디 보이는 열이고, 계약의 것은 계약 표의 선택을 따른다.
-    await user.click(screen.getByRole("tab", { name: /^계약/ }));
-    await screen.findByRole("columnheader", { name: "상대자팩스" });
-    expect(머리("계약법구분")).toBeNull();
-    expect(머리("공동수급구성방식")).toBeNull();
-
-    // 다시 열어도 남는다. 차수 표는 본 표의 선택을 따른다.
     cleanup();
+    스위치.열람 = true;
     render(<App />);
     await user.click(await screen.findByRole("tab", { name: /^공고/ }));
-    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "전체 차수" }));
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("sheet", ["v_공고차수"]));
-    expect(await screen.findByRole("columnheader", { name: "계약법구분" })).toBeTruthy();
-    expect(머리("입찰진행상태")).toBeNull();
+    await checkColumns("v_공고");
   });
 
-  it("현재 표 내보내기는 보이는 열만 담는다", async () => {
+  it("현재 표 내보내기에도 모든 수집 열을 담는다", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("tab", { name: /^공고/ }));
-    await screen.findByRole("columnheader", { name: "현행공고" });
+    await screen.findByRole("columnheader", { name: "입찰진행상태" });
     await user.click(screen.getByLabelText("엑셀 내보내기"));
     await user.click(screen.getByRole("button", { name: /^검색 결과 \d+행 내보내기$/ }));
     await waitFor(() => expect(부름).toHaveBeenCalledWith("exportSheet", ["공고 목록", expect.any(String)]));
     const sent = JSON.parse(부름.mock.calls.find(([m]) => m === "exportSheet")![1][1] as string) as { columns: string[] };
-    expect(sent.columns).toContain("현행공고");
-    expect(sent.columns).not.toContain("계약법구분");
-    expect(sent.columns).not.toContain("입찰진행상태");
-  });
-
-  it("저장소가 깨져 있으면 아무 열도 켜지 않은 채로 연다", async () => {
-    localStorage.setItem("pclm.shownColumns", "{깨진");
-    const { dialog } = await 설정열기();
-    const 공고 = within(await within(dialog).findByRole("group", { name: "공고" }));
-    expect(공고.getAllByRole("checkbox").every((c) => !(c as HTMLInputElement).checked)).toBe(true);
+    const sheet = await 본디("sheet", ["v_공고"]) as Sheet;
+    expect(sent.columns).toEqual(sheet.columns);
   });
 });
 

@@ -7,7 +7,7 @@ import { shapeLabel } from "./flow/ast";
 import { checkFlow } from "./flow/check";
 import { toV2 } from "./flow/migrate";
 import { printSource, verbWord } from "./flow/syntax";
-import { ColumnFlow } from "./columns/ColumnFlow";
+import { ColumnFlow, type FlowCodeDraft } from "./columns/ColumnFlow";
 import { Icon } from "./columns/icons";
 import "../css/columns.css";
 
@@ -106,14 +106,15 @@ export function ColumnManager(props: Props) {
   // 편집기를 연 차례 — 다른 열(또는 새 열)을 열면 바뀌어 가공열 편집기와 그 안의 흐름식 문구를 새로 세운다.
   // 저장으로 이름이 바뀌어도 같은 열이라 그대로 둔다.
   const [opened, setOpened] = useState(0);
-  const [codeProblem, setCodeProblem] = useState("");
+  const [codeDraft, setCodeDraft] = useState<FlowCodeDraft | null>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuRoot = useRef<HTMLDivElement>(null);
   const initialResolved = useRef(!initialField || !!initial);
   const requestSeen = useRef<number | undefined>(undefined);
 
-  const dirty = !!draft && JSON.stringify(draft) !== baseline;
+  const codeProblem = codeDraft?.problem ?? "";
+  const dirty = !!draft && (JSON.stringify(draft) !== baseline || !!codeProblem);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const target = draft?.entity ?? entity;
   const data = contextEntity === target ? context : null;
@@ -132,6 +133,7 @@ export function ColumnManager(props: Props) {
   function open(next: Draft | null) {
     initialResolved.current = true;
     setOpened(n => n + 1);
+    setCodeDraft(null);
     setDraft(next); setBaseline(next ? JSON.stringify(next) : ""); setError(""); setRemoving(false); setNotice(""); setSampleInput(""); setChoiceText(""); setMenu(false);
   }
   function navigate(run: () => void) {
@@ -189,7 +191,7 @@ export function ColumnManager(props: Props) {
       else if (draft.previousName) await props.onUpdateColumn(draft.entity, draft.previousName, name, draft.kind, draft.choices.join(", "));
       else await props.onAddColumn(draft.entity, name, draft.kind, draft.choices.join(", "));
       const next: Draft = { ...draft, name, previousName: name, savedMode: draft.mode };
-      setDraft(next); setBaseline(JSON.stringify(next)); setQuery("");
+      setDraft(next); setBaseline(JSON.stringify(next)); setCodeDraft(null); setQuery("");
       setNotice(`‘${name}’ 열을 저장했습니다.`); return true;
     } catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }
@@ -214,6 +216,7 @@ export function ColumnManager(props: Props) {
    */
   function flip() {
     if (!draft || readOnly || busy) return;
+    if (codeProblem) { setError(`흐름식을 먼저 고치세요. ${codeProblem}`); return; }
     const to: Mode = draft.mode === ":" ? "=" : ":";
     if (!draft.savedMode || !draft.previousName || to === draft.savedMode) { change({ mode: to }); return; }
     setConverting(to);
@@ -395,7 +398,7 @@ export function ColumnManager(props: Props) {
             {inputEditor}
             {draft.mode === "=" && <>
               {contextStatus}
-              <ColumnFlow key={opened} entity={draft.entity} formula={draft.formula} onCodeProblem={setCodeProblem} context={data} env={env} readOnly={readOnly || busy}
+              <ColumnFlow key={opened} entity={draft.entity} formula={draft.formula} codeDraft={codeDraft} onCodeDraftChange={setCodeDraft} context={data} env={env} readOnly={readOnly || busy}
                 onChange={formula => change({ formula })} onSuggestName={name => { if (!draft.name.trim()) change({ name }); }} />
             </>}
           </div>
@@ -404,7 +407,7 @@ export function ColumnManager(props: Props) {
             <div className="column-controls">
               <span className="column-hint">{readOnly ? "열람 중" : dirty ? "저장하면 목록에 반영됩니다." : draft.previousName ? "저장된 열입니다." : "저장 전에는 목록이 바뀌지 않습니다."}</span>
               <button className="action" disabled={busy} onClick={() => navigate(() => open(null))}>닫기</button>
-              {!readOnly && <button className="action primary" disabled={busy || (!dirty && !!draft.previousName)} onClick={() => void save()}>저장</button>}
+              {!readOnly && <button className="action primary" disabled={busy || !!codeProblem || (!dirty && !!draft.previousName)} onClick={() => void save()}>저장</button>}
             </div>
           </footer>
         </section>}
@@ -413,10 +416,11 @@ export function ColumnManager(props: Props) {
 
     {pending && <Modal label="저장하지 않은 열 변경" onClose={() => { if (!busy) setPending(null); }}>
       <h2>저장하지 않은 변경이 있습니다</h2><p>{draft?.name.trim() ? `‘${draft.name.trim()}’ 열의 ` : ""}변경을 저장하고 이동할까요?</p>
+      {codeProblem && <p className="column-hint">지금은 저장할 수 없습니다. 흐름식을 고치세요. {codeProblem}</p>}
       {error && <p className="warn" role="alert">{error}</p>}
       <div className="column-controls"><button className="action" disabled={busy} onClick={() => setPending(null)}>계속 편집</button>
         <button className="action" disabled={busy} onClick={() => { const next = pending.run; setPending(null); open(null); next(); }}>변경 버리기</button>
-        <button className="action primary" disabled={busy} onClick={async () => { const next = pending.run; if (await save()) { setPending(null); next(); } }}>저장 후 이동</button></div>
+        <button className="action primary" disabled={busy || !!codeProblem} onClick={async () => { const next = pending.run; if (await save()) { setPending(null); next(); } }}>저장 후 이동</button></div>
     </Modal>}
     {removing && selected && <Modal label="열 제거 확인" onClose={() => { if (!busy) setRemoving(false); }}>
       <h2>‘{selected.fieldName}’ 열을 표에서 뺄까요?</h2>

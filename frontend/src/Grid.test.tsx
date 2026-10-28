@@ -452,7 +452,7 @@ describe("Grid", () => {
     draw();
 
     const row = screen.getAllByRole("row")[2];
-    const 금액 = within(row).getAllByRole("cell")[3];
+    const 금액 = within(row).getAllByRole("gridcell")[3];
 
     expect(금액.getAttribute("title")).toContain("1,000원");
     expect(금액.className).toContain("overridden");
@@ -462,7 +462,7 @@ describe("Grid", () => {
     draw();
 
     const row = screen.getAllByRole("row")[1];
-    expect(within(row).getAllByRole("cell")[3].className).not.toContain("overridden");
+    expect(within(row).getAllByRole("gridcell")[3].className).not.toContain("overridden");
   });
 
   it("지우기는 커서가 아닌 체크한 줄의 키로 묻는다", async () => {
@@ -488,28 +488,75 @@ describe("Grid", () => {
     expect(screen.getByRole("textbox")).toHaveProperty("value", "최");
   });
 
-  it("화살표로 커서가 옮겨 간다", async () => {
+  it("화살표 커서와 편집 이름은 같은 행·열을 가리킨다", async () => {
     const user = userEvent.setup();
     draw();
 
     await user.click(cell(0, "김담당"));
-    await user.keyboard("{ArrowDown}{F2}");
+    await user.keyboard("{ArrowDown}");
+    const grid = screen.getByRole("grid", { name: "자료 목록" });
+    const current = document.getElementById(grid.getAttribute("aria-activedescendant")!);
+    expect(current?.getAttribute("role")).toBe("gridcell");
+    expect(current?.getAttribute("aria-label")).toBe("담당, 2행 R26TA0200: 빈 값");
+    expect(current?.closest('[role="row"]')?.getAttribute("aria-rowindex")).toBe("3");
+    await user.keyboard("{F2}");
 
     // 한 칸 아래는 둘째 줄의 담당(빈 값)이다.
-    expect(screen.getByRole("textbox")).toHaveProperty("value", "");
+    expect(screen.getByRole("textbox", { name: "담당, 2행 R26TA0200" })).toHaveProperty("value", "");
   });
 
-  /** 금액은 자릿점이 붙은 문자열이라, 문자열로 세우면 1,000 이 900 보다 앞선다. */
-  it("금액 열은 수로 정렬한다", async () => {
+  it("Tab은 표를 벗어나고, 머리글·편집·Shift+Tab은 각 위치로 돌아온다", async () => {
     const user = userEvent.setup();
-    draw();
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    draw({ onEdit });
+    const grid = screen.getByRole("grid", { name: "자료 목록" });
+    const current = () => document.getElementById(grid.getAttribute("aria-activedescendant")!);
+    await user.click(cell(2, "종료"));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByLabelText("표 아래 안내"));
+    expect(grid.contains(document.activeElement)).toBe(false);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(grid);
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+    await user.click(cell(0, "김담당"));
+    await user.keyboard("{ArrowUp}");
+    expect(current()?.getAttribute("role")).toBe("columnheader");
+    await user.keyboard("{Enter}");
+    expect(current()?.getAttribute("aria-sort")).toBe("ascending");
+    await user.keyboard("{ArrowDown}{F2}");
+    const text = screen.getByRole("textbox", { name: /담당, 1행/ });
+    await user.clear(text);
+    await user.keyboard("이담당{Tab}");
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(current()?.getAttribute("aria-label")).toMatch(/^진행상태, 1행/);
+    await user.keyboard("{F2}");
+    expect(screen.getByRole("combobox", { name: /진행상태, 1행/ })).toBeTruthy();
+    await user.tab({ shift: true });
+    expect(document.activeElement).toBe(grid);
+    expect(current()?.getAttribute("aria-label")).toMatch(/^담당, 1행/);
+    await user.keyboard("{Escape}");
+    expect(document.activeElement).toBe(screen.getByRole("searchbox"));
+    await user.click(cell(0, "R26TA0100"));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByLabelText("표 아래 안내"));
+  });
+
+  it.each([
+    { name: "금액", values: ["900", "1,000", "80"], expected: ["80", "900", "1,000"] },
+    { name: "숫자·글 혼합", values: ["2", "10", "1a"], expected: ["10", "1a", "2"] },
+    { name: "안전 정수 범위 밖", values: ["9007199254740993", "9007199254740992", "9007199254740994"], expected: ["9007199254740992", "9007199254740993", "9007199254740994"] },
+  ])("$name 열은 일관된 순서로 정렬한다", async ({ values, expected }) => {
+    const user = userEvent.setup();
+    const { data, redraw } = draw();
+    redraw({ ...data, rows: data.rows.map((r, i) => ({ ...r, 계약금액: values[i] })) });
 
     await user.click(screen.getByText("계약금액"));
-
-    const shown = screen.getAllByRole("row").slice(1)
-      .map((r) => within(r).getAllByRole("cell")[3].textContent);
-
-    expect(shown).toEqual(["80", "900", "1,000"]);
+    const shown = () => screen.getAllByRole("row").slice(1)
+      .map((r) => within(r).getAllByRole("gridcell")[3].textContent);
+    expect(shown()).toEqual(expected);
+    await user.click(screen.getByText("계약금액"));
+    expect(shown()).toEqual([...expected].reverse());
   });
 
   it("찾기가 행을 거르고 결과가 없으면 검색을 지워 복구한다", async () => {

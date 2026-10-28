@@ -61,7 +61,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         // 쥔 채 계속 고친다. 백업은 바꾸는 일이 아니지만 지금 작업자료의 사진이라 열람 창의 일이 아니다.
         "pickWorkfile", "moveWorkfile", "switchWorkfile", "newWorkfile", "backupWorkfile",
         // 창의 몸가짐은 자료가 아니라 이 컴퓨터의 작업자료 창의 것이다. 열람 창은 알림 영역에 두지도 않으니 보이지도 않는다.
-        "windowPrefs", "saveWindowPrefs",
+        "windowPrefs", "saveWindowPrefs", "autoCaptureSettings", "saveAutoCaptureSettings",
     };
 
     /// <summary>열람 중에도 받는 요청. 읽기와, 밖으로 사진을 뜨는 것(<c>export</c>)과, 창 바깥의 일뿐이다.</summary>
@@ -70,7 +70,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "session", "status", "dashboard", "dataVersion", "현황", "sheet", "outline", "userColumns", "columnContext",
         "traceComputedColumn", "compileComputedColumn", "validateComputedSql", "planFreezeColumn",
         "userViews", "userViewContext", "traceUserViewColumn", "userViewSamples", "previewUserView", "exportViewPackage",
-        "deletionPlan", "settings", "hiddenColumns",
+        "deletionPlan", "settings",
         "extensionStatus", "captures", "mirror",
         "export", "exportSheet", "dataLocation", "revealDataFolder", "about", "openOther",
         // 창을 닫을 때 물을지와 정말 닫기. 자료가 아니라 창의 일이다.
@@ -115,6 +115,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
 
     public void Dispose()
     {
+        _autoStopped = true;
+        System.Threading.Interlocked.Exchange(ref _autoTimer, null)?.Dispose();
         lock (_changes) _changes.Dispose();
     }
 
@@ -239,6 +241,8 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "openExtensionSetup" => OpenExtensionSetup(Require(args, 0)),
         "erpTools" => ErpTools.Invoke(_database, Require(args, 0), Require(args, 1), _home),
         "mirror" => ReadMirror(),
+        "autoCaptureSettings" => ReadAutoCaptureSettings(),
+        "saveAutoCaptureSettings" => SaveAutoCaptureSettings(Require(args, 0)),
         "mirrorCommand" => MirrorCommand(Require(args, 0), Require(args, 1), Require(args, 2)),
         "importShot" => ImportShot(Require(args, 0), Require(args, 1), Require(args, 2), Require(args, 3), Require(args, 4)),
         "status" => new Reports(_database).Summary(),
@@ -246,8 +250,6 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
         "dataVersion" => DataVersion(),
         "현황" => new Pclm.Core.Storage.Status(_database).Report(),
         "sheet" => ReadSheet(Require(args, 0)),
-        // 표에서 기본으로 숨기는 열(ADR-043 결정 5) — 설정이 표마다 켤 수 있는 열을 늘어놓는다. 정본은 Views 한 벌이다.
-        "hiddenColumns" => Views.HiddenByDefault,
         "outline" => ReadOutline(),
         "userColumns" => UserColumns(args.ElementAtOrDefault(0)),
         "columnContext" => _store.ColumnContext(Require(args, 0)),
@@ -570,6 +572,63 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
     // ── 지금 보는 화면(ADR-036) ───────────────────────────────
 
     private readonly object _mirrorGate = new();
+    private readonly object _autoGate = new();
+    private readonly AutoCapture _autoCapture = new(database, home);
+    private System.Threading.Timer? _autoTimer;
+    private volatile bool _autoStopped;
+    private AutoCaptureResult? _autoResult;
+
+    /// <summary>창 생성 때 시작한다. 처음부터 트레이에서 켠 창도 UI 로드와 무관하게 수집한다.</summary>
+    public void StartAutoCapture()
+    {
+        if (ReadOnly) return;
+        lock (_autoGate)
+            if (!_autoStopped && _autoTimer is null)
+                _autoTimer = new System.Threading.Timer(_ => AutoCaptureTick(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void AutoCaptureTick()
+    {
+        if (!System.Threading.Monitor.TryEnter(_autoGate)) return;
+        try
+        {
+            if (_autoStopped) return;
+            var preferences = AutoCapturePreferences.Read(_home);
+            if (!preferences.Enabled) { _autoResult = null; return; }
+            var report = ExtensionRelay.ReadTabs(_home.Directory).OrderByDescending(r =>
+                r.Report.TryGetProperty("frontAt", out var at) && at.TryGetInt64(out var n) ? n : 0).FirstOrDefault();
+            if (report is null || !report.Report.TryGetProperty("front", out var front) || front.ValueKind != JsonValueKind.Number || !front.TryGetInt32(out var id) ||
+                !report.Report.TryGetProperty("tabs", out var tabs)) return;
+            var tab = tabs.EnumerateArray().FirstOrDefault(t => t.TryGetProperty("tabId", out var v) && v.TryGetInt32(out var n) && n == id);
+            if (tab.ValueKind != JsonValueKind.Object) return;
+            _autoResult = _autoCapture.TrySave(tab, preferences, DateTimeOffset.UtcNow, () => !_autoStopped);
+        }
+        catch (Exception e) when (e is InvalidOperationException or JsonException or IOException or UnauthorizedAccessException or
+            Microsoft.Data.Sqlite.SqliteException or KeyNotFoundException or FormatException)
+        { _autoResult = new("hold", e.Message); }
+        finally { System.Threading.Monitor.Exit(_autoGate); }
+    }
+
+    private object ReadAutoCaptureSettings()
+    {
+        lock (_autoGate)
+        {
+            var preferences = AutoCapturePreferences.Read(_home);
+            return new { preferences.Enabled, preferences.Name, lastResult = _autoResult };
+        }
+    }
+
+    private object SaveAutoCaptureSettings(string json)
+    {
+        lock (_autoGate)
+        {
+            var preferences = JsonSerializer.Deserialize<AutoCapturePreferences>(json, Mapping.Json)
+                ?? throw new InvalidOperationException("자동 수집 설정이 비었습니다.");
+            preferences.Write(_home);
+            _autoResult = null;
+            return ReadAutoCaptureSettings();
+        }
+    }
     /// <summary>탭마다 마지막 투영. 같은 스냅샷·같은 dataVersion 이면 다시 계산하지 않는다.</summary>
     private Dictionary<string, (string Key, MirrorShot? Shot, string? Error)> _shots = new(StringComparer.Ordinal);
     /// <summary>
@@ -859,9 +918,6 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                                 && !elsewhere.Contains(c))
                     .ToList(),
             overrides = 읽기전용 ? [] : Overrides(entityType),
-            // 표에서 기본으로 숨기는 열(ADR-043 결정 5). 화면은 사람이 설정에서 켠 것만 펼친다 — 뷰와 엑셀 전체 내보내기는 그대로다.
-            // 시트와 함께 보내 표가 숨길 열을 모른 채 먼저 그려지는 일이 없게 한다.
-            hidden = Views.HiddenByDefault.GetValueOrDefault(view) ?? [],
             rows,
         };
     }
@@ -996,7 +1052,7 @@ public sealed class Bridge(Database database, Home home, ViewedFile? viewing = n
                 try
                 {
                     // v2 그대로 — 빈 자리를 null 로 채우면 화면이 「적힌 필드」로 읽는다.
-                    formula = JsonSerializer.SerializeToElement(ComputedColumn.Parse(options), Flow.Json);
+                    formula = ComputedColumn.ReadForEditing(options);
                 }
                 catch (InvalidOperationException e) when (c.Kind == "computed") { error ??= e.Message; }
                 catch (InvalidOperationException) { }

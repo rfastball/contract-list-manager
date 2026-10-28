@@ -21,7 +21,7 @@ body {
 
 /* 사이드바 · 작업 영역 · 지금 보는 화면(셋째 기둥). */
 .app { display: grid; grid-template-columns: 11rem minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
-.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; }
 /* 지금 보는 화면을 펼치면 작업 영역을 비켜 준다(숨김). */
 .workspace[hidden] { display: none; }
 ::selection { background: var(--a-sel); color: var(--a-ink); }
@@ -36,9 +36,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--a-primary);
    그 칸의 가운데 정렬 하나로 선다. 선과 마디를 따로 픽셀로 재어 두면 125%·150% 배율에서 따로 반올림되어 1px 어긋난다.
    고른 것은 어디서나 같다: 글이 파랗게 굵어지고 글 칸이 --a-sel 로 깔린다. */
 .sidebar { --rail: 24px; --rail-in: 7px; --rail-text: calc(var(--rail) + var(--sp-4)); display: flex; flex-direction: column; padding: var(--sp-24) var(--sp-12) var(--sp-16); background: var(--n-header-bg); border-right: 1px solid var(--a-border); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--n-border-strong) transparent; }
-.brand { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 2px; align-items: center; padding: 0 0 var(--sp-16); white-space: nowrap; }
-.brand svg { width: 20px; height: 20px; fill: none; stroke: var(--a-primary); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
-.brand strong { padding-left: var(--sp-10); font-size: var(--fs-section); font-weight: 700; letter-spacing: -.025em; }
 .nav-link { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); appearance: none; border: 0; border-radius: var(--rad-control); background: transparent; cursor: pointer; text-align: left; font: inherit; }
 .nav-link:hover { background: var(--n-hover); }
 .nav-link[aria-pressed="true"], .nav-link[aria-current="true"] { background: var(--a-sel); color: var(--a-primary); }
@@ -147,7 +144,7 @@ button.action:focus-visible { outline: 2px solid var(--a-primary); outline-offse
 }
 
 /* ── 표 ───────────────────────────────────────────── */
-.grid-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.grid-wrap { flex: 1 0 auto; display: flex; flex-direction: column; min-height: min-content; }
 
 .grid-toolbar {
   display: flex; align-items: center; gap: var(--sp-8);
@@ -161,10 +158,10 @@ button.action:focus-visible { outline: 2px solid var(--a-primary); outline-offse
 }
 
 /* 표만 구르게 한다 — 머리글이 붙어 있으려면 구르는 상자가 표를 감싸야 한다. */
-.grid-board { flex: 1; overflow: auto; outline: 0; }
+.grid-board { flex: 1 0 12rem; height: 12rem; min-height: 12rem; overflow: auto; outline: 0; }
 
 .grid-status {
-  display: flex; gap: var(--sp-6); align-items: center;
+  display: flex; flex-wrap: wrap; gap: var(--sp-6); align-items: center;
   padding: var(--sp-4) var(--sp-12); border-top: 1px solid var(--a-border);
   color: var(--n-ink-soft); font-size: var(--fs-caption);
   font-variant-numeric: tabular-nums;
@@ -418,9 +415,12 @@ table.outline-items .num { text-align: right; font-variant-numeric: tabular-nums
 .set .check-hint { margin: 0 0 var(--sp-8); padding-left: 26px; }
 .set .check-hint:last-child { margin-bottom: 0; }
 
-/* 표의 추가 열 — 표마다 한 무리. 칸은 창 폭에 맞춰 여러 줄로 흐른다. 머리는 절 안의 h4 와 같은 말투다. */
-.shown-columns { margin: var(--sp-16) 0 0; padding: 0; border: 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); column-gap: var(--sp-16); }
-.shown-columns legend { padding: 0; margin-bottom: var(--sp-6); font-size: var(--fs-body); font-weight: 650; }
+.auto-capture { min-height: 100%; }
+.auto-capture-start { margin: var(--sp-16) 0 var(--sp-24); }
+.auto-capture-start .check { font-weight: 600; }
+.auto-capture-name > label { display: block; margin-bottom: var(--sp-8); font-weight: 600; }
+.auto-capture-name > label .hint { margin-left: var(--sp-6); font-weight: 400; }
+.auto-capture-name .text { width: 100%; max-width: 24rem; min-width: 0; }
 
 .field { display: block; margin-bottom: var(--sp-16); }
 .field .label { display: block; font-weight: 600; margin-bottom: var(--sp-6); }
@@ -544,8 +544,6 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .sidebar { flex-direction: row; flex-wrap: wrap; gap: var(--sp-8); padding: var(--sp-8) var(--sp-12); border-right: 0; border-bottom: 1px solid var(--a-border); overflow: visible; }
-  .brand { display: flex; gap: var(--sp-8); padding: 0; margin-right: auto; }
-  .brand strong { padding-left: 0; }
   .top { padding: var(--sp-8) var(--sp-16); gap: var(--sp-8); }
   .page-heading p { margin-top: var(--sp-4); }
   .outline-actions { padding: var(--sp-8) var(--sp-16); }
@@ -1135,14 +1133,9 @@ button.action.danger:hover { background: var(--fb-missing-bg); }
 .computed-columns > .row { padding-block: var(--sp-8); }
 @media (max-width: 760px) { .computed-fields { grid-template-columns: 1fr; } }
 
-/* 탐색 구획과 설정 표시 옵션. */
-.sidebar-section-title { margin: var(--sp-16) var(--sp-10) var(--sp-6); font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-soft); }
+/* 탐색과 설정 표시 옵션. */
 .sidebar .plain-tab { padding-left: var(--sp-10); }
 .display-options { display: grid; grid-template-columns: max-content minmax(0, 17rem); align-items: center; gap: var(--sp-12) var(--sp-16); }
 .set h4 { margin: var(--sp-12) 0 var(--sp-6); font-size: var(--fs-body); font-weight: 650; }
-@media (max-width: 760px) {
-  .source-views > .sidebar-section-title { grid-column: 1 / -1; }
-}
-
 .dashboard-top { padding: var(--sp-12) var(--sp-16); }
 .view-bar[hidden] { display: none; }

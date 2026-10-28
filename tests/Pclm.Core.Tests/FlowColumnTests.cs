@@ -166,7 +166,12 @@ public sealed class FlowColumnTests : IDisposable
         Assert.DoesNotContain(_store.UserColumns(), c => c.FieldName == "실패열");
         _database.RefreshViews();
 
-        _store.SaveComputedColumn("contract", "옛식", """{"version":1,"id":"","steps":[{"op":"pick","fields":["품명"]},{"op":"distinct"},{"op":"count"}]}""");
+        const string legacy = """{"version":1,"id":"","steps":[{"op":"pick","fields":["품명"]},{"op":"distinct"},{"op":"count"}]}""";
+        var editable = ComputedColumn.ReadForEditing(legacy);
+        Assert.Equal(2, editable.GetProperty("version").GetInt32());
+        Assert.False(editable.TryGetProperty("sql", out _));
+        Assert.Equal(Pclm.Core.Storage.Flow.Serialize(ComputedColumn.Parse(legacy)), editable.GetRawText());
+        _store.SaveComputedColumn("contract", "옛식", legacy);
         var stored = JsonNode.Parse(_store.UserColumns("contract").Single(c => c.FieldName == "옛식").Options!)!;
         Assert.Equal(2, stored["version"]!.GetValue<int>());
         Assert.Equal("flow", stored["source"]!.GetValue<string>());

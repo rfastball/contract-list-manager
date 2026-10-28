@@ -130,11 +130,11 @@ public sealed class Reports(Database database)
         if (notices.Count > 1) issues.Add($"관련공고 {notices.Count}개 계열을 한 건으로 셉니다: {string.Join(", ", notices.Select(n => Text(n, "입찰공고번호")))}");
         var opening = Date(Text(notice, "개찰일시"));
         var posted = Date(Text(notice, "게시일시"));
-        var cancelled = Text(notice, "공고종류") == "취소공고";
+        var cancelled = Cancelled(notice);
         var drafts = documents.Count(c => c.Number.Length > 0 && c.Draft);
         // 실공고: 게시일시가 읽히고 이미 지났으며 취소공고가 아닌 공고. 현행을 정하지 못하면 수집된 공고 모두를 본다.
         bool Real(IDictionary<string, object> n) =>
-            Date(Text(n, "게시일시")) is { } at && at <= now && Text(n, "공고종류") != "취소공고";
+            Date(Text(n, "게시일시")) is { } at && at <= now && !Cancelled(n);
         IReadOnlyList<IDictionary<string, object>> considered = notice is not null ? [notice] : notices;
         string? stage;
         if (documents.Count > 0)
@@ -216,9 +216,12 @@ public sealed class Reports(Database database)
     private static string Text(IDictionary<string, object>? row, string key) =>
         row is not null && row.TryGetValue(key, out var value) ? Convert.ToString(value, CultureInfo.InvariantCulture) ?? "" : "";
     private static string First(params string[] values) => values.FirstOrDefault(v => v.Length > 0) ?? "";
+    private static bool Cancelled(IDictionary<string, object>? notice) =>
+        Text(notice, "공고종류") is "취소공고" or "실공고(취소공고)";
     private static decimal? Money(string text) => decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) ? amount : null;
     private static DateTimeOffset? Date(string text) => DateTimeOffset.TryParseExact(text + " +09:00",
-        ["yyyy/MM/dd zzz", "yyyy/MM/dd HH:mm:ss zzz"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
+        ["yyyy/MM/dd zzz", "yyyy/MM/dd HH:mm:ss zzz", "yyyy-MM-dd zzz", "yyyy-MM-dd HH:mm:ss zzz"],
+        CultureInfo.InvariantCulture, DateTimeStyles.None, out var value)
             ? value : null;
 
     public StatusSummary Summary()

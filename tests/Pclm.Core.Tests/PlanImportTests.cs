@@ -147,7 +147,9 @@ public class PlanImportTests : IDisposable
     [Theory]
     [InlineData("8", 8L)]
     [InlineData("1,200", 1200L)]
-    public void 지시수량은_정수로_담긴다(string written, long stored)
+    [InlineData("0", 0L)]
+    [InlineData("", null)]
+    public void 지시수량은_정수로_담긴다(string written, long? stored)
     {
         var book = Book(["조달요구번호", "담당자", "지시수량"],
         [
@@ -157,8 +159,33 @@ public class PlanImportTests : IDisposable
         _import.Import(book);
 
         using var connection = _database.OpenReadOnly();
-        Assert.Equal(stored, connection.ExecuteScalar<long>(
+        Assert.Equal(stored, connection.ExecuteScalar<long?>(
             "SELECT quantity FROM plan WHERE request_number = 'MPKPLA26910286';"));
+    }
+
+    [Fact]
+    public void 소수_지시수량이_있으면_행을_알리고_앞선_정상행의_갱신도_되돌린다()
+    {
+        string[] headers = ["조달요구번호", "담당자", "지시수량"];
+        _import.Import(Book(headers, [["PLAN1", "시험", "8"]]));
+        var path = Book(headers, [["PLAN1", "시험", "3"], ["PLAN2", "시험", "1.5"]]);
+        using (var book = new XLWorkbook(path))
+        {
+            book.Worksheets.First().Cell(3, 3).Value = 1.5;
+            book.Save();
+        }
+
+        var result = _import.Import(path);
+
+        Assert.False(result.Ok);
+        Assert.Equal(0, result.Created);
+        Assert.Equal(0, result.Updated);
+        Assert.Empty(result.MissingRequired);
+        var error = Assert.Single(result.Errors);
+        Assert.Contains("3행 지시수량", error);
+        Assert.Contains("1.5", error);
+        Assert.Equal(1, Rows());
+        Assert.Equal("8", Cell("PLAN1", "quantity"));
     }
 
     /// <summary>

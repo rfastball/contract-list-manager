@@ -21,7 +21,7 @@ public static class ValueParser
     public static int? Integer(string? text)
     {
         var digits = Digits(text, allowDecimal: false);
-        return digits is null ? null : int.Parse(digits, CultureInfo.InvariantCulture);
+        return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : null;
     }
 
     /// <summary>
@@ -39,8 +39,8 @@ public static class ValueParser
     {
         if (string.IsNullOrWhiteSpace(text)) return null;
 
-        var parts = text.Split('-', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return null;
+        var parts = text.Split('-', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2) return null;
 
         return Checked(parts[0], parts[1]);
     }
@@ -108,6 +108,7 @@ public static class ValueParser
         {
             if (char.IsAsciiDigit(ch)) buffer[n++] = ch;
             else if (ch == '-' && n == 0) buffer[n++] = ch;
+            else if (ch == '.' && !allowDecimal) return null;
             else if (ch == '.' && allowDecimal && !seenDot && n > 0) { buffer[n++] = ch; seenDot = true; }
             else if (ch is ',' or ' ') continue;
             else break; // 숫자 뒤에 붙은 단위에서 멈춘다

@@ -37,8 +37,8 @@ public static class Mapping
         MaxDepth = 32,
     };
     /// <summary>
-    /// 입찰공고 상세의 꼴(공고 A)을 읽는 프로필 — 물품(01179)과 일반용역(01181)은 같은 칸을 쓰고 화면 번호만 다르다. 공고종류에
-    /// 상태를 붙이고 일정 행을 세우는 후처리가 둘에 함께 걸린다.
+    /// 입찰공고 상세의 꼴(공고 A)을 읽는 프로필 — 물품(01179)과 일반용역(01181)은 같은 칸을 쓰고 화면 번호만 다르다.
+    /// 일정 행을 세우는 후처리가 둘에 함께 걸린다.
     /// </summary>
     private static readonly HashSet<string> NoticeA = ["g2b-notice-a-v1", "g2b-notice-a-service-v1"];
     public static MappingSet Defaults()
@@ -346,6 +346,9 @@ public static class Mapping
                 if (p.EntityType == "request" && t.Target == "request_item" &&
                     (Text(At(row, p.BaseField)) != b || Text(At(row, p.SeqField)) != s))
                     throw new InvalidOperationException("서로 다른 접수를 한 문서로 저장할 수 없습니다.");
+                if (t.Target == "contract_item" &&
+                    (Text(At(row, "ctrtNo")) != b || Text(At(row, "ctrtChgOrd")) != s))
+                    throw new InvalidOperationException("서로 다른 계약이나 변경차수의 품목을 한 문서로 저장할 수 없습니다.");
                 rows.Add(new(t.Target, key, Fields(row, t.Fields)));
             }
         }
@@ -359,8 +362,6 @@ public static class Mapping
         if (NoticeA.Contains(p.Id))
         {
             var values = rows[0].Values;
-            if (values.GetValueOrDefault("notice_kind") is { } kind && values.GetValueOrDefault("source_status") is { } status && !status.Contains("미확정"))
-                values["notice_kind"] = kind + "(" + status + ")";
             foreach (var (name, start, end) in new[] { ("입찰서제출", "bid_opens_at", "bid_closes_at"), ("개찰", "opening_at", ""), ("입찰참가자격등록", "", "registration_closes_at") })
             {
                 var schedule = new Dictionary<string, string?> { ["name"] = name };

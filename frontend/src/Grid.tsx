@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BatchChange, Row, Sheet, SheetExport, UserColumn } from "./types";
 import { Modal } from "./Modal";
 import "../css/grid-work.css";
@@ -24,7 +24,7 @@ function isNumeric(value: string): boolean {
 function asNumber(value: string): number | null {
   if (!isNumeric(value)) return null;
   const n = Number(value.replaceAll(",", ""));
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) && (!Number.isInteger(n) || Number.isSafeInteger(n)) ? n : null;
 }
 
 type Props = {
@@ -117,6 +117,8 @@ export function Grid({
   queryReport.current = onQueryChange;
   useEffect(() => { queryReport.current?.(query); }, [query]);
   const [sort, setSort] = useState<Sort | null>(null);
+  const [heading, setHeading] = useState(false);
+  const gridId = useId();
   /**
    * 커서는 <b>줄의 신원</b>으로 든다. <code>row</code> 는 마지막으로 본 자리일 뿐이다.
    *
@@ -178,6 +180,7 @@ export function Grid({
   );
 
   const board = useRef<HTMLDivElement>(null);
+  const afterBoard = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const here = useRef<HTMLTableCellElement>(null);
   useEffect(() => { if (initialQuery && focusQuery) search.current?.focus(); }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,19 +195,20 @@ export function Grid({
 
     if (!sort) return found;
 
+    // 열 전체에 같은 비교를 쓴다. 두 값마다 방식을 바꾸면 2 < 10 < 1a < 2가 된다.
+    const numeric = sheet.rows.every(r => !r[sort.column] || asNumber(r[sort.column]) !== null);
+
     // 원본을 건드리지 않으려고 베껴서 세운다.
     return [...found].sort((a, b) => {
       const x = a[sort.column] ?? "";
       const y = b[sort.column] ?? "";
-      const nx = asNumber(x);
-      const ny = asNumber(y);
 
       // 빈 값은 언제나 뒤로. 오름차순에서 빈 칸이 위를 덮으면 표를 읽을 수 없다.
       if (!x && !y) return 0;
       if (!x) return 1;
       if (!y) return -1;
 
-      const cmp = nx !== null && ny !== null ? nx - ny : x.localeCompare(y, "ko");
+      const cmp = numeric ? asNumber(x)! - asNumber(y)! : x.localeCompare(y, "ko");
       return cmp * sort.dir;
     });
   }, [sheet, query, sort]);
@@ -304,6 +308,7 @@ export function Grid({
   const clearSelection = () => { setSelected(new Set()); setAnchor(null); setBulkOpen(false); rowAnchor.current = null; };
   const chooseCell = (ri: number, ci: number, extend = false) => {
     if (saving || pending) return;
+    setHeading(false);
     setSelected(new Set()); setBulkOpen(false); setDraft(null);
     setAnchor(extend ? anchor ?? { id: 신원(rows[at]), col: cursor.col } : null);
     go(ri, ci); board.current?.focus();
@@ -434,6 +439,10 @@ export function Grid({
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (rows.length === 0) return;
     if (editing !== null) return; // 편집 중에는 입력 상자가 맡는다
+    if (e.target === board.current && e.key === "Tab") {
+      if (!e.shiftKey) { e.preventDefault(); afterBoard.current?.focus(); }
+      return;
+    }
     if ((e.target as HTMLElement).matches('input, select, button')) return;
     if (saving || pending) {
       e.preventDefault();
@@ -441,6 +450,20 @@ export function Grid({
         if (e.key === "Escape") typedWhileSaving.current = "";
         else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) typedWhileSaving.current += e.key;
       }
+      return;
+    }
+    if (heading) {
+      if (e.key === "ArrowDown") { e.preventDefault(); chooseCell(0, cursor.col); return; }
+      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+        e.preventDefault();
+        go(at, e.key === "Home" ? 0 : e.key === "End" ? sheet.columns.length - 1 : cursor.col + (e.key === "ArrowLeft" ? -1 : 1));
+        return;
+      }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault(); toggleSort(column); return;
+      }
+      if (e.key === "F2" && definitions.has(column) && onManageColumns) { e.preventDefault(); onManageColumns(column); return; }
+      if (e.key === "Escape") { e.preventDefault(); setHeading(false); search.current?.focus(); return; }
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
@@ -453,9 +476,10 @@ export function Grid({
     const directions: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
     if (directions[e.key]) {
       e.preventDefault(); const [dr, dc] = directions[e.key];
+      if (e.key === "ArrowUp" && at === 0 && !e.shiftKey) { setHeading(true); return; }
       chooseCell(Math.max(0, Math.min(last, at + dr)), Math.max(0, Math.min(sheet.columns.length - 1, cursor.col + dc)), e.shiftKey); return;
     }
-    if (e.key === "Escape") { e.preventDefault(); if (explain) { setExplain(null); return; } clearSelection(); setBatchError(""); return; }
+    if (e.key === "Escape") { e.preventDefault(); if (explain) { setExplain(null); return; } clearSelection(); setBatchError(""); search.current?.focus(); return; }
     if (selected.size && (["Delete", "Backspace", "F2", "Enter"].includes(e.key) || (e.key.length === 1 && !e.ctrlKey && !e.metaKey))) { e.preventDefault(); return; }
     if (anchor && ["Delete", "Backspace"].includes(e.key)) {
       e.preventDefault(); prepare(rangeCells(""), e.ctrlKey ? "revert" : "set"); return;
@@ -470,7 +494,6 @@ export function Grid({
       case "PageDown": move(15, 0); break;
       case "Home": go(e.ctrlKey ? 0 : at, 0); break;
       case "End": go(e.ctrlKey ? last : at, sheet.columns.length - 1); break;
-      case "Tab": move(0, e.shiftKey ? -1 : 1); break;
       case "F2":
       case "Enter":
         if (canEdit) setDraft(row[column] ?? "");
@@ -492,6 +515,11 @@ export function Grid({
     }
 
     e.preventDefault();
+  };
+
+  const toggleSort = (c: string) => {
+    setAnchor(null);
+    setSort(s => s?.column !== c ? { column: c, dir: 1 } : s.dir > 0 ? { column: c, dir: -1 } : null);
   };
 
   return (
@@ -559,6 +587,10 @@ export function Grid({
       {notice && noticeShown && <p className="grid-message grid-notice" aria-hidden="true">{notice}</p>}
       {notice && <span className="sr-only" role="status">{notice}</span>}
       <div className="grid-board" ref={board} tabIndex={0} onKeyDown={onKeyDown}
+        role={rows.length ? "grid" : undefined} aria-label={rows.length ? "자료 목록" : undefined}
+        aria-rowcount={rows.length ? rows.length + 1 : undefined} aria-colcount={rows.length ? sheet.columns.length + 1 : undefined}
+        aria-multiselectable={rows.length ? true : undefined} aria-describedby={`${gridId}-keys`}
+        aria-activedescendant={rows.length ? `${gridId}-${heading ? "heading" : `row-${at}`}-${cursor.col}` : undefined}
         onCopy={e => { if (editing !== null || !rows.length) return; e.preventDefault(); e.clipboardData.setData("text/plain", copyText()); }}
         onPaste={e => {
           if (editing !== null || !onBatchEdit) return;
@@ -575,16 +607,18 @@ export function Grid({
           <div className="empty-state"><h2>검색 결과가 없습니다</h2><p>다른 검색어로 찾아보세요.</p>
             <button className="action" onClick={() => { setQuery(""); clearSelection(); search.current?.focus(); }}>검색 지우기</button>
           </div>
-        ) : <table className="grid">
-          <thead>
-            <tr>
-              <th className="row-check"><input type="checkbox" aria-label={`검색 결과 ${rows.length}행 전체 선택`} checked={rows.length > 0 && selectedRows.length === rows.length}
+        ) : <table className="grid" role="presentation">
+          <thead role="rowgroup">
+            <tr role="row" aria-rowindex={1}>
+              <th className="row-check" role="columnheader" aria-label="행 선택"><input type="checkbox" tabIndex={-1} aria-label={`검색 결과 ${rows.length}행 전체 선택`} checked={rows.length > 0 && selectedRows.length === rows.length}
                 ref={node => { if (node) node.indeterminate = selectedRows.length > 0 && selectedRows.length < rows.length; }}
                 onChange={e => selectAllRows(e.target.checked)} /></th>
-              {sheet.columns.map((c) => (
+              {sheet.columns.map((c, ci) => (
                 <th
                   key={c}
-                  className={editable.has(c) ? "editable" : definitions.get(c)?.kind === "computed" ? "computed" : undefined}
+                  ref={heading && cursor.col === ci ? here : undefined}
+                  role="columnheader" id={`${gridId}-heading-${ci}`} aria-colindex={ci + 2}
+                  className={[editable.has(c) ? "editable" : definitions.get(c)?.kind === "computed" ? "computed" : "", heading && cursor.col === ci ? "cur" : ""].filter(Boolean).join(" ") || undefined}
                   title={
                     editable.has(c) ? "사용자 입력 열 (클릭하면 정렬)"
                     : correctable.has(c) ? "문서 값을 수정할 수 있는 열 (클릭하면 정렬)"
@@ -592,34 +626,33 @@ export function Grid({
                     : "클릭하면 정렬"
                   }
                   aria-sort={sort?.column === c ? sort.dir > 0 ? "ascending" : "descending" : "none"}
-                  onClick={() => { setAnchor(null);
-                    setSort((s) =>
-                      s?.column !== c ? { column: c, dir: 1 } : s.dir > 0 ? { column: c, dir: -1 } : null,
-                    )
-                  }}
+                  onClick={() => toggleSort(c)}
                 >
                   {definitions.get(c)?.kind === "computed" && <span className="grid-formula-mark" aria-hidden="true">=</span>}
-                  <button className="grid-heading" type="button" aria-label={`${c} 정렬`}>{c}</button>
+                  <button className="grid-heading" type="button" tabIndex={-1} aria-label={`${c} 정렬`}>{c}</button>
                   {sort?.column === c && <span className="sort">{sort.dir > 0 ? " ↑" : " ↓"}</span>}
-                  {onManageColumns && definitions.has(c) && <button className="grid-heading-edit" aria-label={`${c} 열 정의 편집`} title="열 정의 편집"
+                  {onManageColumns && definitions.has(c) && <button className="grid-heading-edit" tabIndex={-1} aria-label={`${c} 열 정의 편집`} title="열 정의 편집"
                     onClick={e => { e.stopPropagation(); onManageColumns(c); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16 11-11 3 3L8 19H5zM14 7l3 3" /></svg></button>}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {rows.map((r, ri) => (
               // 신원으로 키를 단다 — 자리 번호를 섞으면 줄이 옮길 때마다 새로 태어나 편집 상자가 끊긴다.
-              <tr key={신원(r)} className={selected.has(신원(r)) ? "row-selected" : undefined}>
-                <td className="row-check"><input type="checkbox" aria-label={`${이름(r)} 행 선택`} checked={selected.has(신원(r))} disabled={saving}
+              <tr key={신원(r)} role="row" aria-rowindex={ri + 2} aria-selected={selected.has(신원(r))} className={selected.has(신원(r)) ? "row-selected" : undefined}>
+                <td className="row-check" role="gridcell"><input type="checkbox" tabIndex={-1} aria-label={`${이름(r)} 행 선택`} checked={selected.has(신원(r))} disabled={saving}
                   onChange={() => {}}
                   onClick={e => chooseRow(ri, e.currentTarget.checked, e.shiftKey)}
                   onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); selectAllRows(true); } }} /></td>
                 {sheet.columns.map((c, ci) => {
-                  const current = ri === at && ci === cursor.col;
+                  const current = !heading && ri === at && ci === cursor.col;
                   return (
                     <Cell
                       key={c}
+                      id={`${gridId}-row-${ri}-${ci}`}
+                      label={`${c}, ${ri + 1}행 ${이름(r)}`}
+                      colIndex={ci + 2}
                       cellRef={current ? here : undefined}
                       value={r[c] ?? ""}
                       editable={editable.has(c) && 매달린다(r)}
@@ -651,6 +684,7 @@ export function Grid({
                         // 저장 뒤의 같은 번호를 쓰면 그사이 밀려 올라온 다른 줄에 선다.
                         if (move === "down") go(at + 1, cursor.col);
                         else if (move === "right") go(at, cursor.col + 1);
+                        else if (move === "left") go(at, cursor.col - 1);
                         board.current?.focus();
                       }}
                       onCancel={() => { setDraft(null); board.current?.focus(); }}
@@ -663,14 +697,16 @@ export function Grid({
         </table>}
       </div>
 
-      <div className="grid-status">
+      <div className="grid-status" ref={afterBoard} tabIndex={rows.length ? 0 : -1} role="group" aria-label="표 아래 안내"
+        onKeyDown={e => { if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); board.current?.focus(); } }}>
         <span>{rows.length ? at + 1 : 0} / {rows.length}</span>
         {rows.length !== sheet.rows.length && <span>· 전체 {sheet.rows.length}</span>}
         <span>· {column}</span>
+        <span className="grid-key-help" id={`${gridId}-keys`}>방향키 칸 이동 · 첫 행에서 ↑ 머리글 (Enter 정렬 / F2 열 편집) · Shift+Space 행 선택 · Tab 표 밖으로 · Shift+Tab 이전 도구로 · Esc 검색으로</span>
         {original !== undefined && <span className="fixed">· 수정한 셀 (원래 값: {original || "빈 값"})</span>}
         {canEdit && (
           <span className="hint">
-            · F2 또는 입력으로 편집 · Enter 저장 후 아래로 · Esc 취소
+            · F2 또는 입력으로 편집 · Enter 저장 후 아래로 · Tab 저장 후 옆으로 · Esc 취소
             {original !== undefined && " · Ctrl+Delete 원래대로"}
           </span>
         )}
@@ -693,6 +729,9 @@ export function Grid({
 }
 
 type CellProps = {
+  id: string;
+  label: string;
+  colIndex: number;
   cellRef?: React.Ref<HTMLTableCellElement>;
   value: string;
   editable: boolean;
@@ -713,12 +752,12 @@ type CellProps = {
   onExplain?: () => void;
   note?: { line: string; onFix?: () => void; onClose: () => void };
   onDraft: (value: string) => void;
-  onCommit: (value: string, move?: "down" | "right") => void;
+  onCommit: (value: string, move?: "down" | "right" | "left") => void;
   onCancel: () => void;
 };
 
 function Cell({
-  cellRef, value, editable, correctable, original, definition, current, inRange, pinned, draft, saving,
+  id, label, colIndex, cellRef, value, editable, correctable, original, definition, current, inRange, pinned, draft, saving,
   onSelect, onPointerDown, onPointerEnter, onOpen, onExplain, note, onDraft, onCommit, onCancel,
 }: CellProps) {
   const open = editable || correctable;
@@ -760,6 +799,8 @@ function Cell({
 
     return (
       <td
+        id={id} role="gridcell" aria-colindex={colIndex} aria-label={`${label}: ${value || "빈 값"}`}
+        aria-selected={!!inRange} aria-readonly={!open}
         ref={cellRef}
         className={classes || undefined}
         title={original === undefined ? undefined : `수정한 셀 · 원래 값: ${original || "(빈 값)"}`}
@@ -788,8 +829,8 @@ function Cell({
   }
 
   return (
-    <td ref={cellRef} className={classes}>
-      <Editor draft={draft} definition={definition} onDraft={onDraft} onCommit={onCommit} onCancel={onCancel} />
+    <td id={id} role="gridcell" aria-colindex={colIndex} aria-label={label} aria-selected={!!inRange} ref={cellRef} className={classes}>
+      <Editor label={label} draft={draft} definition={definition} onDraft={onDraft} onCommit={onCommit} onCancel={onCancel} />
     </td>
   );
 }
@@ -803,11 +844,11 @@ function Cell({
  * 넣은 값은 두 번 저장된다 — 시험이 실제로 그 일을 잡아냈다.</p>
  */
 function Editor({
-  draft, definition, onDraft, onCommit, onCancel,
-}: Pick<CellProps, "draft" | "definition" | "onDraft" | "onCommit" | "onCancel"> & { draft: string }) {
+  label, draft, definition, onDraft, onCommit, onCancel,
+}: Pick<CellProps, "label" | "draft" | "definition" | "onDraft" | "onCommit" | "onCancel"> & { draft: string }) {
   const settled = useRef(false);
 
-  const finish = (value: string, move?: "down" | "right") => {
+  const finish = (value: string, move?: "down" | "right" | "left") => {
     if (settled.current) return;
     settled.current = true;
     onCommit(value, move);
@@ -825,9 +866,13 @@ function Editor({
     return (
       <select
         autoFocus
+        aria-label={label}
         value={draft}
         onChange={(e) => finish(e.target.value, "down")}
-        onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); abort(); } }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { e.preventDefault(); abort(); }
+          else if (e.key === "Tab") { e.preventDefault(); finish(e.currentTarget.value, e.shiftKey ? "left" : "right"); }
+        }}
         onBlur={abort}
       >
         <option value=""></option>
@@ -842,12 +887,13 @@ function Editor({
   return (
     <input
       autoFocus
+      aria-label={label}
       value={draft}
       onChange={(e) => onDraft(e.target.value)}
       onBlur={(e) => finish(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") { e.preventDefault(); finish(e.currentTarget.value, "down"); }
-        else if (e.key === "Tab") { e.preventDefault(); finish(e.currentTarget.value, "right"); }
+        else if (e.key === "Tab") { e.preventDefault(); finish(e.currentTarget.value, e.shiftKey ? "left" : "right"); }
         else if (e.key === "Escape") { e.preventDefault(); abort(); }
       }}
     />

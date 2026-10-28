@@ -93,7 +93,7 @@ export function Dashboard({ report, state, onStateChange, onOpen, onRefresh, onS
           : <div className="db-table-scroll"><table className="db-table" aria-label="단계별 조달 자료"><thead><tr><th>단계</th><th>건명 · 기관</th><th>문서 열기</th><th>최근 문서 날짜</th><th>수집 계약금액<br />(해지 포함)</th></tr></thead>
             <tbody>{shown.map(row => <tr key={row.key} aria-label={row.title}>
               <td><span className={`db-stage-label db-stage-${row.stage}`}>{report.stages.find(item => item.key === row.stage)?.label ?? UNSTAGED.label}</span></td>
-              <td className="db-title"><strong>{row.title || "건명 미확인"}</strong><small>{row.agency || "기관 미확인"}</small>{row.issues.length > 0 && <span className="db-row-issue" title={row.issues.join("\n")}>자료 확인 필요 {row.issues.length}</span>}</td>
+              <td className="db-title"><strong>{row.title || "건명 미확인"}</strong><small>{row.agency || "기관 미확인"}</small>{row.issues.length > 0 && <details className="db-row-issue db-issue-disclosure"><summary>자료 확인 필요 {row.issues.length}</summary><ul className="db-issues">{row.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></details>}</td>
               <td className="db-document-links">{row.requestNumber && <button className="quiet-link" onClick={() => onOpen("접수", row.requestNumber)}>접수 {row.requestNumber}</button>}
                 {row.noticeNumbers.map(number => <button key={number} className="quiet-link" onClick={() => onOpen("공고", number)}>공고 {number}{number !== row.noticeNumber && row.noticeNumber ? " (이전 공고)" : ""}</button>)}
                 {row.contracts.map(contract => <button key={contract.number} className="quiet-link" onClick={() => onOpen("계약", contract.number)}>계약 {contract.number}</button>)}</td>

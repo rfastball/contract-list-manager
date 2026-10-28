@@ -19,6 +19,7 @@ import { VerbPicker } from "./VerbPicker";
 import { Icon } from "./icons";
 
 type Tab = "steps" | "code" | "sql";
+export type FlowCodeDraft = { text: string; problem: string };
 type Props = {
   /** 가공열의 자료 종류. 맞춤 뷰(<code>userView</code>)면 없다 — 바깥 행이 같은 조달 건의 세 문서다. */
   entity?: EntityType;
@@ -36,11 +37,9 @@ type Props = {
   userView?: boolean;
   /** 맞춤 뷰 보표의 미리보기 자료 열쇠. 미리보기가 보는 미리보기 자료가 처음(미리보기 자료 A)이다. */
   sampleKeys?: string[];
-  /**
-   * 흐름식 탭의 문구가 읽을 수 없거나 비었을 때 그 까닭을, 다시 읽히거나 탭을 떠나면 빈 글을 알린다.
-   * 단계에는 마지막으로 읽은 식이 남아 있으므로 부모는 그동안 저장을 막는다 — 보이는 글과 다른 식이 저장되지 않게.
-   */
-  onCodeProblem?: (problem: string) => void;
+  /** 원문은 탭·열 편집기를 닫아도 초안과 함께 남아야 한다. 저장하는 식과 분리한다. */
+  codeDraft: FlowCodeDraft | null;
+  onCodeDraftChange: (draft: FlowCodeDraft | null) => void;
 };
 
 const sampleName = (i: number) => String.fromCharCode(65 + i);
@@ -48,7 +47,7 @@ const dropWord: Partial<Record<Op, string>> = { distinct: "겹쳐 빠짐", filte
 const flowOf = (f: FormulaV2 | null) => f?.source === "flow" ? f.flow : null;
 
 /** `=` 가공열 편집 — 값 흐름 보표(§6.4). 행은 단계, 열은 미리보기 자료 문서. 칸은 그 단계까지의 값. */
-export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, onSuggestName, userView = false, sampleKeys, onCodeProblem }: Props) {
+export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, onSuggestName, userView = false, sampleKeys, codeDraft, onCodeDraftChange }: Props) {
   const [tab, setTab] = useState<Tab>(formula?.source === "sql" ? "sql" : "steps");
   const [trace, setTrace] = useState<ColumnTrace | null>(null);
   const [tracedFor, setTracedFor] = useState("");
@@ -102,7 +101,12 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
     : compiled && compiled.packed === compilable ? compiled : null;
   useEffect(() => { if (flow && sel > flow.steps.length) setSel(flow.steps.length); }, [flow, sel]);
 
-  const setFlow = (next: Flow) => onChange({ version: 2, id: formula?.id ?? "", source: "flow", flow: next });
+  const putFlow = (next: Flow) => onChange({ version: 2, id: formula?.id ?? "", source: "flow", flow: next });
+  const setFlow = (next: Flow) => {
+    // 단계 편집은 정상 원문만 갱신한다. 미완성 원문을 덮어써서 잃지 않는다.
+    if (!codeDraft?.problem) onCodeDraftChange(null);
+    putFlow(next);
+  };
   const focusRow = (k: number) => requestAnimationFrame(() => rows.current[k]?.focus());
   const moveStep = (k: number, delta: number) => {
     if (!flow || k < 1) return;
@@ -134,6 +138,7 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
       <span className="flow-tabs-status" role="status">{tracing ? "미리보기 자료 계산 중…" : ""}</span>
     </div>
     {formula?.source === "sql" && <p className="column-context flow-sql-note">SQL로 직접 쓰는 열입니다. 단계나 흐름식으로는 되돌릴 수 없습니다.</p>}
+    {tab !== "code" && codeDraft?.problem && <p className="flow-error-line" role="alert">흐름식에 저장하지 않은 문구가 있습니다. 흐름식 탭에서 고치세요. {codeDraft.problem}</p>}
     {traceError && <p className="flow-error-line">미리보기 자료 값을 계산하지 못했습니다. {traceError}</p>}
 
     {tab === "steps" && <div className="flow-panel" role="tabpanel" id="flow-panel-steps" aria-labelledby="flow-tab-steps">
@@ -206,7 +211,7 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
     </div>}
 
     {tab === "code" && <div className="flow-panel" role="tabpanel" id="flow-panel-code" aria-labelledby="flow-tab-code">
-      {env && <FlowCode flow={flow} env={env} readOnly={readOnly} onFlow={setFlow} onProblem={onCodeProblem} />}
+      {env && <FlowCode flow={flow} env={env} readOnly={readOnly} onFlow={putFlow} draft={codeDraft} onDraftChange={onCodeDraftChange} />}
     </div>}
 
     {tab === "sql" && <div className="flow-panel" role="tabpanel" id="flow-panel-sql" aria-labelledby="flow-tab-sql">
@@ -218,7 +223,7 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
           <Suspense fallback={loading}><SqlCodeEditor label="컴파일된 SQL" readOnly value={!flow ? "-- 식이 없습니다"
             : !checked?.ok ? "-- 식에 오류가 있어 SQL을 만들지 않았습니다" : ejected ? (ejected.error ? `-- ${ejected.error}` : ejected.sql) : "-- 계산 중…"} /></Suspense>
           {!readOnly && <div className="column-controls flow-sql-actions">
-            <button type="button" className="action" disabled={!checked?.ok || !ejected?.sql} onClick={() => setEscaping(true)}>SQL로 꺼내 직접 편집…</button>
+            <button type="button" className="action" disabled={!checked?.ok || !ejected?.sql || !!codeDraft?.problem} onClick={() => setEscaping(true)}>SQL로 꺼내 직접 편집…</button>
             {!checked?.ok && flow && <span className="column-hint">식의 오류를 먼저 고치세요.</span>}
           </div>}
         </>}
@@ -284,25 +289,21 @@ function QuickStart({ env, links, onFlow }: { env: FlowEnv; links: LinkKind[]; o
   </section>;
 }
 
-function FlowCode({ flow, env, readOnly, onFlow, onProblem }: { flow: Flow | null; env: FlowEnv; readOnly: boolean; onFlow: (f: Flow) => void; onProblem?: (problem: string) => void }) {
+function FlowCode({ flow, env, readOnly, onFlow, draft, onDraftChange }: { flow: Flow | null; env: FlowEnv; readOnly: boolean; onFlow: (f: Flow) => void;
+  draft: FlowCodeDraft | null; onDraftChange: (draft: FlowCodeDraft) => void }) {
   const mode = { view: !!env.view };
-  const [text, setText] = useState(() => flow ? printFlow(flow, mode) : "");
-  const [problem, setProblem] = useState("");
-  // 문구를 비워도 단계에는 옛 식이 남는다 — 읽을 수 없을 때와 같이 알린다. 처음부터 식이 없던 열은 비어 있어도 남은 식이 없다.
+  const text = draft?.text ?? (flow ? printFlow(flow, mode) : "");
+  const problem = text.trim() ? draft?.problem ?? "" : "";
   const empty = !text.trim() && !!flow;
-  const reported = problem || (empty ? "식이 비어 있습니다" : "");
-  const report = useRef(onProblem);
-  report.current = onProblem;
-  useEffect(() => { report.current?.(reported); }, [reported]);
-  useEffect(() => () => report.current?.(""), []);
   return <>
     <p className="column-hint" id="flow-code-hint">고치는 대로 단계에 반영되고, 읽을 수 없는 곳에는 밑줄이 그어집니다. Ctrl+Space로 동사와 열을 완성합니다.</p>
     <Suspense fallback={loading}><FlowCodeEditor env={env} value={text} readOnly={readOnly} describedBy="flow-code-hint" placeholder={env.view ? "공고.품목 |> 꺼내기 세부품명 |> 잇기 \", \"" : "품목 |> 꺼내기 세부품명 |> 잇기 \", \""}
       onChange={value => {
-        setText(value);
-        if (!value.trim()) { setProblem(""); return; }
-        try { onFlow(parseFlow(value, mode).flow); setProblem(""); }
-        catch (e) { setProblem(e instanceof FlowSyntaxError ? e.message : (e as Error).message); }
+        if (!value.trim()) { onDraftChange({ text: value, problem: flow ? "식이 비어 있습니다" : "" }); return; }
+        try {
+          const next = parseFlow(value, mode).flow;
+          onDraftChange({ text: value, problem: "" }); onFlow(next);
+        } catch (e) { onDraftChange({ text: value, problem: e instanceof FlowSyntaxError ? e.message : (e as Error).message }); }
       }} /></Suspense>
     <p className={problem || empty ? "flow-error-line" : "column-hint"} aria-live="polite">{problem ? `이 식을 읽을 수 없습니다: ${problem}. 단계에는 마지막으로 읽은 식이 남아 있습니다.`
       : empty ? "식이 비어 있습니다. 단계에는 마지막으로 읽은 식이 남아 있습니다." : flow ? `단계 ${flow.steps.length}개로 반영했습니다.` : ""}</p>

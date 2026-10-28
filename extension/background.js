@@ -1,6 +1,6 @@
 // 계약 목록과 나라장터 화면 사이의 다리. 수집·저장은 앱의 「지금 보는 화면」 이 한다(ADR-036) — 여기는 상시 포트를
 // 쥐고 나라장터 탭을 읽어 보고하고, 앱의 명령(다시 읽기·탭 앞으로·엑셀로 내보내기·확장 관리)을 따르며, 툴바 팝업에
-// 연결 상태를 알린다. 저장 RPC 가 없으니 미확인 저장·재시도·배지도 없다.
+// 연결 상태를 알린다. 수동·조건부 자동 저장은 앱이 맡으며 확장에는 저장 RPC 가 없다.
 const origin = "https://www.g2b.go.kr";
 const failure = (message, extra = {}) => Object.assign(new Error(message), extra);
 
@@ -109,7 +109,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // (WebSquare 는 주소 없이 화면을 바꾼다). 뒤의 탭은 처음 한 번과 부를 때만 읽는다.
 const mirrorLoading = "화면을 불러오는 중입니다.";
 const mirror = { tabs: new Map(), front: null, frontAt: 0, timer: null, poll: null, sent: "", hello: null, helloAt: 0,
-  prints: new Map(), reading: new Set(), again: new Set(), retries: new Map(), settings: null };
+  prints: new Map(), reading: new Set(), again: new Set(), retries: new Map(), generations: new Map(), settings: null };
 const isG2b = url => typeof url === "string" && url.startsWith(origin + "/");
 const two = n => String(n).padStart(2, "0");
 function localStamp() {
@@ -135,6 +135,7 @@ function trackTab(tab) {
   return !known;
 }
 function forgetTab(tabId) {
+  mirror.generations.set(tabId, (mirror.generations.get(tabId) || 0) + 1);
   mirror.prints.delete(tabId); mirror.retries.delete(tabId);
   if (!mirror.tabs.delete(tabId)) return;
   if (mirror.front === tabId) { mirror.front = null; mirror.frontAt = Date.now(); }
@@ -145,37 +146,47 @@ async function readTab(tabId) {
   if (!presence || !mirror.tabs.has(tabId)) return;
   if (mirror.reading.has(tabId)) { mirror.again.add(tabId); return; }
   mirror.reading.add(tabId);
+  const generation = mirror.generations.get(tabId) || 0;
   mirror.tabs.set(tabId, { ...mirror.tabs.get(tabId), state: "reading" });
   report();
   let next, retry = false;
   try {
     const hello = await mirrorHello();
-    await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["capture.js", "export.js"] });
-    const [result] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", args: [hello.mapping.profiles], func: profiles => {
+    if (generation !== (mirror.generations.get(tabId) || 0)) throw failure("화면이 바뀌어 다시 읽어야 합니다.");
+    const injected = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["capture.js", "export.js"] });
+    const documentId = injected[0]?.documentId;
+    const [result] = await chrome.scripting.executeScript({ target: { tabId, ...(documentId ? { documentIds: [documentId] } : {}) }, world: "MAIN", args: [hello.mapping.profiles], func: profiles => {
       const screen = document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")?.textContent.trim() || "";
       // 메뉴 번호(ADR-037) — 창이 「수집 안 함」 곁에 보인다. 모르면 빈 글.
       let menu = ""; try { menu = pclmScreenCode(); } catch { /* 모른다 */ }
       // 화면의 이름표와 보이는 글(「화면 그대로」). 읽지 못해도 스냅샷은 그대로 낸다.
       const rows = (profile, snapshot) => { try { return pclmScreenRows(profile, snapshot); } catch { return []; } };
       try {
-        const snapshot = pclmReadMapped(profiles);
-        return { screen, menu, snapshot, screenRows: rows(profiles.find(p => p.id === snapshot.profile), snapshot) };
+        const observed = pclmObserveMapped(profiles);
+        if (!observed.snapshot) return { screen, menu, ...observed, screenRows: rows(null) };
+        return { screen, menu, ...observed, screenRows: rows(profiles.find(p => p.id === observed.snapshot.profile), observed.snapshot) };
       }
       catch (error) { return { screen, menu, error: error.message, unsupported: Boolean(error.unsupported), screenRows: rows(null) }; }
     } });
     const read = result?.result || {};
+    if (documentId && result?.documentId !== documentId) throw failure("화면이 바뀌어 다시 읽어야 합니다.");
+    if (typeof read.print === "string") mirror.prints.set(tabId, read.print);
     const menu = typeof read.menu === "string" && /^\d{5}$/.test(read.menu) ? read.menu : "";
     const screenRows = Array.isArray(read.screenRows) ? read.screenRows.slice(0, 400) : [];
     if (read.snapshot) {
       const snapshot = { ...read.snapshot, mappingRevision: hello.mappingRevision };
       next = byteLength(JSON.stringify(snapshot)) > (hello.maxRequestBytes || 768 * 1024) - 4096
         ? { state: "error", screen: read.screen, menu, message: "화면 자료가 커서 미리 볼 수 없습니다." }
-        : { state: "supported", screen: read.screen, menu, snapshot, screenRows };
+        : { state: "supported", screen: read.screen, menu, snapshot, screenRows, readiness: read.readiness, datasetId: hello.datasetId };
     } else if (read.error === mirrorLoading && (mirror.retries.get(tabId) || 0) < 5) retry = true;
     else if (read.unsupported) next = { state: "unsupported", screen: read.screen, menu, screenRows };
     else next = { state: "error", screen: read.screen || "", menu, message: read.error || "화면을 읽지 못했습니다." };
   } catch (error) { next = { state: "error", screen: "", menu: "", message: error.message }; }
   finally { mirror.reading.delete(tabId); }
+  if (generation !== (mirror.generations.get(tabId) || 0)) {
+    if (mirror.again.delete(tabId)) await readTab(tabId);
+    return;
+  }
   const entry = mirror.tabs.get(tabId);
   if (!entry) return;
   if (retry) {
@@ -203,18 +214,24 @@ async function refreshFront() {
   if (front !== null) await readTab(front);
 }
 
-// 앞 탭의 가벼운 지문 — 머리 제목과 업무 칸의 값. 바뀌었으면 다시 읽는다. 처음 본 지문은 기준으로만 둔다.
+// 앞 탭의 매핑 원값·표·탭 상태 지문. 자동 관찰은 클릭·스크롤·초점 이동 없이 읽기만 한다.
 async function watchFront() {
   const tabId = mirror.front;
   if (!presence || tabId === null || mirror.reading.has(tabId)) return;
-  const [result] = await chrome.scripting.executeScript({ target: { tabId }, func: () =>
-    (document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")?.textContent || "") + "␟" +
-      [...document.querySelectorAll('[id^="mf_wfm_container"] input')].map(e => e.value).join("␟") });
-  const print = result?.result;
+  const [result] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: () => {
+    const observed = pclmObserveMapped();
+    return { print: observed.print, readiness: observed.readiness };
+  } });
+  const print = result?.result?.print;
   if (typeof print !== "string") return;
   const seen = mirror.prints.get(tabId);
   mirror.prints.set(tabId, print);
-  if (seen !== undefined && seen !== print) await readTab(tabId);
+  const entry = mirror.tabs.get(tabId);
+  if (seen !== undefined && seen !== print || entry?.readiness?.stable !== result.result.readiness?.stable || Date.now() - mirror.helloAt >= 60000) await readTab(tabId);
+  else if (entry && result.result.readiness) {
+    mirror.tabs.set(tabId, { ...entry, readiness: result.result.readiness });
+    report();
+  }
 }
 
 // 보고는 바뀔 때만, 너무 잦지 않게 묶어 보낸다. 요청 상한을 넘으면 뒤 탭의 스냅샷부터 덜어 낸다 — 앞으로 오면 다시 읽는다.
@@ -375,6 +392,11 @@ chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
     return;
   }
   trackTab(tab);
+  if (change.status === "loading" || change.url) {
+    mirror.generations.set(tabId, (mirror.generations.get(tabId) || 0) + 1);
+    mirror.tabs.set(tabId, { ...mirror.tabs.get(tabId), state: "reading", readiness: undefined });
+    report();
+  }
   if (change.status === "complete") { mirror.prints.delete(tabId); readTab(tabId).catch(() => {}); }
   if (tab.active && mirror.front !== tabId) refreshFront().catch(() => {});
 });

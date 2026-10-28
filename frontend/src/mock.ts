@@ -95,6 +95,7 @@ const 고치는요청 = new Set([
   "prepareExtension", "openExtensionSetup", "erpTools",
   "pickWorkfile", "moveWorkfile", "switchWorkfile", "newWorkfile", "backupWorkfile",
   "importShot", "mirrorCommand",
+  "saveAutoCaptureSettings",
   "windowPrefs", "saveWindowPrefs",
   "saveUserView", "deleteUserView", "pickViewPackage", "builtinViewPackage", "previewViewPackage", "importViewPackage",
 ]);
@@ -121,7 +122,7 @@ const 통합열 = [
   "하자담보책임기간", "계약기간", "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
   "수요기관", "검사기관", "검수기관", "계약상대자", "대표자", "사업자등록번호",
   "상대자주소", "상대자전화", "상대자팩스",
-  // 표에서 기본으로 숨는 열(Views.HiddenByDefault). 계약 열이라 통합에도 실린다.
+  // V28에서 추가한 수집 열. 계약 열이라 통합에도 실린다.
   "수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식",
   "진행상태", "메모",
   "입찰공고번호", "공고명", "공고종류", "게시일시", "입찰방식", "낙찰방법", "낙찰하한율",
@@ -139,7 +140,7 @@ const 공고열 = [
   // 관련공고는 적힌 그대로이고, 뒤의 둘은 그것을 타고 지어진 파생값이다 —
   // 「공고건」은 갈린 본번호를 묶은 이름, 「현행공고」는 그 건에서 지금 서 있는 한 장.
   "관련공고", "공고건", "현행공고",
-  // 표에서 기본으로 숨는 열(Views.HiddenByDefault).
+  // V28에서 추가한 수집 열.
   "계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태", "재무관",
   "검토여부", "메모",
 ];
@@ -150,7 +151,7 @@ const 계약열 = [
   "하자담보책임기간", "계약기간", "납품기한", "인도조건", "납품장소", "분할납품", "지급방법",
   "수요기관", "검사기관", "검수기관", "계약상대자", "대표자", "사업자등록번호",
   "상대자주소", "상대자전화", "상대자팩스",
-  // 표에서 기본으로 숨는 열(Views.HiddenByDefault). 계약 열이라 통합에도 실린다.
+  // V28에서 추가한 수집 열. 계약 열이라 통합에도 실린다.
   "수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식",
   "진행상태", "메모",
 ];
@@ -164,7 +165,7 @@ const 접수열 = [
   "선급금선고지", "선급금지급가능", "기타사항",
   "수요기관", "수요기관코드", "기관담당자", "기관담당자전화", "기관담당자팩스",
   "세부품명", "세부품명번호", "수량", "단위", "인도조건", "납품기한", "재고번호",
-  // 표에서 기본으로 숨는 열(Views.HiddenByDefault).
+  // V28에서 추가한 수집 열.
   "공고종류", "추정가격",
   "확인여부", "메모",
 ];
@@ -191,23 +192,6 @@ const 통합의접수열 = [
 
 /** v_통합 이 내는 열. 계약·공고 몸통(통합열) 끝에 접수 아홉 열이 붙는다. */
 const 통합표열 = [...통합열, ...통합의접수열];
-
-/**
- * 표에서 기본으로 숨기는 열. 진짜 다리의 <code>Views.HiddenByDefault</code> 와 같은 꼴이다 — 시트에 <code>hidden</code> 으로
- * 실리고, 설정은 <code>hiddenColumns</code> 로 통째로 읽는다.
- */
-const 기본숨김열: Record<string, string[]> = (() => {
-  const 공고 = ["계약법구분", "사업금액수수료합계", "입찰참가제한업종", "입찰진행상태", "재무관"];
-  const 계약 = ["수요기관담당자ID", "외국산여부", "계약법구분", "물가변동적용기준", "공개여부", "공동수급구성방식"];
-  return {
-    "v_공고": 공고, "v_공고차수": 공고,
-    "v_공고품목": ["수요기관코드", "물품분류번호", "물품식별명", "규격번호", "조달요구번호"],
-    "v_계약": 계약, "v_계약차수": 계약, "v_통합": 계약, "v_통합차수": 계약,
-    "v_계약품목": ["입찰분류번호", "입찰공고품목순번", "납품장소", "납품일수", "수요기관코드", "조달요구번호", "원산지"],
-    "v_접수": ["공고종류", "추정가격"],
-    "v_접수품목": ["물품분류번호", "납품부대명"],
-  };
-})();
 
 /** 레코드를 가리키는 열. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다. Views.KeyColumns 와 같다. */
 const 키열 = [
@@ -594,7 +578,7 @@ const sheets: Record<string, Sheet> = {
         // 갈리지 않은 건은 제 본번호가 곧 건 이름이고, 제가 그 건의 현행이다.
         공고건: `R26BK090170${String(i + 1).padStart(2, "0")}`,
         현행공고: `R26BK090170${String(i + 1).padStart(2, "0")}-000`,
-        // 기본으로 숨는 열 — 설정에서 켜야 표에 선다.
+        // V28에서 추가한 수집 열.
         계약법구분: "국가계약법",
         입찰진행상태: "개찰완료",
         검토여부: ["미검토", "검토중", "참여", "불참"][i % 4],
@@ -1359,6 +1343,9 @@ let settings: Settings = {
   submitterName: "홍길동",
   planPath: "C:\\Users\\사람\\Documents\\2026년 조달계획.xlsx",
 };
+let autoCaptureSettings = {
+  enabled: false, name: "홍길동", lastResult: null,
+};
 
 /**
  * 구조 보기용. 사슬 여섯으로 <b>빠질 수 있는 자리를 모두</b> 한 번씩 세운다 —
@@ -1961,12 +1948,8 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       }
       const sheet = sheets[args[0] as string];
       if (!sheet) throw new Error(`내보이지 않는 표입니다: ${args[0]}`);
-      const hidden = 기본숨김열[sheet.name] ?? [];
-      return wait(열람 ? { ...sheet, editable: [], correctable: [], overrides: {}, hidden } : { ...sheet, hidden });
+      return wait(열람 ? { ...sheet, editable: [], correctable: [], overrides: {} } : { ...sheet });
     }
-
-    case "hiddenColumns":
-      return wait(기본숨김열);
 
     case "columnContext":
       return wait(columnContextExample(args[0] as Entity));
@@ -2265,6 +2248,16 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       return wait(settings);
     }
 
+    case "autoCaptureSettings":
+      return wait(autoCaptureSettings);
+
+    case "saveAutoCaptureSettings": {
+      const [json] = args as [string];
+      const saved = JSON.parse(json);
+      autoCaptureSettings = { ...autoCaptureSettings, enabled: Boolean(saved.enabled), name: typeof saved.name === "string" ? saved.name : "" };
+      return wait(autoCaptureSettings);
+    }
+
     case "dataLocation":
       return wait({
         path: "C:\\Users\\홍길동\\AppData\\Local\\Pclm\\계약자료.pclm",
@@ -2358,12 +2351,12 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       if (빠진.length > 0)
         return wait<PlanImportResult>({
           rows: 0, created: 0, updated: 0, skipped: 0,
-          missingRequired: 빠진, found: [], ok: false,
+          missingRequired: 빠진, errors: [], found: [], ok: false,
         });
 
       return wait<PlanImportResult>({
         rows: 24, created: 20, updated: 3, skipped: 1,
-        missingRequired: [], found: [...계획머리글], ok: true,
+        missingRequired: [], errors: [], found: [...계획머리글], ok: true,
       });
     }
 

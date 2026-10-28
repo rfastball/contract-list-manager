@@ -116,6 +116,43 @@ public sealed class UserViewTests : IDisposable
         [.. JsonSerializer.SerializeToElement(_store.UserViewSamples(view, query, edge)).EnumerateArray()];
 
     [Fact]
+    public void 서식용_예시는_취소와_재공고가_연결되면_현행_공고명을_낸다()
+    {
+        var package = Store.BuiltinViewPackage();
+        _store.ImportViewPackage(package, _store.PreviewViewPackage(package).Token);
+        _store.UpsertNotice(new NoticeRecord { NoticeBase = "TESTN1", Seq = "000", Title = "시험 원공고" });
+        _store.UpsertNotice(new NoticeRecord { NoticeBase = "TESTN1", Seq = "001", Title = "시험 취소공고",
+            NoticeKind = "취소공고", RelatedNotices = ["TESTN1-000"] });
+        var renotice = new NoticeRecord { NoticeBase = "TESTN2", Seq = "000", Title = "시험 재공고",
+            NoticeKind = "재공고", RelatedNotices = ["TESTN1-001", "TESTN1-000"] };
+        _store.UpsertNotice(renotice);
+        _store.UpsertRequest(new RequestRecord { RequestBase = "TESTR1", Seq = "000", Title = "시험 접수" });
+        ReferenceFixture.Request(_database, new("request", "TESTR1", "000"), new("notice", "TESTN1", "000"));
+        foreach (var number in new[] { "TESTK1", "TESTK2" })
+        {
+            _store.UpsertContract(new ContractRecord { ContractBase = number, Seq = "00", Title = "시험 계약" });
+            ReferenceFixture.Contract(_database, new("contract", number, "00"), new("notice", "TESTN1", "000"));
+        }
+
+        List<string> Titles() => Rows("""
+            SELECT 건명 || '|' || 입찰공고번호 || '|' || 공고명 || '|' || 계약번호
+            FROM "u_서식용 예시" ORDER BY 계약번호
+            """);
+        string[] current = ["시험 재공고|TESTN2-000|시험 재공고|TESTK100", "시험 재공고|TESTN2-000|시험 재공고|TESTK200"];
+        // 관련공고가 본번호를 잇고, 계약 둘은 원공고를 참조해도 현행 재공고의 이름을 읽는다.
+        Assert.Equal(current, Titles());
+
+        // ERP처럼 관련공고 없이 같은 접수 품목으로 묶인 경우도 재공고 하나가 현행이다.
+        _store.UpsertNotice(renotice with { RelatedNotices = [] });
+        ReferenceFixture.Request(_database, new("request", "TESTR1", "000"), new("notice", "TESTN2", "000"));
+        Assert.Equal(current, Titles());
+
+        // 현행 후보가 갈리면 임의로 고르지 않는다. 건명만 접수명으로 물러서고 공고명은 빈다.
+        _store.SetOverride(new("notice", "TESTN2", "000"), "공고종류", "일반공고");
+        Assert.Equal(["시험 접수|||TESTK100", "시험 접수|||TESTK200"], Titles());
+    }
+
+    [Fact]
     public void 보기_구성은_자료와_입력값_없이_의존열과_차례를_왕복한다()
     {
         Seed();
