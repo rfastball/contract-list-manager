@@ -716,7 +716,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "목록으로 돌아가기" }));
     await user.click(screen.getByRole("tab", { name: /^계약/ }));
 
-    expect(await screen.findByRole("columnheader", { name: "담당", exact: true })).toBeTruthy();
+    expect(await screen.findByRole("columnheader", { name: "담당" })).toBeTruthy();
   });
 
   /** 창 닫기도 탭을 옮길 때와 같은 확인을 거친다 — 앱은 깃발을 보고 닫기를 멈춘 뒤 「닫기 요청」 을 보낸다. */

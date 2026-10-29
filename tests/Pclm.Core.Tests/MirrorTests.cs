@@ -216,7 +216,7 @@ public sealed class MirrorTests : IDisposable
     }
 
     [Fact]
-    public void 자동수집은_현재담당자_정확일치와_새읽기_대상_규칙을_모두_확인한다()
+    public void 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_모두_확인한다()
     {
         var home = new Home(Path.Combine(_root, "자동홈"));
         using var c = _db.OpenReadOnly();
@@ -240,12 +240,18 @@ public sealed class MirrorTests : IDisposable
         Assert.Equal("hold", automatic.TrySave(Tab(input with { MappingRevision = "old" }), preferences, now).State);
         var withoutStaff = Contract("01", "담당자 없는 합성 계약", "20260915", (1, 1, 1000));
         Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff), preferences, now).State);
-        Assert.Equal("hold", automatic.TrySave(Tab(), preferences with { Name = "담당자" }, now).State);
+        Assert.Equal("hold", automatic.TrySave(Tab(), preferences with { Name = "합성 담당자2" }, now).State);
+        foreach (var staff in new[] { "다른 담당자(010-0000-0000)", "" })
+        {
+            data["pointInfo"]!["ctrtPicNm"] = staff;
+            Assert.Equal("hold", automatic.TrySave(Tab(input with { Data = JsonSerializer.SerializeToElement(data) }), preferences, now).State);
+        }
         Assert.Equal(0, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
         Assert.Equal("stored", automatic.TrySave(Tab(), preferences with { Name = "  합성 담당자  " }, now).State);
         Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
         // 새 coordinator도 같은 내용을 보고 영수증을 늘리지 않는다.
         Assert.Equal("unchanged", new AutoCapture(_db, home).TrySave(Tab(), preferences, now).State);
+        Assert.Equal("unchanged", automatic.TrySave(Tab(), preferences with { Name = "담당자" }, now).State);
         Assert.Equal(1, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
         Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff, stable: false), preferences with { Name = "" }, now).State);
         Assert.Equal("hold", automatic.TrySave(Tab(withoutStaff, target: "other"), preferences with { Name = "" }, now).State);
@@ -261,6 +267,16 @@ public sealed class MirrorTests : IDisposable
         Assert.Equal("hold", automatic.TrySave(Tab(request), preferences, now).State); // 기관담당자로 업무 담당자를 대신하지 않는다.
         Assert.Equal("stored", automatic.TrySave(Tab(request), preferences with { Name = "" }, now).State);
         Assert.Equal(3, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
+        var matchingStaff = new[] { "합성 담당자(010-0000-0000)", " 합성 담당자 ( ☎ 000-0000-0000 ) ",
+            "계약팀 합성 담당자 대리", "합성 담당자2" };
+        foreach (var staff in matchingStaff)
+        {
+            data["pointInfo"]!["ctrtPicNm"] = staff;
+            var snapshot = input with { Data = JsonSerializer.SerializeToElement(data) };
+            Assert.Equal("stored", automatic.TrySave(Tab(snapshot), preferences, now).State);
+            Assert.Equal(staff.Trim(), c.QuerySingle<string>("SELECT staff FROM contract WHERE seq = '00'"));
+        }
+        Assert.Equal(3 + matchingStaff.Length, c.ExecuteScalar<int>("SELECT count(*) FROM erp_capture"));
         home.WriteConfig(Path.Combine(_root, "다른.pclm"), "other");
         Assert.Equal("hold", automatic.TrySave(Tab(), preferences, now).State);
     }

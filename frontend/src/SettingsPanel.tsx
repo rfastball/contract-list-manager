@@ -443,7 +443,7 @@ function AutoCaptureSection({ initial, onSave }: { initial: AutoCaptureSettings;
           keyboardBlur.current = e.key === "Tab";
           if ((e.key === "Enter" || e.key === "Escape") && !e.nativeEvent.isComposing) e.currentTarget.blur();
         }} />
-      <p className="hint" id="auto-capture-name-help">이름을 입력하면 현재 화면의 담당자와 일치할 때만 수집합니다.</p>
+      <p className="hint" id="auto-capture-name-help">이름을 입력하면 현재 화면의 담당자 값에 입력한 이름이 포함될 때만 수집합니다.</p>
     </div>
     {initial.lastResult && <p className="hint" role="status">최근 자동 수집: {initial.lastResult.message || initial.lastResult.state}</p>}
     {busy && <p className="hint" role="status">설정을 저장하는 중…</p>}

@@ -70,8 +70,8 @@ public sealed class AutoCapture(Database database, Home home)
                 f.SecondarySource is null && !f.Source.StartsWith("tables.", StringComparison.Ordinal));
             if (staff is null) return Hold("현재 화면에서 담당자 칸을 확인하지 못했습니다.");
             var actual = input.Data.TryGetProperty("pointInfo", out var point) ? At(point, staff.Source) : null;
-            if (actual is null || !string.Equals(actual.Trim(), expected, StringComparison.Ordinal))
-                return Hold("현재 화면의 담당자가 내 이름과 일치하지 않습니다.");
+            if (actual?.Contains(expected, StringComparison.Ordinal) != true)
+                return Hold("현재 화면의 담당자에 입력한 이름이 포함되어 있지 않습니다.");
         }
         using var c = database.OpenReadOnly();
         var dataset = c.QuerySingle<string>("SELECT dataset_id FROM pclm_file");
