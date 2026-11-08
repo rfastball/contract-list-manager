@@ -1,0 +1,20 @@
+[
+  {"method": "dataLocation"},
+  {"method": "settings"},
+  {"method": "submit"},
+  {"method": "submit", "pick": "sub/제출본.pclm"},
+  {"method": "submit", "pick": "sub/제출본.pclm"},
+  {"method": "saveSettings", "args": ["{\"submitterName\":\"홍길동\"}"]},
+  {"method": "settings"},
+  {"method": "submit", "pick": "sub/제출본 둘.pclm"},
+  {"method": "submit", "pick": "없는 폴더/깊이/제출본.pclm"},
+  {"method": "submit", "pick": "../data/계약자료.pclm"},
+  {"method": "merge"},
+  {"method": "merge", "pick": "빈 폴더"},
+  {"method": "merge", "pick": "없는 폴더"},
+  {"method": "merge", "pick": "sub"},
+  {"method": "merge", "pick": "sub"},
+  {"method": "backupWorkfile"},
+  {"method": "backupWorkfile"},
+  {"method": "dataLocation"}
+]

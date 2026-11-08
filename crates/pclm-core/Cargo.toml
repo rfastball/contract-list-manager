@@ -1,0 +1,22 @@
+[package]
+name = "pclm-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "계약 목록 작업자료(.pclm)의 스키마·판올림·뷰·가공식·편집. 창·홈 경로 탐색·시계가 없는 라이브러리."
+publish = false
+
+[dependencies]
+rusqlite.workspace = true
+# 문서나르미와 같은 판·같은 기능. 링크하면 기능이 합쳐지므로 그쪽과 어긋나지 않게 맞춘다.
+# preserve_order: JsonObject 처럼 키를 넣은 차례대로 쓴다(저장 JSON 바이트가 C# 과 같아야 한다).
+# arbitrary_precision: JsonNode 처럼 읽은 수의 원문(1.50, 1E+2)을 그대로 다시 쓴다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
+# 판올림 v32 보정이 기본 매핑의 판(Mapping.Hash = SHA-256)을 수집 영수증의 판과 견준다.
+sha2 = "=0.11.0"
+
+[dev-dependencies]
+# 개인 ERP JSON 코퍼스(zip, PCLM_JSON_CORPUS)를 읽는 시험 하나만 쓴다. pclm-excel 과 같은 판·같은 기능 — 실려 나가지 않는다.
+zip = { version = "=9.3.0", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }

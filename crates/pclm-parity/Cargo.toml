@@ -1,0 +1,24 @@
+[package]
+name = "pclm-parity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "동등성 계기의 Rust 쪽(#9). C# 의 tests/Pclm.Parity 와 같은 바이트의 정규 덤프를 낸다."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+# 창 잠금(lock) 견주기 — 커널 객체 이름이 C# 과 같은가.
+pclm-home = { path = "../pclm-home" }
+# 다리 대본(bridge) 견주기.
+pclm-bridge = { path = "../pclm-bridge" }
+# 다리가 박는 「오늘」 의 꼴(yyyyMMdd) 하나만 빌린다 — 엑셀 덤프(xlsx-dump)는 이것을 쓰지 않는다.
+pclm-excel = { path = "../pclm-excel" }
+rusqlite.workspace = true
+# 편집 대본(run)을 읽는다. pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
+# 엑셀 덤프(xlsx-dump) — zip 을 열어 XML 을 그대로 읽는다. pclm-excel 과 같은 판.
+zip = { version = "=9.3.0", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
+quick-xml = "=0.38.4"

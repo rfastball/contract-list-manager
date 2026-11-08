@@ -2,7 +2,7 @@
 
 필드 하나(프로필 · 출처 · ID)마다 **지금 상태 하나**를 적은 한 벌이다(ADR-043). 담는 기준은 쓰임이 아니라 앎이다 —
 뜻이 확정된 필드는 담고, 담지 않는 것은 개인정보·이미 담은 값의 다른 출처·사람이 뜻이 없다고 확인한 값뿐이다.
-이 표와 기본 매핑(`src/Pclm.Core/Erp/mapping.json`)이 어긋나면 `tests/Pclm.Core.Tests/FieldRegistryTests.cs` 가 실패한다.
+이 표와 기본 매핑(`crates/pclm-core/src/erp/mapping.json`)이 어긋나면 `crates/pclm-core/tests/erp_capture.rs` 의 `registry` 시험이 실패한다.
 
 어떻게 이 상태에 이르렀는지는 연혁으로 남은 [전수 매핑표](json-field-mapping.md)·[확인 질문](json-field-questions.md)·
 [옛 일괄 제외](json-unused-candidates.md)에 있다. 거기 적힌 「미사용」·「보류」 는 지금 상태가 아니다.

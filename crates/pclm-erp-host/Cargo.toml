@@ -1,0 +1,14 @@
+[package]
+name = "pclm-erp-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "브라우저 확장의 native messaging 호스트(#10). C# 계약목록.exe 의 호스트 갈래(Program.cs)와 같은 답을 낸다. 몸은 라이브러리(run)라 창 exe(pclm-desktop)가 같은 exe 로 싣는다."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+pclm-home = { path = "../pclm-home" }
+pclm-host = { path = "../pclm-host" }
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }

@@ -8,7 +8,7 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   build: {
-    outDir: fileURLToPath(new URL("./src/Pclm.App/wwwroot/", import.meta.url)),
+    outDir: fileURLToPath(new URL("./artifacts/web/", import.meta.url)),
     emptyOutDir: true,
     assetsInlineLimit: 0,
   },

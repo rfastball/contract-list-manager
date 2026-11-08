@@ -7,7 +7,7 @@ import { compileFlow, checkSqlMock } from "./sql";
 import { FlowSyntaxError, normalizeFlow, parseFlow, printFlow } from "./syntax";
 import { verbs } from "./verbs";
 import { 품목행 } from "../mock";
-import builtinViews from "../../../src/Pclm.Core/Storage/Presets/builtin-views.json";
+import builtinViews from "../../../crates/pclm-core/src/storage/presets/builtin-views.json";
 
 /**
  * 흐름식의 위험은 <b>조용히 뜻이 바뀌는 것</b>이다 — 글 ↔ 단계 왕복이 인자를 하나 떨어뜨리거나, 꼴에 맞지 않는

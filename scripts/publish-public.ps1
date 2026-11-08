@@ -43,7 +43,9 @@ function Invoke-Native([string]$exe) {
 }
 function G { Invoke-Native git.exe @args }
 
-$version = ([xml](Get-Content -Raw 'Directory.Build.props')).Project.PropertyGroup.Version
+# 판의 정본은 Cargo.toml 의 [workspace.package] version 이다(publish.ps1 과 같은 자리에서 읽는다).
+$version = (Select-String -Path 'Cargo.toml' -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+if (-not $version) { throw 'Cargo.toml 에서 판을 읽지 못했습니다.' }
 $tag = "v$version"
 
 Step "확인 ($tag)"
@@ -73,7 +75,7 @@ Remove-Item $archive
 
 Step '막을 것 검사'
 # 풀기가 조용히 실패하면 빈 트리가 모든 파일을 지우는 커밋이 된다.
-foreach ($must in 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.txt', 'Pclm.sln') {
+foreach ($must in 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.txt', 'Cargo.toml') {
     if (-not (Test-Path (Join-Path $Work $must))) { throw "풀어 놓은 트리에 $must 가 없습니다." }
 }
 $blocked = Get-ChildItem $Work -Recurse -File -Force |

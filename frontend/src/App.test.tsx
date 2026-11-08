@@ -128,9 +128,9 @@ describe("App", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "구조" }));
     const chain = await screen.findByRole("row", { name: "26년한별윈치8종구매" });
-    await user.click(within(chain).getByText("MPKPLA26910286-000"));
+    await user.click(within(chain).getByText("TSTPLA26500286-000"));
     await user.click(screen.getByRole("button", { name: "표에서 보기" }));
-    expect((await screen.findByRole("searchbox") as HTMLInputElement).value).toBe("MPKPLA26910286-000");
+    expect((await screen.findByRole("searchbox") as HTMLInputElement).value).toBe("TSTPLA26500286-000");
     expect(screen.getByRole("tab", { name: /^접수/ }).getAttribute("aria-selected")).toBe("true");
 
   });
@@ -146,7 +146,7 @@ describe("App", () => {
     await user.click(folds(chain)[0]);
     const toggled = folds(chain)[0].getAttribute("aria-expanded");
     expect(toggled).not.toBe(was);
-    await user.click(within(chain).getByText("MPKPLA26910286-000"));
+    await user.click(within(chain).getByText("TSTPLA26500286-000"));
     const grid = document.querySelector("[aria-activedescendant]")!;
     const cursor = grid.getAttribute("aria-activedescendant");
     expect(cursor).toBeTruthy();
@@ -174,7 +174,7 @@ describe("App", () => {
     expect(within(row).queryByRole("button", { name: "근거 보기" })).toBeNull();
     await user.click(within(row).getByRole("button", { name: /^공고 R26BK/ }));
     expect(await screen.findByRole("columnheader", { name: "입찰공고번호" })).toBeTruthy();
-    expect(screen.getByRole("searchbox")).toHaveProperty("value", "R26BK09012082-000");
+    expect(screen.getByRole("searchbox")).toHaveProperty("value", "R26BK98000282-000");
     await user.click(screen.getByRole("button", { name: "전체 차수" }));
     await user.click(screen.getByRole("tab", { name: "대시보드" }));
     expect(await screen.findByRole("searchbox", { name: "조달 자료 검색" })).toHaveProperty("value", "가람");
@@ -503,14 +503,14 @@ describe("App", () => {
 
     // 최신만 내는 표에는 갈린 건의 현행 한 장만 선다 — 취소된 당초의 번호는 어디에도 없다.
     expect(await screen.findByRole("columnheader", { name: /현행공고/ })).toBeTruthy();
-    expect(screen.queryByText("R26BK09011054-000")).toBeNull();
+    expect(screen.queryByText("R26BK98000154-000")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "전체 차수" }));
 
     // 펴면 취소공고와 그 당초가 함께 선다. 셋 다 같은 공고건에 매달려 있다.
     // 번호는 제 칸과 남의 관련공고 칸에 함께 서므로 하나로 좁히지 않는다.
-    expect((await screen.findAllByText("R26BK09011054-000")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("R26BK09011054-001").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("R26BK98000154-000")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("R26BK98000154-001").length).toBeGreaterThan(0);
 
     // 고칠 수 있는 표라면 머리글이 그렇게 말한다. 여기에는 그런 열이 하나도 없어야 한다.
     expect(screen.queryByTitle("문서 값을 수정할 수 있는 열 (클릭하면 정렬)")).toBeNull();

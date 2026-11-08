@@ -5,15 +5,16 @@
 .DESCRIPTION
     나오는 것은 파일 하나다 — dist/계약목록/계약목록.exe.
 
-    self-contained 라 .NET 을 설치하지 않은 컴퓨터에서도 돈다. SQLite 네이티브까지 실행 파일
-    안에 넣고(IncludeNativeLibrariesForSelfExtract), 화면(wwwroot)도 EmbeddedResource 로
-    안에 들어간다 — WebView2 가 폴더 매핑 대신 WebResourceRequested 로 메모리에서 받는다
-    (MainWindow.xaml.cs). 창을 띄우려면 Microsoft Edge WebView2 런타임이 필요하다.
+    창은 crates/pclm-desktop(Rust + Tauri 2, ADR-044)이고, 같은 exe 가 브라우저 확장의 native
+    messaging 호스트도 겸한다. SQLite 는 정적으로 들어가고(rusqlite bundled), 화면(vite 산출물 artifacts/web)은
+    빌드 때 exe 안에 박힌다(build.rs 의 include_bytes!) — 창이 메모리에서 내준다(shell/assets.rs).
+    창을 띄우려면 Microsoft Edge WebView2 런타임이 필요하다.
 
-    명령줄(pclm.exe)은 배포물에 넣지 않는다. 자기 런타임을 통째로 안고 있어 41MB 를 더하는데,
-    받는 쪽은 창만 쓴다. 개발할 때는 ./run.ps1 -Cli 로 돌린다.
+    cargo 의 실행 파일 이름은 ASCII(pclm-desktop.exe)라, 여기서 계약목록.exe 로 놓는다.
 
-    화면은 빌드 산출물이라 저장소에 없다. 이 스크립트가 dotnet publish 보다 먼저 vite build 를
+    명령줄(pclm.exe)은 배포물에 넣지 않는다. 받는 쪽은 창만 쓴다. 개발할 때는 ./run.ps1 -Cli 로 돌린다.
+
+    화면은 빌드 산출물이라 저장소에 없다. 이 스크립트가 cargo build 보다 먼저 vite build 를
     부르는 까닭이 그것이다 — 순서를 건너뛰면 화면 없는 앱이 나간다.
 
 .EXAMPLE
@@ -22,7 +23,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Runtime = 'win-x64',
+    [string]$Runtime = 'win-x64',   # 묶음 이름에만 쓴다 — 짓는 대상은 이 기계의 기본(x86_64-pc-windows-msvc)
     [string]$Output  = 'dist/계약목록',
     [switch]$NoZip
 )
@@ -38,10 +39,13 @@ function Need($command, $hint) {
 
 function Step($message) { Write-Host "`n== $message" -ForegroundColor Cyan }
 
-Need dotnet '.NET 8 SDK 를 설치해 주세요.'
+Need cargo  'Rust(rustup)를 설치해 주세요.'
 Need npm    'Node 를 설치해 주세요.'
 
-$version = ([xml](Get-Content -Raw 'Directory.Build.props')).Project.PropertyGroup.Version
+# 판의 정본은 Cargo.toml 의 [workspace.package] version 이다. 크레이트는 모두 그것을 물려받고, 따로 적으면
+# pclm-desktop 의 시험이 붉어진다.
+$version = (Select-String -Path 'Cargo.toml' -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+if (-not $version) { throw 'Cargo.toml 에서 판을 읽지 못했습니다.' }
 
 # ── 화면 ──────────────────────────────────────────────────────────────────────
 if (-not (Test-Path 'node_modules')) {
@@ -54,8 +58,8 @@ Step '화면 짓기 (vite build)'
 npx vite build
 if ($LASTEXITCODE -ne 0) { throw 'vite build 가 실패했습니다.' }
 
-$wwwroot = 'src/Pclm.App/wwwroot/index.html'
-if (-not (Test-Path $wwwroot)) { throw "화면이 나오지 않았습니다: $wwwroot" }
+$screen = 'artifacts/web/index.html'
+if (-not (Test-Path $screen)) { throw "화면이 나오지 않았습니다: $screen" }
 
 # ── 실행 파일 ─────────────────────────────────────────────────────────────────
 # 브라우저가 켜져 있으면 확장의 상시 연결 호스트가 지난 배포물의 exe 를 붙들고 있다(ADR-035) — 지우기·덮어쓰기는
@@ -80,22 +84,13 @@ if (Test-Path $Output) {
     }
 }
 
-$common = @(
-    '-c', 'Release',
-    '-r', $Runtime,
-    '--self-contained', 'true',
-    '-p:PublishSingleFile=true',
-    '-p:IncludeNativeLibrariesForSelfExtract=true',   # e_sqlite3.dll 을 exe 안으로
-    '-p:EnableCompressionInSingleFile=true',
-    '-p:DebugType=none',                              # pdb 를 배포물에 남기지 않는다
-    '-p:SatelliteResourceLanguages=en',               # 쓰지 않는 번역 어셈블리 폴더 제거
-    '-p:PublishReferencesDocumentationFiles=false',   # 참조 패키지의 xml 문서 제외
-    '-o', $Output
-)
+Step '창 짓기 (cargo build --release -p pclm-desktop --features shell)'
+# cargo 는 진행을 stderr 로 쓴다 — 출력을 받아 내도(*> 기록) 'Stop' 이 그 줄에서 멈추지 않게 종료 코드로만 가린다.
+& { $ErrorActionPreference = 'Continue'; cargo build --release -p pclm-desktop --features shell }
+if ($LASTEXITCODE -ne 0) { throw 'pclm-desktop 빌드가 실패했습니다.' }
 
-Step '창 짓기 (Pclm.App)'
-dotnet publish src/Pclm.App @common
-if ($LASTEXITCODE -ne 0) { throw 'Pclm.App publish 가 실패했습니다.' }
+New-Item -ItemType Directory -Path $Output -Force | Out-Null
+Copy-Item -LiteralPath 'target/release/pclm-desktop.exe' -Destination (Join-Path $Output '계약목록.exe')
 
 # ── 확인 ──────────────────────────────────────────────────────────────────────
 # 배포물은 눈으로 못 보고 나가는 물건이라, 있어야 할 것이 있는지 여기서 따진다.

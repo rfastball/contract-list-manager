@@ -1,0 +1,5 @@
+# 문서나르미(hwpx-filler)와 같은 판 — pclm-core 를 그쪽이 직접 의존할 수 있게 맞춘다(#8).
+[toolchain]
+channel = "1.93.1"
+profile = "minimal"
+components = ["clippy", "rustfmt", "llvm-tools"]

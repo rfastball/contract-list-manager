@@ -22,7 +22,7 @@ flowchart TD
 ## 처음 사용하기
 
 기본 배포 대상은 **Windows x64**이며, **Microsoft Edge WebView2 런타임**이 필요합니다. 배포본은 `계약목록.exe` 하나이며,
-.NET 런타임을 포함합니다. 소스에서 실행하려면 아래 [개발 환경](#개발-환경)을 참고하세요.
+그 밖의 런타임은 포함되어 있습니다. 소스에서 실행하려면 아래 [개발 환경](#개발-환경)을 참고하세요.
 
 1. `계약목록.exe`를 계속 사용할 폴더에 두고 실행합니다. 처음 실행하면 작업자료를 만듭니다.
 2. **나라장터 → 확장 준비**를 누릅니다. 앱이 확장 파일을 꺼내고 Chrome/Edge와의 연결을 등록합니다.
@@ -102,8 +102,8 @@ flowchart TD
 
 ## 개발 환경
 
-필요한 도구는 **Windows, .NET 8 SDK, Node.js/npm, WebView2 런타임**입니다.
-.NET SDK 선택은 [global.json](global.json), 프런트엔드 의존성은 [package-lock.json](package-lock.json)에 고정합니다.
+필요한 도구는 **Windows, Rust(rustup), Node.js/npm, WebView2 런타임**입니다. Rust 의존은 [Cargo.lock](Cargo.lock),
+프런트엔드 의존성은 [package-lock.json](package-lock.json)에 고정합니다.
 
 저장소 루트의 PowerShell에서 실행합니다.
 
@@ -123,7 +123,8 @@ npm run build
 | `npm run dev` | 브라우저에서 화면만 개발. 가짜 다리를 사용하므로 실제 DB 연동 검증은 불가 |
 | `./run.ps1 -Cli -HomeDir artifacts/dev-home status` | 같은 개발 홈의 자료를 명령줄로 확인 |
 
-화면 산출물 `src/Pclm.App/wwwroot`는 저장소에 포함하지 않습니다. 직접 .NET 앱을 빌드할 때도
+창은 `crates/pclm-desktop`(Rust + Tauri 2)이고, `run.ps1` 이 `cargo build -p pclm-desktop --features shell` 로 지어 띄웁니다.
+화면 산출물 `artifacts/web`는 저장소에 포함하지 않고 빌드 때 exe 안에 박힙니다. 직접 창을 빌드할 때도
 `npm run build`를 먼저 실행하세요. Debug 앱은 `F12`로 개발자 도구를 열 수 있고, Release에서는 비활성화합니다.
 
 ### 빌드와 검증
@@ -131,12 +132,15 @@ npm run build
 ```powershell
 npm run build                         # TypeScript 검사 + 화면 빌드
 npm test                              # 화면 시험
-dotnet build                         # .NET 빌드
-dotnet test tests/Pclm.Core.Tests     # 핵심 로직·저장·수집·뷰 규약 시험
+cargo test --workspace                # Rust 시험(창 없이)
+cargo clippy -p pclm-desktop --features shell -- -D warnings   # 창까지
+./scripts/parity.ps1                  # 같은 대본에 Rust 가 C# 이 낸 박제(tests/parity-golden)와 같은 바이트를 내는지
 ```
 
-공개 뷰의 열 이름·순서는 `tests/Pclm.Core.Tests/contract/views.txt`와 대조합니다.
+공개 뷰의 열 이름·순서는 `crates/pclm-core/tests/contract/views.txt`와 대조합니다.
 규약 변경으로 기준 파일을 갱신할 때만 `PCLM_UPDATE_GOLDEN=1`을 사용하고, 변경 내용을 직접 확인하세요.
+parity 박제도 같습니다 — 새로 뜨는 길은 `PCLM_PARITY_RECORD=1` 하나뿐이고(C# 계기와 나란히 돌 때만 — C# 을 걷은 지금은
+그 커밋을 되돌려야 섭니다), 눈으로 확인한 뒤에만 씁니다.
 
 ### 명령줄
 
@@ -162,20 +166,23 @@ dotnet test tests/Pclm.Core.Tests     # 핵심 로직·저장·수집·뷰 규�
 ```
 
 기본 출력은 `dist/계약목록/계약목록.exe`와 `dist/계약목록_<버전>_win-x64.zip`입니다.
-버전은 [Directory.Build.props](Directory.Build.props) 한 곳에서 관리합니다.
-스크립트는 화면과 SQLite 네이티브 라이브러리를 포함한 self-contained 실행 파일을 만들고,
-출력 폴더에 exe 외 파일이 남으면 실패합니다. WebView2 런타임은 별도로 필요합니다.
+버전은 [Cargo.toml](Cargo.toml)의 `[workspace.package] version` 한 곳에서 관리합니다(크레이트가 제 판을 따로 적으면 시험이 실패합니다).
+스크립트는 `cargo build --release -p pclm-desktop --features shell` 로 화면과 SQLite 를 품은 실행 파일 하나를 만들어 `계약목록.exe` 로 놓고,
+출력 폴더에 exe 외 파일이 남으면 실패합니다. 같은 exe 가 브라우저 확장의 native messaging 호스트도 겸합니다.
+의존을 바꾸면 `./scripts/generate-crate-notices.ps1` 로 THIRD-PARTY-NOTICES.txt 의 Rust 크레이트 절을 다시 짓습니다. WebView2 런타임은 별도로 필요합니다.
 서명하지 않은 실행 파일은 Windows SmartScreen 경고가 표시될 수 있습니다.
 
 ## 코드와 문서
 
 | 경로 | 역할 |
 | --- | --- |
-| `src/Pclm.Core` | 자료 모델, ERP 매핑·수집, SQLite 저장·뷰·엑셀·취합 |
-| `src/Pclm.App` | WPF + WebView2 창. `Bridge.cs`가 화면과 앱을 연결 |
-| `src/Pclm.Cli` | 개발용 명령줄 |
+| `crates/pclm-core` | 자료 모델, ERP 매핑·수집, SQLite 저장·뷰·취합 |
+| `crates/pclm-desktop` | Tauri 2 창 · 브라우저 확장 호스트 — 배포되는 exe 하나 |
+| `crates/pclm-bridge` | 화면과 앱 사이의 다리 |
+| `crates/pclm-cli` | 개발용 명령줄 |
+| `crates/` 의 나머지 | `pclm-home`(홈 · 작업자료 바꾸기), `pclm-excel`, `pclm-host`·`pclm-erp-host`, `pclm-parity`(동등성 계기) |
 | `frontend` | Vite + React 화면, 표·구조 보기·열 관리·맞춤 뷰 |
-| `tests/Pclm.Core.Tests` | 핵심 기능과 외부 데이터 규약 검증 |
+| `tests/parity-golden` | C# 구현이 낸 parity 박제 — Rust 가 같은 바이트를 내는지 대조 |
 
 - [통합 수집 안내](docs/erp/integration.md) — 지원 화면, JSON 매핑, 확장 설치·개발
 - [데이터셋 규약](docs/dataset-contract.md) — 외부 소비자가 의존할 뷰와 파일 규칙

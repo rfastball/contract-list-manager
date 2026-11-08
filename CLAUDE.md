@@ -11,29 +11,33 @@ Claude Code 가 이 저장소에서 일할 때 읽는 문서.
 
 나라장터 업무 화면을 브라우저 확장으로 수집하거나 ERP JSON·계획 엑셀을 가져와 SQLite 에 쌓고,
 문서 자동 생성기가 읽을 뷰로 내놓는다. 자료가 들어오는 길은 그 셋뿐이다 — PDF 입구는 걷었다
-(ADR-028). 창(WPF + WebView2 위의 React)과 명령줄이 같은 자료를 본다.
+(ADR-028). 창(Tauri 2 + WebView2 위의 React)과 명령줄이 같은 자료를 본다.
 
 쌓이는 개체는 셋이다 — **접수 → 공고 → 계약**. 관계는 **ERP 명시 참조**로만 재구성한다(ADR-040). 수동 연결·비교 추천·거절 기록은 없다.
 
 ```
-src/Pclm.Core/   Domain · Erp · Storage
-src/Pclm.Cli/    명령줄 (pclm)
-src/Pclm.App/    창. Bridge.cs 가 화면과 앱 사이의 유일한 통로다
-frontend/        화면 (Vite + React)
-tests/           계약면 시험 · 수집 시험 · 값 변환 시험
+crates/pclm-core/     Domain · Erp · Storage
+crates/pclm-home/     홈 · 작업자료 바꾸기
+crates/pclm-cli/      명령줄 (pclm)
+crates/pclm-bridge/   화면과 앱 사이의 유일한 통로
+crates/pclm-desktop/  창 (Tauri 2) · 확장 호스트 — 배포되는 exe 하나
+frontend/             화면 (Vite + React)
+tests/                parity 박제 · 흐름식 공유 사례표
 ```
 
 ## 명령
 
 ```powershell
-./run.ps1                  창 (지어 둔 화면)
+./run.ps1                  창 (지어 둔 화면 · cargo 로 지은 crates/pclm-desktop)
 ./run.ps1 -Dev             창 + Vite 개발 서버 — 다리와 DB 는 진짜를 쓴다
 ./run.ps1 -Cli status      명령줄
 ./publish.ps1              배포물 (dist/계약목록/ 와 zip)
 ./scripts/publish-public.ps1  공개 저장소에 이 판의 스냅샷 (릴리스 마지막 단계)
 
 npm test                   화면 시험
-dotnet test tests/Pclm.Core.Tests
+cargo test --workspace     Rust 시험 (창은 cargo clippy -p pclm-desktop --features shell)
+./scripts/parity.ps1       Rust 를 C# 이 낸 박제(tests/parity-golden)와 같은 바이트로 대조
+./scripts/generate-crate-notices.ps1  exe 에 실리는 크레이트 고지 다시 짓기
 ```
 
 ## 건드리기 전에 아는 것
@@ -48,14 +52,14 @@ dotnet test tests/Pclm.Core.Tests
 **계약면은 약속이다.** 뷰 열 개(`v_통합`·`v_통합차수`·`v_접수`·`v_접수품목`·`v_공고`·
 `v_공고품목`·`v_공고차수`·`v_계약`·`v_계약차수`·`v_계약품목`)의 이름과 의미가 소비자에 저장된
 필드 연결의 열쇠다. 이름을 바꿀 때는 제자리에서 바꾸고 옛 뷰를 남기지 않는다(ADR-034) —
-옛 이름은 `Views.LegacyNames` 에 더해 열 때 치우게 하고, 규약 문서를 같은 커밋에서 고친다.
-`tests/Pclm.Core.Tests/contract/views.txt` 가 표면을 박제해 의도치 않은 변화를 잡는다. 엑셀로
-나가는 것은 그중 일곱 장이다(`Views.Exported` — 차수를 편 셋은 나가지 않는다).
+옛 이름은 `views::LEGACY_NAMES` 에 더해 열 때 치우게 하고, 규약 문서를 같은 커밋에서 고친다.
+`crates/pclm-core/tests/contract/views.txt` 가 표면을 박제해 의도치 않은 변화를 잡는다. 엑셀로
+나가는 것은 그중 일곱 장이다(`views::EXPORTED` — 차수를 편 셋은 나가지 않는다).
 
-**차수 뷰는 짝이 되는 뷰와 열 한 벌을 나눠 쓴다.** `공고열`·`계약열` 하나를 두 뷰가 부르므로
+**차수 뷰는 짝이 되는 뷰와 열 한 벌을 나눠 쓴다.** `notice_columns_sql`·`contract_columns_sql` 하나를 두 뷰가 부르므로
 공고에 열을 더하면 `v_공고차수` 도 따라온다 — 두 벌로 적으면 한쪽에만 더해도 아무것도
-실패하지 않고 저쪽에서 그 열만 사라진다. 그 셋은 **읽기 전용**이다(`Views.ReadOnly`):
-`Store.FaceView` 가 종류당 뷰를 하나만 알아, 옛 차수의 칸을 거기서 고치면 덮개의 `original`
+실패하지 않고 저쪽에서 그 열만 사라진다. 그 셋은 **읽기 전용**이다(`views::READ_ONLY`):
+`store::face_view` 가 종류당 뷰를 하나만 알아, 옛 차수의 칸을 거기서 고치면 덮개의 `original`
 이 빈 문자열로 박힌다.
 
 **값은 문서에 그대로 찍힐 문자열이다.** 금액 `164,872,340`, 날짜 `2026/09/20`,
@@ -67,31 +71,32 @@ dotnet test tests/Pclm.Core.Tests
 계약면에 더할 때 그 자리도 함께 감싼다 — 빠뜨리면 그 칸만 조용히 고칠 수 없게 된다.
 
 **지우는 것은 되돌릴 수 없다.** 묘비를 두지 않으므로 같은 자료를 다시 수집하면 다시 선다.
-지우기 전에 `PlanDeletion` 이 센 것을 반드시 보인다 — 세지 않고 지우는 길을 새로 내지 않는다.
+지우기 전에 `Store::plan_deletion` 이 센 것을 반드시 보인다 — 세지 않고 지우는 길을 새로 내지 않는다.
 
 **쌓이는 자리는 하나다.** 홈(`%LOCALAPPDATA%\Pclm`)의 `config.json` 하나가 작업자료 `.pclm`
-파일 하나를 가리키고, 창·명령줄·확장 호스트·소비자가 모두 그것만 본다(`Home.Resolve()`, ADR-030).
+파일 하나를 가리키고, 창·명령줄·확장 호스트·소비자가 모두 그것만 본다(`Home::resolve()`, ADR-030).
 새 진입점을 더할 때 기본 경로를 따로 정하지 않고, 빈 작업자료를 짓지도 않는다 — 빈 자료가 서는
-길은 `PclmFile.Create` 하나이고 부르는 것은 처음 실행과 「새로 만들기」뿐이다. 쪽지가 깨졌거나
+길은 `pclm_file::create` 하나이고 부르는 것은 처음 실행과 「새로 만들기」뿐이다. 쪽지가 깨졌거나
 파일이 없으면 물러나지 말고 묻거나 그친다. 격리는 `--home` 으로 한다.
 
-**작업자료를 바꾸는 일은 한 절차를 탄다**(`Home.Switch`, ADR-032). 나가는 자료의 쓰기 잠금을 쥔
+**작업자료를 바꾸는 일은 한 절차를 탄다**(`Home::switch`, ADR-032). 나가는 자료의 쓰기 잠금을 쥔
 채 쪽지를 고친다 — 잠금 밖에서 고치면 줄 서 있던 수집이 옛 자료에 들어가 성공을 알린다. 쓰기는
 역할이 `work` 인 파일에만 한다(ADR-031): 제출본·취합본·백업·옮겨진 옛 자료에 쓰는 길을 내지 않고,
 결과물로 작업자료를 덮지 않는다. 남의 파일을 보는 일은 원본에 닿지 않는다 — 읽기 전용 사본을 떠
-`Access.Read` 로 연다.
+`Access::Read` 로 연다.
 
-**화면을 먼저 짓는다.** `wwwroot` 는 빌드 산출물이라 저장소에 없고, **exe 안에 박혀
-나간다**(`EmbeddedResource` + `WebResourceRequested`). 순서를 건너뛰면 옛 화면을 보게 되므로
-`run.ps1`·`publish.ps1` 이 그 순서를 쥔다 — 손으로 `dotnet run` 하지 말고 스크립트를 쓴다.
+**화면을 먼저 짓는다.** `artifacts/web` 은 빌드 산출물이라 저장소에 없고, **exe 안에 박혀
+나간다**(build.rs 의 `include_bytes!` + 앱 프로토콜, `shell/assets.rs`). 순서를 건너뛰면 옛 화면을 보게 되므로
+`run.ps1`·`publish.ps1` 이 그 순서를 쥔다 — 손으로 `cargo run` 하지 말고 스크립트를 쓴다.
 
 **배포물은 파일 하나다.** exe 옆에 무엇이든 남으면 `publish.ps1` 이 실패한다 — 딸린 파일이
 생기면 받는 쪽이 exe 만 복사해 가서 알맹이 빠진 것을 연다. 명령줄은 배포물에 넣지 않는다.
 
-**의존을 바꾸면 고지도 바꾼다.** NuGet·npm 운영 의존·글꼴을 더하거나 판을 올리면
+**의존을 바꾸면 고지도 바꾼다.** npm·Rust 크레이트 운영 의존·글꼴을 더하거나 판을 올리면
 `THIRD-PARTY-NOTICES.txt` 를 함께 고친다 — exe 에 실려 나가는 것의 고지라, 시험이 실제 목록과 대조해 잡는다.
 
-**계약면 박제는 눈으로 본 뒤에만 새로 쓴다.** `PCLM_UPDATE_GOLDEN=1` 은 회귀를 덮어버린다.
+**계약면 박제는 눈으로 본 뒤에만 새로 쓴다.** `PCLM_UPDATE_GOLDEN=1` 은 회귀를 덮어버린다. parity 박제
+(`tests/parity-golden`)도 같다 — `PCLM_PARITY_RECORD=1` 이 그것을 새로 쓰는 유일한 길이다.
 
 **검산하지 않는다**(ADR-016). 읽은 값이 맞는지 기계가 판정하지 않는다 — 적힌 그대로
 담고, 맞는지는 원본을 보는 사람이 정한다. 막는 것은 번호를 읽지 못한 자료뿐이다.
@@ -101,7 +106,7 @@ dotnet test tests/Pclm.Core.Tests
 **기능 하나가 서면 그 자리에서 커밋한다.** 묻지 않는다 — 물어서 갈리는 것이 없고, 미루면
 관계없는 변경이 한 트리에 쌓여 나중에 무엇이 무엇 때문이었는지 갈라낼 수 없다. 한 커밋의
 크기는 **시험이 초록이고 그것만으로 말이 되는 덩이**다: 기능과 리팩터를 한데 넣지 않고,
-판 올리기는 따로 선다. 커밋 전에 `dotnet test` 와 `npm test` 를 돌려 그 수를 본문 끝에
+판 올리기는 따로 선다. 커밋 전에 `cargo test` 와 `npm test` 를 돌려 그 수를 본문 끝에
 적는다 — 붉은 채로는 커밋하지 않는다. 메시지는 무엇을 고쳤는지가 아니라 **무엇이 조용히
 깨지고 있었는지**를 적는다. 미는 것은 사람이 한다.
 

@@ -6,7 +6,7 @@ import { toV2 } from "./migrate";
 import fixture from "../../../tests/flow-cases.json";
 
 /**
- * 공유 사례표(docs/column-management.md §11.7). xunit(FlowCaseTests)이 <b>같은 파일</b>을 C# 꼴 검사와 SQL 컴파일러로
+ * 공유 사례표(docs/column-management.md §11.7). Rust 시험(crates/pclm-core/tests/flow_cases.rs)이 <b>같은 파일</b>을 꼴 검사와 SQL 컴파일러로
  * 실제 SQLite 위에서 돌린다 — 두 쪽이 갈리면 한쪽이 붉어진다. 값은 모두 지어낸 것이다.
  */
 

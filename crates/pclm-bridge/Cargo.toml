@@ -1,0 +1,22 @@
+[package]
+name = "pclm-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "화면과 앱 사이의 통로(C# Pclm.App/Bridge.cs) — 창 없는 라이브러리. 요청 풀이와 답 글, 창이 다는 것(Host)과 운영체제의 손(Os)(#8 ⑤ · ⑥ · ⑧a)."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+pclm-home = { path = "../pclm-home" }
+# export · exportSheet · pickPlanExcel · importPlan.
+pclm-excel = { path = "../pclm-excel" }
+# 확장 호스트가 홈에 남기는 탭 보고 · 명령 · 연결 기록(지금 보는 화면 · 확장 상태).
+pclm-host = { path = "../pclm-host" }
+# data_version 의 연결을 다리가 쥔다. pclm-core 와 같은 판.
+rusqlite.workspace = true
+# pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
+# 내장 확장의 ID(공개 키의 SHA-256). pclm-core 와 같은 판.
+sha2 = "=0.11.0"

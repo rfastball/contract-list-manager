@@ -52,8 +52,8 @@ Vite 개발 전용 페이지이며 앱 배포 빌드와 확장 패키지에는 �
 
 ```powershell
 npm run build
-dotnet build src/Pclm.App
-& './src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe' --erp-dev
+cargo build -p pclm-desktop --features shell
+& './target/debug/pclm-desktop.exe' --erp-dev
 ```
 
 개발 자료는 개발 홈 `%LOCALAPPDATA%\Pclm.Erp.Dev` 의 쪽지가 가리키는 작업자료 하나만 사용한다.
@@ -68,7 +68,7 @@ WebView2 캐시와 오류 로그도 `Pclm.Erp.Dev` 아래에 분리한다.
 
 ```powershell
 ./scripts/register-erp-host.ps1 -ExtensionId '여기에실제32자리확장ID' `
-  -ExePath './src/Pclm.App/bin/Debug/net8.0-windows/계약목록.exe'
+  -ExePath './target/debug/pclm-desktop.exe'
 ```
 
 4. `https://www.g2b.go.kr/`에서 검증에 쓸 공고번호(표본 공고 — 원문 생략)를 검색하고 그 상세를 연다.

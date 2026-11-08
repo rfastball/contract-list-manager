@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "작업자료 창 · 열람 창(창 이름은 언제나 main). 다리는 앱 명령 bridge 하나이고, 화면이 받는 것은 알림(pclm:notice) 듣기뿐이다.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

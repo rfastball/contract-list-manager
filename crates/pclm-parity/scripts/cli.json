@@ -1,0 +1,5 @@
+[
+  {"op": "AddUserColumn", "entityType": "contract", "fieldName": "단계표시", "kind": "choice", "choices": ["준비", "계약"]},
+  {"op": "SetUserField", "key": "TESTK000100", "fieldName": "메모", "value": "지어낸 메모"},
+  {"op": "SetOverride", "key": "TESTK000100", "columnName": "계약건명", "value": "사람이 고친 건명"}
+]

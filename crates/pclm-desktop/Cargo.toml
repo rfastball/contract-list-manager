@@ -1,0 +1,58 @@
+[package]
+name = "pclm-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "창(C# Pclm.App 의 WPF + WebView2 를 대신하는 Tauri 2 껍데기)과 브라우저 확장의 native messaging 호스트 — 배포되는 계약목록.exe 하나의 두 역할(#8 ⑧b)."
+publish = false
+
+# 배포물은 이 실행 파일 하나다 — publish.ps1 이 `계약목록.exe` 로 놓는다(cargo 의 bin 이름은 ASCII).
+# 창(Tauri)은 `shell` 기능 뒤에 있다. 기능 없이도 `cargo test --workspace` · clippy 가 돈다 — 시작 규칙 · 옛 exe 치우기 ·
+# 파일 연결 · 고지 대조처럼 창 없이 따질 수 있는 것은 라이브러리에 두고 시험한다(문서나르미 hwpx-desktop 과 같은 자세).
+[[bin]]
+name = "pclm-desktop"
+path = "src/main.rs"
+required-features = ["shell"]
+
+[features]
+default = []
+shell = ["dep:tauri", "dep:tauri-build", "dep:windows-sys", "dep:windows", "dep:webview2-com"]
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+pclm-home = { path = "../pclm-home" }
+pclm-bridge = { path = "../pclm-bridge" }
+# 같은 exe 의 둘째 역할 — 브라우저가 띄우는 호스트(C# Program.cs 의 첫 갈래).
+pclm-erp-host = { path = "../pclm-erp-host" }
+# pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
+# 문서나르미(hwpx-desktop)와 같은 판.
+tauri = { version = "=2.12.5", default-features = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# 알림 영역 · 불러내기 신호 · 대화상자(알림 · 시작 화면) · 등록부(파일 연결). 문서나르미와 같은 판.
+windows-sys = { version = "=0.61.2", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Com",
+  "Win32_System_Registry",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
+  "Win32_Graphics_Gdi",
+] }
+# 고르기 창(IFileOpenDialog · IFileSaveDialog)과 WebView2 의 설정 · ProcessFailed. Tauri(wry 0.57)가 이미 싣는 판이라 실리는
+# 크레이트가 늘지 않는다.
+windows = { version = "=0.62.2", optional = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+] }
+webview2-com = { version = "=0.39.1", optional = true }
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", optional = true }

@@ -1,0 +1,18 @@
+[package]
+name = "pclm-home"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "홈(LOCALAPPDATA 아래 Pclm) — 쪽지·시작·작업자료 바꾸기·백업·창 몸가짐. 진짜 시계와 폴더를 쓰는 얇은 층(#8·#10)."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+# 전환(Home.Switch)이 나가는 작업자료의 쓰기 잠금(BEGIN IMMEDIATE)을 쥐고 사본을 검사한다. pclm-core 와 같은 판.
+rusqlite.workspace = true
+# pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
+# 잠금 이름의 열쇠(C# Home.DirectoryKey = SHA-256). pclm-core 와 같은 판.
+sha2 = "=0.11.0"
+

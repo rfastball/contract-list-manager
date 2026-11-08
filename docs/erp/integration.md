@@ -1,6 +1,6 @@
 # 접수·공고·계약 통합 수집
 
-기본 매핑은 [확정 필드 대응](json-field-mapping.md)을 구현한 `src/Pclm.Core/Erp/mapping.json`이다. JSON과 확장 입력은 같은 변환·미리보기·저장 경로를 사용한다. PDF 입구(PDF 드롭·폴더 가져오기·PDF 비교)는 걷었다(ADR-028) — 자료는 확장·JSON·계획 엑셀로만 들어온다.
+기본 매핑은 [확정 필드 대응](json-field-mapping.md)을 구현한 `crates/pclm-core/src/erp/mapping.json`이다. JSON과 확장 입력은 같은 변환·미리보기·저장 경로를 사용한다. PDF 입구(PDF 드롭·폴더 가져오기·PDF 비교)는 걷었다(ADR-028) — 자료는 확장·JSON·계획 엑셀로만 들어온다.
 
 ## 메인 프로그램
 
@@ -118,7 +118,7 @@ Enter를 누르면 저장하며 별도 저장 버튼은 없다. 기본은 꺼짐
 - 앱은 어느 화면에서든 2초마다 `extensionStatus` 를 읽어(바뀐 것이 없으면 다시 그리지 않는다) 그 프로세스가 **같은 시작 시각으로** 아직 돌 때만 「연결됨」 으로 센다. 끝난 프로세스의 파일은 거둔다. 같은 답에 오늘의 연결 기록이 실려, 사이드바의 나라장터·통로·Chrome 확장 상태가 한 번 읽은 것으로 같은 말을 한다. 열람 창도 읽기만 하므로 그대로 보인다.
 - 실측: 끊겨도 다시 이어지고, 호스트 하나가 ~100MB 로 상주한다. 포트를 쥔 호스트가 exe 를 붙들어 **덮어쓰기는 실패하고 이름 바꾸기는 된다.**
 - 그래서 새 판은 옛 exe 의 이름을 바꿔 비킨 뒤 놓는다. 이름은 `계약목록.old.exe` 또는 `계약목록.old-<숫자>.exe` 하나로 정한다. 호스트는 인사를 받은 뒤 3초마다 제 exe(개발 빌드면 `계약목록.dll` 도)의 자리·크기·쓴 때를 보고, 비켜졌거나 다른 파일이 섰으면 끊김을 적고 떠난다 — 확장이 물러서며 다시 붙으면 그 자리의 새 exe 가 뜨고, 나라장터 화면의 `hello` 판 비교로 확장도 새 판을 불러온다. 요청 하나만 받는 수집 호스트는 지켜보지 않는다. 창은 켜질 때 exe 옆과 홈의 옛 exe 를 지우고, 아직 쥐여 있으면 다음 번으로 미룬다.
-- `publish.ps1` 은 붙들린 배포물 exe 를 출력 폴더 **밖**(`dist/계약목록.old-<시각>.exe`)으로 비키고 진행하며, 다음 배포 때 치운다. `run.ps1` 은 등록된 업무·개발 호스트가 창 빌드 출력(`src/Pclm.App/bin/…`)을 가리키면, 빌드 전에 그 폴더에서 붙들린 dll·`계약목록.exe` 만 같은 자리에서 `<이름>.old-<시각><확장자>` 로 비킨다(등록 스크립트의 `pclm-erp-dev.exe` 사본은 건드리지 않는다).
+- `publish.ps1` 은 붙들린 배포물 exe 를 출력 폴더 **밖**(`dist/계약목록.old-<시각>.exe`)으로 비키고 진행하며, 다음 배포 때 치운다. `run.ps1` 은 등록된 업무·개발 호스트가 창 빌드 출력(`target/…`)을 가리키면, 빌드 전에 그 폴더에서 붙들린 `pclm-desktop.exe` 만 같은 자리에서 `<이름>.old-<시각>.exe` 로 비킨다(등록 스크립트의 `pclm-erp-dev.exe` 사본은 건드리지 않는다).
 
 ### 지금 보는 화면(ADR-036)
 
@@ -179,10 +179,10 @@ Enter를 누르면 저장하며 별도 저장 버튼은 없다. 기본은 꺼짐
 ```powershell
 # 개인 JSON 코퍼스는 저장소에 넣지 않는다.
 $env:PCLM_JSON_CORPUS = '<로컬 json.zip>'
-dotnet test tests/Pclm.Core.Tests --no-restore
+cargo test --workspace
 npm test
 npm run build
-dotnet build src/Pclm.App --no-restore
+cargo build -p pclm-desktop --features shell
 ```
 
 

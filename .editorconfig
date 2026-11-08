@@ -16,13 +16,7 @@ indent_size = 2
 # 줄 끝 두 칸이 줄바꿈이라 지우면 안 된다.
 trim_trailing_whitespace = false
 
-[*.{cs,ps1}]
+[*.ps1]
 # 한글이 든 파일이라 BOM 을 남긴다 — Windows PowerShell 5.1 은 BOM 이 없으면
 # UTF-8 을 시스템 코드페이지로 읽어 글자가 깨진다.
 charset = utf-8-bom
-
-[*.csproj]
-indent_size = 2
-
-[*.sln]
-indent_style = tab

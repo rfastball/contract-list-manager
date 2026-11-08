@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { call, isHosted, onNotice } from "./bridge";
+import { call, inApp, isHosted, onNotice } from "./bridge";
 import { ConfirmDelete } from "./ConfirmDelete";
 import { ColumnManager } from "./ColumnManager";
 import { Grid } from "./Grid";
@@ -1004,7 +1004,7 @@ export function App() {
       )}
       </>}
       <footer className="workspace-footer">
-        <span>{import.meta.env.DEV && !window.chrome?.webview ? "미리보기 · 예시 자료" : "계약 목록"}</span>
+        <span>{import.meta.env.DEV && !inApp ? "미리보기 · 예시 자료" : "계약 목록"}</span>
         <span className="footer-shortcut">Ctrl+F 검색</span>
       </footer>
       </main>

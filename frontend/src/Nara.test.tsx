@@ -53,9 +53,9 @@ const 오늘 = (hhmm: string) => {
 
 /** 기본 수집 셋(가짜 다리의 것과 같은 번호). */
 const 기본 = () => [
-  수집줄(오늘("09:12"), "계약", "R26TA0911050100", "2026년 가람 수질측정기 조달", true),
-  수집줄(오늘("08:57"), "공고", "R26BK09017002-000", "26년 한별 공압식승강판 20톤 구매", false),
-  수집줄(오늘("08:41"), "접수", "MPKPLA26910286-000", "26년한별윈치8종구매", true),
+  수집줄(오늘("09:12"), "계약", "R26TA9800070100", "2026년 가람 수질측정기 조달", true),
+  수집줄(오늘("08:57"), "공고", "R26BK98000502-000", "26년 한별 공압식승강판 20톤 구매", false),
+  수집줄(오늘("08:41"), "접수", "TSTPLA26500286-000", "26년한별윈치8종구매", true),
 ];
 
 async function 나라장터열기() {
@@ -155,13 +155,13 @@ describe("들어옴", () => {
     await waitFor(() => expect(부름).toHaveBeenCalledWith("captures", []));
     expect(contract.getAttribute("aria-label")).toBe("계약 42건");
 
-    들어온다("계약", "R26TA0911050200", "26년 한별 공압식승강판 20톤 구매");
+    들어온다("계약", "R26TA9800070200", "26년 한별 공압식승강판 20톤 구매");
     await waitFor(() => expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 1건"), { timeout: 4000 });
     expect(contract.textContent).toContain("+1");
     // 다른 갈래에는 서지 않는다.
     expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-label")).toBe("공고 6건");
 
-    들어온다("계약", "R26TA0911050300", "26년 가람 이온분리-성분측정기 구매");
+    들어온다("계약", "R26TA9800070300", "26년 가람 이온분리-성분측정기 구매");
     await waitFor(() => expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 2건"), { timeout: 4000 });
 
     await user.click(contract);
@@ -178,7 +178,7 @@ describe("들어옴", () => {
     await waitFor(() => expect(부름).toHaveBeenCalledWith("captures", []));
     await user.click(request);
 
-    들어온다("접수", "MPKPLA26910301-000", "지어낸 접수");
+    들어온다("접수", "TSTPLA26500301-000", "지어낸 접수");
     await waitFor(() => expect(부름.mock.calls.filter(([m]) => m === "captures").length).toBeGreaterThan(2), { timeout: 4000 });
     await new Promise((r) => setTimeout(r, 1200));
     expect(request.getAttribute("aria-label")).not.toMatch(/새로 들어온/);
@@ -191,7 +191,7 @@ describe("들어옴", () => {
     const notice = await screen.findByRole("tab", { name: /^공고/ });
     await waitFor(() => expect(부름).toHaveBeenCalledWith("captures", []));
 
-    들어온다("공고", "R26BK09017003-000", "지어낸 공고");
+    들어온다("공고", "R26BK98000503-000", "지어낸 공고");
     await waitFor(() => expect(notice.getAttribute("aria-label")).toMatch(/새로 들어온 1건$/), { timeout: 4000 });
     expect(notice.textContent).toContain("+1");
   }, 15000);
@@ -202,7 +202,7 @@ describe("들어옴", () => {
     await 나라장터열기();
     await screen.findAllByRole("row", { name: /수질측정기/ });
 
-    들어온다("공고", "R26BK09017003-000", "지어낸 공고");
+    들어온다("공고", "R26BK98000503-000", "지어낸 공고");
     // 줄은 수집 기록이 닿은 그 그림에 서고, 펼침 표시(fresh)는 들어옴 효과가 다음 그림에 단다 — 줄이 보인 순간이 아니라 그 뒤를 본다.
     await waitFor(() => expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh"), { timeout: 4000 });
     expect(document.querySelector(".conduit-glide")).toBeNull();
@@ -213,7 +213,7 @@ describe("들어옴", () => {
     await 나라장터열기();
     await screen.findAllByRole("row", { name: /수질측정기/ });
 
-    들어온다("공고", "R26BK09017003-000", "지어낸 공고");
+    들어온다("공고", "R26BK98000503-000", "지어낸 공고");
     await waitFor(() => expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-label")).toMatch(/새로 들어온 1건$/), { timeout: 4000 });
     await waitFor(() => expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh"));
     expect(document.querySelector(".conduit-glide")).not.toBeNull();
@@ -316,23 +316,23 @@ describe("나라장터 화면", () => {
     expect(await within(list).findByText("오늘 3건")).toBeTruthy();
     const rows = within(list).getAllByRole("row").slice(1);
     expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 5).map((c) => c.textContent))).toEqual([
-      ["09:12", "계약", "R26TA0911050100", "2026년 가람 수질측정기 조달", "저장"],
-      ["08:57", "공고", "R26BK09017002-000", "26년 한별 공압식승강판 20톤 구매", "변경 없음"],
-      ["08:41", "접수", "MPKPLA26910286-000", "26년한별윈치8종구매", "저장"],
+      ["09:12", "계약", "R26TA9800070100", "2026년 가람 수질측정기 조달", "저장"],
+      ["08:57", "공고", "R26BK98000502-000", "26년 한별 공압식승강판 20톤 구매", "변경 없음"],
+      ["08:41", "접수", "TSTPLA26500286-000", "26년한별윈치8종구매", "저장"],
     ]);
     expect(within(rows[0]).getByText("저장").className).toContain("ok-strong");
     expect(within(rows[1]).getByText("변경 없음").className).toContain("soft");
     expect(within(list).getByText(/저장된 자료만 보입니다/)).toBeTruthy();
 
-    await user.click(within(list).getByRole("button", { name: "공고 R26BK09017002-000 보기" }));
+    await user.click(within(list).getByRole("button", { name: "공고 R26BK98000502-000 보기" }));
     expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-selected")).toBe("true");
-    expect((await screen.findByRole("searchbox") as HTMLInputElement).value).toBe("R26BK09017002-000");
+    expect((await screen.findByRole("searchbox") as HTMLInputElement).value).toBe("R26BK98000502-000");
   });
 
   it("오늘 들어온 것이 없으면 한 줄로 말하고 마지막 수집을 덧붙인다", async () => {
-    수집.줄 = [수집줄("2026-09-01T17:40:00", "계약", "R26TA0911050100", "지어낸 계약", true)];
+    수집.줄 = [수집줄("2026-09-01T17:40:00", "계약", "R26TA9800070100", "지어낸 계약", true)];
     await 나라장터열기();
-    expect(await screen.findByText(/오늘 들어온 자료가 없습니다\. 마지막 수집 09\/01 17:40 · 계약 R26TA0911050100/)).toBeTruthy();
+    expect(await screen.findByText(/오늘 들어온 자료가 없습니다\. 마지막 수집 09\/01 17:40 · 계약 R26TA9800070100/)).toBeTruthy();
     expect(screen.getByText("오늘 0건")).toBeTruthy();
   });
 
@@ -377,7 +377,7 @@ describe("나라장터 화면", () => {
     expect(info.textContent).toContain("C:\\Users\\홍길동\\AppData\\Local\\Pclm\\extension");
     expect(info.textContent).toContain("계약자료.pclm · 작업자료");
     expect(info.textContent).toMatch(/접수1공고1계약1/);
-    expect(info.textContent).toContain("오늘 09:12 · 계약 R26TA0911050100");
+    expect(info.textContent).toContain("오늘 09:12 · 계약 R26TA9800070100");
 
     await user.click(within(info).getByRole("button", { name: "들어온 자료에서 보기" }));
     expect(await screen.findByRole("region", { name: "들어온 자료" })).toBeTruthy();

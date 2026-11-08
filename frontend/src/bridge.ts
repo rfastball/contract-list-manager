@@ -1,28 +1,30 @@
 /**
  * 화면과 앱 사이의 유일한 통로.
  *
- * WebView2 는 메시지를 주고받을 뿐 호출·응답 짝을 맺어주지 않아서, 여기서 번호를 붙여
- * 짝을 맞추고 Promise 로 감싼다. hwpx-filler 의 bridge.js 와 같은 얼개다 —
- * 저쪽은 pywebview, 이쪽은 WebView2 라 붙이는 자리만 다르다.
+ * 창(Tauri)의 앱 명령 `bridge` 하나로 `{id, method, args}` 글을 보내고 다리의 답 글
+ * (`{id, ok, result, error}` — C# Bridge 의 ReplyJson 과 같은 바이트)을 받는다. 앱이 먼저 건네는 알림
+ * (`{notice}`)은 `pclm:notice` 이벤트로 온다. 전역(`withGlobalTauri`)을 쓰므로 npm 의존이 없다 —
+ * 배포 exe 에 실리는 고지가 늘지 않는다.
  */
-
-type Pending = { resolve: (value: unknown) => void; reject: (reason: Error) => void };
-
-const pending = new Map<number, Pending>();
-let nextId = 1;
 
 declare global {
   interface Window {
-    chrome?: {
-      webview?: {
-        postMessage(message: unknown): void;
-        addEventListener(type: string, handler: (event: { data: unknown }) => void): void;
+    __TAURI__?: {
+      core?: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown> };
+      event?: {
+        listen(event: string, handler: (event: { payload: unknown }) => void): Promise<() => void>;
       };
     };
   }
 }
 
-const webview = window.chrome?.webview;
+const tauri = window.__TAURI__;
+const invoke = tauri?.core?.invoke;
+
+/** 진짜 창 안인가. 개발 서버를 브라우저로 열면 아니다(가짜 다리로 넘긴다). */
+export const inApp = invoke !== undefined;
+
+let nextId = 1;
 
 /** 앱이 먼저 건네는 알림의 받는 이. 답과 달리 번호가 없어 이름으로 찾는다. */
 const listeners = new Map<string, Set<() => void>>();
@@ -38,21 +40,18 @@ export function onNotice(name: string, handler: () => void): () => void {
   return () => { set.delete(handler); };
 }
 
-/** 알림 하나를 받는 이들에게 넘긴다. 진짜 다리의 메시지가 이리로 오고, 시험은 이것을 직접 부른다. */
+/** 알림 하나를 받는 이들에게 넘긴다. 진짜 다리의 알림이 이리로 오고, 시험은 이것을 직접 부른다. */
 export function receiveNotice(name: string) {
   for (const handler of [...(listeners.get(name) ?? [])]) handler();
 }
 
-webview?.addEventListener("message", (event) => {
-  const data = event.data as { notice?: string };
-  if (typeof data.notice === "string") { receiveNotice(data.notice); return; }
-  const reply = event.data as { id: number; ok: boolean; result?: unknown; error?: string };
-  const waiting = pending.get(reply.id);
-  if (!waiting) return;
-
-  pending.delete(reply.id);
-  if (reply.ok) waiting.resolve(reply.result);
-  else waiting.reject(new Error(reply.error ?? "알 수 없는 오류"));
+void tauri?.event?.listen("pclm:notice", (event) => {
+  try {
+    const data = JSON.parse(String(event.payload)) as { notice?: unknown };
+    if (typeof data.notice === "string") receiveNotice(data.notice);
+  } catch {
+    // 알림 꼴이 아니면 지나간다 — 답과 달리 기다리는 쪽이 없다.
+  }
 });
 
 /**
@@ -62,7 +61,7 @@ webview?.addEventListener("message", (event) => {
  * **배포 묶음에서는 이 가지와 mock 이 통째로 털린다**. 배포본을 브라우저로 열면 거절한다.
  */
 export function call<T>(method: string, ...args: unknown[]): Promise<T> {
-  if (!webview) {
+  if (!invoke) {
     if (import.meta.env.DEV) {
       return import("./mock").then((m) => m.invoke(method, args)) as Promise<T>;
     }
@@ -71,11 +70,16 @@ export function call<T>(method: string, ...args: unknown[]): Promise<T> {
   }
 
   const id = nextId++;
-  return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-    webview.postMessage({ id, method, args });
-  });
+  return invoke("bridge", { request: JSON.stringify({ id, method, args }) }).then(
+    (text) => {
+      const reply = JSON.parse(String(text)) as { id: number; ok: boolean; result?: unknown; error?: string | null };
+      if (reply.ok) return reply.result as T;
+      throw new Error(reply.error ?? "알 수 없는 오류");
+    },
+    (error: unknown) => {
+      throw error instanceof Error ? error : new Error(String(error));
+    },
+  );
 }
 
-export const isHosted = webview !== undefined || import.meta.env.DEV;
-
+export const isHosted = inApp || import.meta.env.DEV;

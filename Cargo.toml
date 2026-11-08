@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+# 판의 정본. 크레이트는 모두 물려받는다(version.workspace) — 제 판을 따로 적으면 pclm-desktop 의
+# tests/version.rs 가 붉어진다. publish.ps1 이 묶음 이름에 쓴다.
+version = "0.18.0"
+edition = "2024"
+rust-version = "1.93.1"
+license = "MIT"
+
+[workspace.dependencies]
+# 문서나르미와 같은 판. functions 는 C# 의 e_sqlite3 가 내장한 수학 함수 전부(ceil·floor·sqrt …, sqlite.rs)를
+# 연결마다 등록하려는 것이다(bundled 는 SQLITE_ENABLE_MATH_FUNCTIONS 없이 짓는다). SQL 열의 authorizer 는
+# rusqlite 의 hooks(`&mut Connection` 을 요구해 트랜잭션 안에서 못 건다)가 아니라 sqlite3_set_authorizer 로 직접 건다.
+rusqlite = { version = "=0.41.1", features = ["bundled", "functions"] }

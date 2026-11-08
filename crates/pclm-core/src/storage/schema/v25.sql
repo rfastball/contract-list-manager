@@ -1,0 +1,15 @@
+DELETE FROM request_item_link;
+DELETE FROM project_link;
+DELETE FROM request_link;
+DROP TABLE link_rejection;
+DROP TABLE request_link_rejection;
+ALTER TABLE project_link DROP COLUMN confidence;
+ALTER TABLE project_link DROP COLUMN confirmed_at;
+ALTER TABLE project_link DROP COLUMN decided_by;
+ALTER TABLE project_link DROP COLUMN evidence;
+ALTER TABLE project_link DROP COLUMN rule_version;
+ALTER TABLE request_link DROP COLUMN confidence;
+ALTER TABLE request_link DROP COLUMN confirmed_at;
+ALTER TABLE request_link DROP COLUMN decided_by;
+ALTER TABLE request_link DROP COLUMN evidence;
+ALTER TABLE request_link DROP COLUMN rule_version;

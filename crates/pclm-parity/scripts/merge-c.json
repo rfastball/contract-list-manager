@@ -1,0 +1,5 @@
+[
+  {"op": "AddUserColumn", "entityType": "request", "fieldName": "대조 메모", "kind": "text"},
+  {"op": "SetUserField", "key": "$firstRequest", "fieldName": "대조 메모", "value": "123-45-67890"},
+  {"op": "SetUserField", "key": "$firstNotice", "fieldName": "메모", "value": "이몽룡 공고 메모"}
+]

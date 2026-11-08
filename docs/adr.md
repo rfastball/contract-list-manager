@@ -53,6 +53,7 @@
 | ADR-041 | 수집 차이는 더하고 바꾸는 것이 기본, 지우는 것은 고를 때만 | 확정 |
 | ADR-042 | 확장은 연결 다리 — 수집은 창의 「지금 보는 화면」 하나로 | 확정 |
 | ADR-043 | 아는 것은 전부 담는다 — 기준은 쓰임이 아니라 앎(사람 확인·원문 명칭), 확정 목록은 한 벌, 새 열은 면 뷰에 기본 숨김으로 | 확정 |
+| ADR-044 | 창 껍데기는 Tauri 2 — 문서나르미와 같은 바탕 · 같은 판, 통로는 앱 명령 하나 + 알림 이벤트, 배포물은 exe 하나 그대로, 확장 호스트도 같은 exe (2026-11-08 개정: C# 을 걷었다) | 확정 |
 
 **ADR-021 은 ADR-004·015 를 뒤집지 않고 넓힌다.** 조달의 실제 흐름은 공고보다 한 칸 앞에서
 시작한다 — 수요기관이 조달요구번호마다 요청을 내고, 조달청이 그것을 모아 국방계약요청접수서로
@@ -730,6 +731,45 @@ ID 가 그 화면에 있는데 행이 없던 자리 291행과 제한 업종 표�
 필드가 기본으로 들어와 허용 목록이 거부 목록이 된다. 쓰는 사람이 설정에서 수집할 필드를 고르기 — 고르는 사람마다 자료의
 모양이 갈려 취합이 어긋나고, 뜻을 모르는 필드를 고를 길이 열린다.
 
+## ADR-044 — 창 껍데기는 Tauri 2 (2026-11-08)
+
+**맥락.** Rust 이식(#8)이 다리 · 명령줄 · 확장 호스트까지 와서 창(WPF + WebView2, `src/Pclm.App`)만 C# 에 남았다. 창이
+.NET 에 남으면 배포물이 .NET 런타임을 통째로 안은 exe 이고, Rust 다리를 물리려면 두 런타임 사이에 다리를 하나 더 놓아야
+한다. 같은 기계의 형제 앱 문서나르미(`hwpx-filler/crates/hwpx-desktop`)는 이미 Tauri 2 위에서 WebView2 로 화면을 띄운다.
+
+**결정** (2026-11-08 사용자 결정).
+1. **창은 `crates/pclm-desktop` — Tauri 2, 문서나르미와 같은 바탕 · 같은 판**(tauri `=2.12.5`, tauri-build `=2.7.4`,
+   windows-sys `=0.61.2`, webview2-com `=0.39.1`). tauri-cli 없이 cargo 로 짓고, 창은 설정이 아니라 코드로 세운다(`windows: []`).
+   Tauri 는 `shell` 기능 뒤에 두어 기능 없이도 `cargo test --workspace` · clippy 가 돈다.
+2. **통로는 앱 명령 하나 + 알림 이벤트.** 화면은 `invoke("bridge", {request})` 에 C# 때와 같은 `{id, method, args}` 글을 실어
+   보내고 같은 `{id, ok, result, error}` 글을 받는다. 앱이 먼저 건네는 알림(`{notice}`)은 `pclm:notice` 이벤트다.
+   요청마다 명령을 따로 두지 않는다 — 요청의 이름 · 인자 · 답의 꼴은 다리(pclm-bridge)의 것이고, parity 가 그 바이트를 C# 과
+   견준다. 전역(`withGlobalTauri`)을 쓰므로 npm 의존이 늘지 않는다. CSP 는 `connect-src 'self' http://ipc.localhost` 까지.
+3. **배포물은 exe 하나 그대로**(ADR-019). 화면은 build.rs 가 `include_bytes!` 로 박고 창이 메모리에서 내준다. cargo 의 실행
+   파일 이름은 ASCII(`pclm-desktop.exe`)이고 publish.ps1 이 `계약목록.exe` 로 놓는다. Release 는 `windows_subsystem = "windows"`.
+4. **브라우저 확장의 native messaging 호스트도 같은 exe.** 첫 인자가 `chrome-extension://…` 이거나 `--native-dev` 가 있으면
+   창을 세우지 않고 `pclm_erp_host::run` 으로 간다(C# `Program.Main` 의 첫 갈래와 같은 가름). 확장 등록이 가리키는 파일이
+   하나뿐이라 배포물에 딸린 호스트가 따로 없다.
+5. **창의 차례 · 글은 C# App 그대로.** 시작 화면(작업 대화상자), 홈마다 하나인 창과 불러내기 신호, 알림 영역 · 닫기 물음,
+   자동 실행으로 뜬 창의 모양, 파일 연결(기본 홈에서만) · 자동 수집 · 설치 갱신을 C# 이 부르던 때와 조건으로 부른다.
+   판의 정본은 작업공간 Cargo.toml 의 `[workspace.package] version` 이고 Directory.Build.props 가 따라온다(시험이 대조한다).
+   exe 에 실리는 크레이트의 고지는 `cargo tree` 에서 짓고(scripts/generate-crate-notices.ps1) 시험이 실제 해석과 대조한다.
+
+**버린 안.** 요청마다 Tauri 명령 하나 — 명령 이름 · 인자 꼴이 다리와 두 벌이 되고, parity 가 견주는 바이트 밖으로 새 표면이
+생긴다. `@tauri-apps/api` 를 npm 으로 — exe 에 실리는 고지가 늘고 판이 두 군데(크레이트 · npm)에서 맞아야 한다. 호스트를
+따로 지은 exe 로 — 배포물이 파일 하나가 아니게 된다.
+
+**남은 것.** C# 소스(`src/Pclm.App` · `src/Pclm.Cli` · `src/Pclm.Core`)와 nuget · runtime 고지, 화면 산출물 자리
+(`src/Pclm.App/wwwroot`)는 ⑨ 에서 걷거나 옮긴다. 옮긴 창에서 달라진 점: 화면의 출처가 `http://tauri.localhost` 로 바뀌어
+화면이 브라우저 저장소에 둔 개인 설정이 처음 한 번 비어 보인다, 시작 화면의 경로를 글 상자처럼 골라 복사할 수 없다,
+오류 기록에 .NET 의 호출 더미가 없다, WebView2 런타임이 없으면 창 안의 글 대신 알림 상자로 알리고 끝난다.
+
+**개정(2026-11-08) — 남은 것을 걷었다(⑨).** 새 ADR 을 내지 않는다. C# 소스 · 시험 · 계기(`src/Pclm.*` ·
+`tests/Pclm.Core.Tests` · `tests/Pclm.Parity`)와 `Pclm.sln` · `global.json` · `Directory.Build.props`, nuget · runtime ·
+native 고지를 걷었다. 화면 산출물은 `artifacts/web` 으로, 창 아이콘 · 기본 매핑 · 내장 보기 구성은 크레이트 안으로 옮겼다.
+C# 시험이 지키던 불변식은 Rust 시험으로 옮겼고, C# 과의 바이트 대조는 C# 이 낸 박제(`tests/parity-golden`)와 견주는 것으로
+남는다 — C# 이 없으니 박제를 새로 뜨려면 걷은 커밋을 되돌려야 한다.
+
 ## 미결
 
 | 항목 | 무엇이 정해지면 닫히나 |
@@ -738,7 +778,7 @@ ID 가 그 화면에 있는데 행이 없던 자리 291행과 제한 업종 표�
 ## 이 색인을 고치는 때
 
 번호가 늘거나 상태가 바뀔 때만 고친다. **본문을 고치는 커밋에서 같이 고친다** — 따로 두면
-색인이 조용히 늙는다. 판단의 실체는 대개 코드 주석에 있으므로(`Schema.cs`의 판올림 주석,
-`Mapping`의 수집 허용 목록, `ExplicitLinks`의 명시 참조 처리), 이 색인과 본문은 그 위에 얹힌 연혁 층이다.
+색인이 조용히 늙는다. 판단의 실체는 대개 코드 주석에 있으므로(`storage/schema.rs`의 판올림 주석,
+`erp/mapping.rs`의 수집 허용 목록, `erp/explicit_links.rs`의 명시 참조 처리), 이 색인과 본문은 그 위에 얹힌 연혁 층이다.
 
-마지막 개정: 2026-10-16 · 스키마 v29 (ADR-043 — 아는 것은 전부 담는다)
+마지막 개정: 2026-11-08 · 스키마 v29 (ADR-044 개정 — C# 을 걷었다)

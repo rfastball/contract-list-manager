@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
-import mappingJson from "../../src/Pclm.Core/Erp/mapping.json?raw";
+import mappingJson from "../../crates/pclm-core/src/erp/mapping.json?raw";
 import captureSource from "../../extension/capture.js?raw";
 import popupSource from "../../extension/popup.js?raw";
 import popupHtml from "../../extension/popup.html?raw";

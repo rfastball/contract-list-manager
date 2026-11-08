@@ -69,11 +69,11 @@ describe("보기", () => {
     const table = within(await result.findByRole("grid", { name: "자료 목록" }));
     expect(table.getAllByRole("columnheader").slice(1).map(c => c.textContent)).toEqual(["접수번호", "공고번호", "계약번호", "공고명", "대표품명", "진행"]);
     expect(table.getAllByRole("row")).toHaveLength(46);
-    expect(table.getByRole("gridcell", { name: /R26TA0911050300, R26TA0911050800/ })).toBeTruthy();
+    expect(table.getByRole("gridcell", { name: /R26TA9800070300, R26TA9800070800/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "미리보기" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "열 목록" })).toBeNull();
     expect(부름.mock.calls.some(([m]) => m === "previewUserView" || m === "userViewSamples")).toBe(false);
-    await user.type(result.getByRole("searchbox", { name: "목록 검색" }), "R26BK09017002-000");
+    await user.type(result.getByRole("searchbox", { name: "목록 검색" }), "R26BK98000502-000");
     expect(table.getAllByRole("row")).toHaveLength(2);
     await user.click(screen.getByRole("button", { name: "보기 편집" }));
     expect(await screen.findByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "공고문서");
@@ -209,7 +209,7 @@ describe("보기", () => {
   it("이 건에서 빈 값은 warn 글자 「(빈 값)」, 전체 빈 수는 꼬리 「빈 값 n건」 이다", async () => {
     const { user, record } = await 뷰열기();
     // 접수가 선 건은 마흔다섯 중 셋뿐이다.
-    expect(줄(record, "접수번호").textContent).toContain("MPKPLA26910301-000");
+    expect(줄(record, "접수번호").textContent).toContain("TSTPLA26500301-000");
     expect(within(줄(record, "접수번호")).getByText("빈 값 42건")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "다음 미리보기 자료" }));
     const blank = await within(줄(record, "접수번호")).findByText("(빈 값)");
@@ -222,27 +222,27 @@ describe("보기", () => {
     const { user, record } = await 뷰열기();
     const picker = within(screen.getByRole("group", { name: "미리보기 자료" }));
     expect(picker.getByRole("searchbox").closest("details")?.open).toBe(false);
-    expect(picker.getByText("R26BK09017001-000")).toBeTruthy();
+    expect(picker.getByText("R26BK98000501-000")).toBeTruthy();
     expect(picker.getByRole("button", { name: "이전 미리보기 자료" })).toHaveProperty("disabled", true);
     await user.click(picker.getByRole("button", { name: "다음 미리보기 자료" }));
-    expect(await picker.findByText("R26BK09017002-000")).toBeTruthy();
-    await waitFor(() => expect(줄(record, "공고번호").textContent).toContain("R26BK09017002-000"));
+    expect(await picker.findByText("R26BK98000502-000")).toBeTruthy();
+    await waitFor(() => expect(줄(record, "공고번호").textContent).toContain("R26BK98000502-000"));
 
     await user.click(picker.getByText("다른 자료로 확인"));
     expect(picker.getByText("미리보기 자료만 바꿉니다. 저장되는 보기의 행이나 내보내기에는 영향을 주지 않습니다.")).toBeTruthy();
     expect(picker.getByRole("button", { name: "계약 여러 건" }).getAttribute("aria-pressed")).toBe("false");
     await user.click(picker.getByRole("button", { name: "계약 여러 건" }));
-    expect(await picker.findByText("R26BK09017003-000")).toBeTruthy();
+    expect(await picker.findByText("R26BK98000503-000")).toBeTruthy();
     expect(picker.getByRole("button", { name: "계약 여러 건" }).getAttribute("aria-pressed")).toBe("true");
     const [definition, , edge] = 부름.mock.calls.filter(([m]) => m === "userViewSamples").at(-1)![1] as [string, null, string];
     expect(edge).toBe("manyContracts");
     expect(JSON.parse(definition)).toMatchObject({ name: "공고문서", definition: { version: 2, contracts: "fold" } });
     expect(picker.getByText("1/1")).toBeTruthy();
-    await waitFor(() => expect(줄(record, "계약번호").textContent).toContain("R26TA0911050300, R26TA0911050800"));
+    await waitFor(() => expect(줄(record, "계약번호").textContent).toContain("R26TA9800070300, R26TA9800070800"));
     expect(within(줄(record, "계약번호")).getByText("이어 붙임")).toBeTruthy();
 
     await user.click(picker.getByRole("button", { name: "일부 자료 없음" }));
-    expect(await picker.findByText("R26BK09017002-000")).toBeTruthy();
+    expect(await picker.findByText("R26BK98000502-000")).toBeTruthy();
     await waitFor(() => expect(within(줄(record, "접수번호")).getByText("(빈 값)")).toBeTruthy());
   });
 
@@ -264,7 +264,7 @@ describe("보기", () => {
     await user.click(screen.getByText("다른 자료로 확인"));
     await user.click(screen.getByRole("button", { name: "계약 여러 건" }));
     expect(await screen.findByText("1/2")).toBeTruthy();
-    await waitFor(() => expect(줄(record, "계약번호").textContent).toContain("R26TA0911050300"));
+    await waitFor(() => expect(줄(record, "계약번호").textContent).toContain("R26TA9800070300"));
     expect(줄(record, "계약번호").textContent).not.toContain(", ");
   });
 
@@ -430,19 +430,19 @@ describe("보기", () => {
   it("편집기 보표의 표본 A 는 미리보기가 보는 표본이고, 고르개 목록의 다음 둘이 뒤따른다", async () => {
     const { user, record } = await 뷰열기();
     await user.click(screen.getByRole("button", { name: "다음 미리보기 자료" }));
-    await waitFor(() => expect(줄(record, "공고번호").textContent).toContain("R26BK09017002-000"));
+    await waitFor(() => expect(줄(record, "공고번호").textContent).toContain("R26BK98000502-000"));
     줄(record, "계약번호").focus();
     await user.keyboard("{Enter}");
     const editor = within(await screen.findByRole("region", { name: "열 편집" }));
     await waitFor(() => expect(부름.mock.calls.some(([m]) => m === "traceUserViewColumn")).toBe(true));
     const [, keys] = 부름.mock.calls.find(([m]) => m === "traceUserViewColumn")![1] as [string, string[]];
-    expect(keys).toEqual(["|R26BK09017002-000|R26TA0911050200", "|R26BK09017003-000|", "|R26BK09017004-000|R26TA0911050400"]);
+    expect(keys).toEqual(["|R26BK98000502-000|R26TA9800070200", "|R26BK98000503-000|", "|R26BK98000504-000|R26TA9800070400"]);
     const grid = await editor.findByRole("grid", { name: "값 흐름" });
     await waitFor(() => expect(within(grid).getAllByRole("columnheader")[1].textContent).toContain("26년 한별 공압식승강판 20톤 구매"));
     // 표본 A 의 열에 찍힐 값이 미리보기가 그 표본에서 보인 값과 같고, 모은 건(표본 B)은 이어 붙인 값이다.
     const final = within(grid).getByRole("row", { name: /^열에 찍힐 값/ });
-    expect(final.querySelectorAll("td")[0].textContent).toBe("R26TA0911050200");
-    expect(final.querySelectorAll("td")[1].textContent).toBe("R26TA0911050300, R26TA0911050800");
+    expect(final.querySelectorAll("td")[0].textContent).toBe("R26TA9800070200");
+    expect(final.querySelectorAll("td")[1].textContent).toBe("R26TA9800070300, R26TA9800070800");
   });
 
   it("좁은 창의 열 목록 서랍은 열면 첫 조작부로, Esc·닫기로 닫으면 「열 추가」 로 초점을 옮기고, 편집기로 가면 걷힌다", async () => {

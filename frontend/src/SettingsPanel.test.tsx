@@ -707,7 +707,7 @@ it("라이선스 정보를 열면 about 을 한 번만 부르고 판과 라이�
   const about = await screen.findByRole("dialog", { name: "라이선스 정보" });
   expect(await within(about).findByText("계약 목록 0.5.0 · MIT 라이선스")).toBeTruthy();
   expect(within(about).getByLabelText("라이선스").textContent).toMatch(/Copyright \(c\) 2026 JM/);
-  expect(within(about).getByLabelText("제3자 고지").textContent).toMatch(/== nuget ClosedXML/);
+  expect(within(about).getByLabelText("제3자 고지").textContent).toMatch(/== crate rusqlite/);
 
   await user.click(within(about).getByRole("button", { name: "닫기" }));
   expect(screen.queryByRole("dialog", { name: "라이선스 정보" })).toBeNull();

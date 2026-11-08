@@ -1,0 +1,7 @@
+[
+  {"op": "AddUserColumn", "entityType": "contract", "fieldName": "대조 진행", "kind": "choice", "choices": ["준비", "투찰", "계약"]},
+  {"op": "SetUserField", "key": "$firstContract", "fieldName": "메모", "value": "김철수 메모"},
+  {"op": "PinClock"},
+  {"op": "SetOverride", "key": "$firstContract", "columnName": "계약건명", "value": "김철수 고침"},
+  {"op": "SetUserField", "key": "$firstNotice", "fieldName": "메모", "value": "김철수 공고 메모"}
+]

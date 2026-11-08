@@ -1,0 +1,10 @@
+[
+  {"method": "setField", "args": ["T26TA0000000100", "비고", "열람 중 고침"]},
+  {"method": "saveSettings", "args": ["{}"]},
+  {"method": "batchEdit", "args": ["v_계약", "[]"]},
+  {"method": "switchWorkfile", "args": ["C:\\없는 자리\\다른.pclm"]},
+  {"method": "모르는요청"},
+  {"method": ""},
+  {"method": "sheet", "args": ["v_계약"]},
+  {"method": "status"}
+]

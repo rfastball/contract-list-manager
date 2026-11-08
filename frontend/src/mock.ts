@@ -1,11 +1,11 @@
-import mappingJson from "../../src/Pclm.Core/Erp/mapping.json?raw";
+import mappingJson from "../../crates/pclm-core/src/erp/mapping.json?raw";
 /**
  * 개발용 가짜 다리.
  *
  * 창(WebView2) 없이 브라우저에서 화면을 손볼 수 있게 계약면 뷰를 흉내 낸다.
  * `import.meta.env.DEV` 안에서만 동적으로 불러오므로 **배포 묶음에는 들어가지 않는다**.
  *
- * 열 이름과 순서는 `tests/Pclm.Core.Tests/contract/views.txt` 와 같게 둔다 —
+ * 열 이름과 순서는 `crates/pclm-core/tests/contract/views.txt` 와 같게 둔다 —
  * 여기가 어긋나면 진짜 앱에서만 깨지는 화면을 만들게 된다.
  */
 
@@ -21,7 +21,7 @@ import type {
 import type { Flow, FlowEnv, FormulaV2 } from "./flow/ast";
 import type { ViewPackage, ViewPackagePick, ViewPackagePreview } from "./views/packageTypes";
 // 서식용 예시 보기 — 진짜 다리가 exe 에서 꺼내는 그 파일 한 벌을 그대로 읽는다.
-import 예시보기 from "../../src/Pclm.Core/Storage/Presets/builtin-views.json?raw";
+import 예시보기 from "../../crates/pclm-core/src/storage/presets/builtin-views.json?raw";
 import { clausesOf, docWord, qualified } from "./flow/ast";
 import { checkFlow } from "./flow/check";
 import { evaluate, type EvalInput } from "./flow/evaluate";
@@ -226,7 +226,7 @@ const 상태 = ["준비", "투찰", "낙찰", "계약", "납품", "검수", "정
  */
 const 접수씨앗 = [
   {
-    base: "MPKPLA26910286",
+    base: "TSTPLA26500286",
     요청명: "26년한별윈치8종구매",
     접수일자: "2026/06/09",
     품대: "181,725,200",
@@ -243,12 +243,12 @@ const 접수씨앗 = [
     재고번호: "9950000072851",
     수량: "209",
     요구번호: [
-      "MPKPLA26910286", "MPKPLA26910287", "MPKPLA26910288", "MPKPLA26910289",
-      "MPKPLA26910291", "MPKPLA26910292", "MPKPLA26910294", "MPKPLA26910295",
+      "TSTPLA26500286", "TSTPLA26500287", "TSTPLA26500288", "TSTPLA26500289",
+      "TSTPLA26500291", "TSTPLA26500292", "TSTPLA26500294", "TSTPLA26500295",
     ],
   },
   {
-    base: "MPKPLA26910301",
+    base: "TSTPLA26500301",
     요청명: "26년가람수질측정기구매",
     접수일자: "2026/06/16",
     품대: "164,872,340",
@@ -264,10 +264,10 @@ const 접수씨앗 = [
     품명번호: "42115802",
     재고번호: "6640375019876",
     수량: "1",
-    요구번호: ["MPKPLA26910301"],
+    요구번호: ["TSTPLA26500301"],
   },
   {
-    base: "MPKPLA26910412",
+    base: "TSTPLA26500412",
     요청명: "26년가람절단기구매",
     접수일자: "2026/06/24",
     품대: "29,512,000",
@@ -283,7 +283,7 @@ const 접수씨앗 = [
     품명번호: "29077509",
     재고번호: "9431000050017",
     수량: "12",
-    요구번호: ["MPKPLA26910412", "MPKPLA26910413", "MPKPLA26910415"],
+    요구번호: ["TSTPLA26500412", "TSTPLA26500413", "TSTPLA26500415"],
   },
 ];
 
@@ -304,7 +304,7 @@ const 계획담당 = ["홍길동", "김철수", "이영희", "박민수"];
  * 넷째 줄마다 계약이 둘이라 계약 세 칸을 비운다(하나로 정할 수 없는 것을 하나인 양 내지 않는다).
  */
 function 계획행(i: number): Row {
-  const 번호 = `MPKPLA269103${String(i + 10).padStart(2, "0")}`;
+  const 번호 = `TSTPLA265003${String(i + 10).padStart(2, "0")}`;
   const 단계 = ["미착수", "접수", "공고", "계약"][Math.min(Math.floor(i / 6), 3)];
 
   const 접수 = 단계 !== "미착수";
@@ -328,11 +328,11 @@ function 계획행(i: number): Row {
     단계,
     접수번호: 접수 ? `${번호}-000` : "",
     접수일자: 접수 ? `2026/07/${String(3 + (i % 20)).padStart(2, "0")}` : "",
-    입찰공고번호: 공고 ? `R26BK090170${String(50 + i)}-000` : "",
+    입찰공고번호: 공고 ? `R26BK980005${String(50 + i)}-000` : "",
     게시일시: 공고 ? `2026/08/${String(4 + (i % 20)).padStart(2, "0")}` : "",
     개찰일시: 공고 ? `2026/08/${String(14 + (i % 10)).padStart(2, "0")} 11:00:00` : "",
     계약건수: 계약 ? (둘로낙찰 ? "2" : "1") : "0",
-    계약번호: 계약 && !둘로낙찰 ? `R26TA091105${String(10 + i)}00` : "",
+    계약번호: 계약 && !둘로낙찰 ? `R26TA980007${String(10 + i)}00` : "",
     계약일자: 계약 && !둘로낙찰 ? `2026/08/${String(20 + (i % 9)).padStart(2, "0")}` : "",
     계약금액: 계약 && !둘로낙찰 ? 돈(16_400_000 + i * 3_010_000) : "",
   });
@@ -360,8 +360,8 @@ function 통합행(i: number, columns: string[] = 통합열): Row {
     예산금액: r?.예산금액 ?? "",
     기관담당자: r?.담당자 ?? "",
     기관담당자전화: r?.전화 ?? "",
-    계약번호: `R26TA091105${n}00`,
-    계약본번호: `R26TA091105${n}`,
+    계약번호: `R26TA980007${n}00`,
+    계약본번호: `R26TA980007${n}`,
     차수: "00",
     계약건명: s.건명,
     계약일자: `2026/08/${String((i % 27) + 1).padStart(2, "0")}`,
@@ -387,7 +387,7 @@ function 통합행(i: number, columns: string[] = 통합열): Row {
     계약상대자: "㈜한국분석기기",
     대표자: "홍길동",
     사업자등록번호: "123-45-67890",
-    입찰공고번호: `R26BK090170${n}-000`,
+    입찰공고번호: `R26BK980005${n}-000`,
     공고명: s.건명,
     공고종류: "실공고(등록공고)",
     게시일시: "2026/07/02 16:59:28",
@@ -430,7 +430,7 @@ function 생애주기행(i: number, 공고까지: boolean): Row {
 
     ...(공고까지
       ? {
-          입찰공고번호: `R26BK090170${n}-000`,
+          입찰공고번호: `R26BK980005${n}-000`,
           공고명: r.요청명,
           공고종류: "실공고(등록공고)",
           게시일시: "2026/07/02 16:59:28",
@@ -499,8 +499,8 @@ function 접수행(i: number): Row {
 }
 
 /** 갈린 건의 이름과, 그 건에서 지금 서 있는 한 장. 아래 두 곳이 함께 본다. */
-const 갈린건 = "R26BK09011054";
-const 갈린건의현행 = "R26BK09012082-000";
+const 갈린건 = "R26BK98000154";
+const 갈린건의현행 = "R26BK98000282-000";
 
 /**
  * 취소 후 재공고로 <b>본번호가 갈린</b> 한 건. 차수 눈이 무엇을 보이려는 것인지가 여기 다 있다 —
@@ -511,7 +511,7 @@ const 갈린건의현행 = "R26BK09012082-000";
 const 갈린공고: Row[] = [
   { 번호: `${갈린건}-000`, 본: 갈린건, 차: "000", 종류: "실공고(등록공고)", 관련: "" },
   { 번호: `${갈린건}-001`, 본: 갈린건, 차: "001", 종류: "취소공고", 관련: `${갈린건}-000` },
-  { 번호: 갈린건의현행, 본: "R26BK09012082", 차: "000", 종류: "재공고", 관련: `${갈린건}-001` },
+  { 번호: 갈린건의현행, 본: "R26BK98000282", 차: "000", 종류: "재공고", 관련: `${갈린건}-001` },
 ].map((n) =>
   줄(공고열, {
     입찰공고번호: n.번호,
@@ -543,8 +543,8 @@ const sheets: Record<string, Sheet> = {
     // 그 셋이 나란히 서는 것을 보려면 「차수」 눈으로 옮긴다(v_공고차수).
     rows: [...씨앗.map((s, i) =>
       줄(공고열, {
-        입찰공고번호: `R26BK090170${String(i + 1).padStart(2, "0")}-000`,
-        공고본번호: `R26BK090170${String(i + 1).padStart(2, "0")}`,
+        입찰공고번호: `R26BK980005${String(i + 1).padStart(2, "0")}-000`,
+        공고본번호: `R26BK980005${String(i + 1).padStart(2, "0")}`,
         차수: "000",
         공고명: s.건명,
         공고종류: "실공고(등록공고)",
@@ -576,8 +576,8 @@ const sheets: Record<string, Sheet> = {
         담당자전화: "042-555-2624",
         담당자팩스: "042-555-2600",
         // 갈리지 않은 건은 제 본번호가 곧 건 이름이고, 제가 그 건의 현행이다.
-        공고건: `R26BK090170${String(i + 1).padStart(2, "0")}`,
-        현행공고: `R26BK090170${String(i + 1).padStart(2, "0")}-000`,
+        공고건: `R26BK980005${String(i + 1).padStart(2, "0")}`,
+        현행공고: `R26BK980005${String(i + 1).padStart(2, "0")}-000`,
         // V28에서 추가한 수집 열.
         계약법구분: "국가계약법",
         입찰진행상태: "개찰완료",
@@ -591,7 +591,7 @@ const sheets: Record<string, Sheet> = {
     columns: 통합표열,
     editable: ["진행상태", "메모"],
     correctable: 고칠수있는열(통합표열, ["진행상태", "메모"], true),
-    overrides: { "R26TA0911050100": { 계약금액: "164,872,340" } },
+    overrides: { "R26TA9800070100": { 계약금액: "164,872,340" } },
     // 계약이 아직 없는 두 줄을 끝에 세운다 — 접수+공고 하나, 접수만 하나.
     // 화면이 그런 줄을 어떻게 가리키고 어떻게 잠그는지 보는 자리다.
     rows: [
@@ -624,7 +624,7 @@ const sheets: Record<string, Sheet> = {
     columns: 계약열,
     editable: ["진행상태", "메모"],
     correctable: 고칠수있는열(계약열, ["진행상태", "메모"]),
-    overrides: { "R26TA0911050100": { 계약금액: "164,872,340" } },
+    overrides: { "R26TA9800070100": { 계약금액: "164,872,340" } },
     rows: Array.from({ length: 42 }, (_, i) => {
       const 통합 = 통합행(i);
       return 줄(계약열, Object.fromEntries(계약열.map((c) => [c, 통합[c] ?? ""])));
@@ -779,7 +779,7 @@ export function 품목행(entity: Entity, set: number): Row[] {
     const 값: Row = {
       품명: s.이름, 세부품명: s.이름, 물품분류번호: s.번호, 세부품명번호: s.번호, 물품식별번호: s.식별, 규격: s.규격,
       수요기관: "가람군수지원단", 단위: "개", 수량: String(s.수량), 단가: 돈(s.단가), 추정단가: 돈(s.단가),
-      금액: 돈(s.수량 * s.단가), 조달요구번호: "MPKPLA26900001", 납품장소: "수요처 지정 창고", 인도조건: "지정장소도착도",
+      금액: 돈(s.수량 * s.단가), 조달요구번호: "TSTPLA26500101", 납품장소: "수요처 지정 창고", 인도조건: "지정장소도착도",
     };
     return Object.fromEntries(computedFields[entity].map(f => [f, 값[f] ?? ""]));
   });
@@ -879,7 +879,7 @@ const 번호열 = { contract: "계약번호", notice: "입찰공고번호", requ
  * 한 공고에 계약이 둘인 건(분할 낙찰). 통합 표는 계약마다 한 줄이라 거기 적힌 연결은 1:1 뿐이다 —
  * 「계약 여럿」 과 모으기가 찾을 건을 여기 하나 더 잇는다. 번호는 지어낸 것이다.
  */
-const 덧연결: { notice: string; contract: string }[] = [{ notice: "R26BK09017003-000", contract: "R26TA0911050800" }];
+const 덧연결: { notice: string; contract: string }[] = [{ notice: "R26BK98000503-000", contract: "R26TA9800070800" }];
 
 /** 조달 건 하나. 문서가 없는 자리는 null 이다. set 은 그 건의 품목 표본 차례다. */
 type 사슬 = { key: string; request: Row | null; notice: Row | null; contract: Row | null; set: number };
@@ -1365,7 +1365,7 @@ const 갈린건칸: OutlineNoticeGroup = {
   // 건의 이름은 가장 이른 본번호다. 화면은 이것을 그리지 않는다.
   groupBase: 갈린건,
   current: {
-    key: "R26BK09012082",
+    key: "R26BK98000282",
     number: 갈린건의현행,
     title: "26년 가람 조립대 구매",
     postedAt: "2026/07/25 09:30:00",
@@ -1399,8 +1399,8 @@ const 갈린건접수: OutlineRequest = {
 };
 
 const 갈린건계약: OutlineContract = {
-  key: "R26TA09080469",
-  number: "R26TA0908046900",
+  key: "R26TA98000669",
+  number: "R26TA9800066900",
   title: "26년 가람 조립대 조달",
   contractedOn: "2026/07/30",
   amount: "37,400,000",
@@ -1412,11 +1412,11 @@ const 갈린건계약: OutlineContract = {
 
 const outline: Outline = {
   chains: [
-    { key: "MPKPLA26910301", request: 접수(1), notice: 공고건(0), contracts: [계약(0, 0)] },
-    { key: "MPKPLA26910286", request: 접수(0), notice: 공고건(1), contracts: [] },
-    { key: "R26BK09017003", request: null, notice: 공고건(2), contracts: [계약(2, 0), 계약(2, 1)] },
-    { key: "MPKPLA26910412", request: 접수(2), notice: null, contracts: [] },
-    { key: "R26TA09110804", request: null, notice: null, contracts: [계약(4, 0)] },
+    { key: "TSTPLA26500301", request: 접수(1), notice: 공고건(0), contracts: [계약(0, 0)] },
+    { key: "TSTPLA26500286", request: 접수(0), notice: 공고건(1), contracts: [] },
+    { key: "R26BK98000503", request: null, notice: 공고건(2), contracts: [계약(2, 0), 계약(2, 1)] },
+    { key: "TSTPLA26500412", request: 접수(2), notice: null, contracts: [] },
+    { key: "R26TA98000804", request: null, notice: null, contracts: [계약(4, 0)] },
     {
       key: `AAAAAA26000003/${갈린건}`,
       request: 갈린건접수,
@@ -1453,8 +1453,8 @@ function 공고칸(i: number): OutlineNotice {
   const n = String(i + 1).padStart(2, "0");
 
   return {
-    key: `R26BK090170${n}`,
-    number: `R26BK090170${n}-00${i === 3 ? "1" : "0"}`,
+    key: `R26BK980005${n}`,
+    number: `R26BK980005${n}-00${i === 3 ? "1" : "0"}`,
     title: s.건명,
     postedAt: "2026/07/02 16:59:28",
     agency: "국방부조달본부",
@@ -1764,7 +1764,7 @@ export const 지금화면 = {
   수집화면: [] as SupportedScreen[],
 };
 
-/** 기본 매핑에서 화면을 단 프로필(src/Pclm.Core/Erp/mapping.json 의 screen) 그대로. */
+/** 기본 매핑에서 화면을 단 프로필(crates/pclm-core/src/erp/mapping.json 의 screen) 그대로. */
 export const 기본수집화면 = (): SupportedScreen[] => [
   { code: "01117", entityType: "request", kind: "접수", name: "조달요구 접수(목록형)" },
   { code: "01112", entityType: "request", kind: "접수", name: "조달요구 접수 상세(일반용역)" },
@@ -1785,8 +1785,8 @@ export const 기본탭 = (): MirrorTab[] => [
 
 function 기본수집(): CaptureEntry[] {
   return [
-    수집줄(오늘의("09:12"), "계약", "R26TA0911050100", 씨앗[0].건명, true),
-    수집줄(오늘의("08:57"), "공고", "R26BK09017002-000", 씨앗[1].건명, false),
+    수집줄(오늘의("09:12"), "계약", "R26TA9800070100", 씨앗[0].건명, true),
+    수집줄(오늘의("08:57"), "공고", "R26BK98000502-000", 씨앗[1].건명, false),
     수집줄(오늘의("08:41"), "접수", `${접수씨앗[0].base}-000`, 접수씨앗[0].요청명, true),
   ];
 }
@@ -2271,7 +2271,7 @@ export function invoke(method: string, args: unknown[]): Promise<unknown> {
       return wait({
         version: "0.5.0",
         license: "MIT License\n\nCopyright (c) 2026 JM\n\n(개발 미리보기 — 전문은 exe 안에 있습니다)",
-        notices: "계약 목록 — 제3자 고지\n\n== nuget ClosedXML 0.105.1 — MIT\n== npm react 19.2.8 — MIT",
+        notices: "계약 목록 — 제3자 고지\n\n== crate rusqlite 0.41.1 — MIT\n== npm react 19.2.8 — MIT",
       });
     case "windowPrefs":
       return wait(창.몸가짐);

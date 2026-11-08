@@ -1,0 +1,14 @@
+[package]
+name = "pclm-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "브라우저 확장의 native messaging 호스트가 홈에 남기는 파일과 메시지 고리(#10). C# 창이 같은 파일을 읽고 쓴다 — 바이트가 같다."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+pclm-home = { path = "../pclm-home" }
+# pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }

@@ -2,7 +2,7 @@
 # Regenerate: powershell -NoProfile -ExecutionPolicy Bypass -STA -File scripts/generate-app-icon.ps1
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore, WindowsBase
-$iconDir = Join-Path $PSScriptRoot '../src/Pclm.App/Assets'
+$iconDir = Join-Path $PSScriptRoot '../crates/pclm-desktop/icons'
 $previewDir = Join-Path $PSScriptRoot '../artifacts/icon'
 New-Item -ItemType Directory -Force -Path $iconDir, $previewDir | Out-Null
 

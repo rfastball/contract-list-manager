@@ -187,6 +187,6 @@
 ## 근거
 
 - 제품 범위: 2026-09-24 사용자 확인 — 공고는 실증, 초기 제품은 접수·공고·계약 누적.
-- 현재 구현: `extension/`, `src/Pclm.Core/Erp/PublicNoticeCapture.cs`, [mvp.md](mvp.md)
+- 현재 구현: `extension/`, `crates/pclm-core/src/erp/capture.rs`, [mvp.md](mvp.md)
 - 식별자·품목·금액·관계 규칙: [decisions.md](decisions.md)
 - 기존 앱 시각 체계: [DESIGN.md](../../DESIGN.md)

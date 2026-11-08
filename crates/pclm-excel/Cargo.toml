@@ -1,0 +1,23 @@
+[package]
+name = "pclm-excel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "엑셀 내보내기(C# Exporter)와 계획 엑셀 가져오기(C# PlanImport). xlsx 의존을 pclm-core 밖에 둔다(#8 ⑥)."
+publish = false
+
+[dependencies]
+pclm-core = { path = "../pclm-core" }
+# 계획을 넣고 뷰를 읽는다. pclm-core 와 같은 판.
+rusqlite.workspace = true
+# xlsx 는 zip 한 벌이다. 압축은 deflate 하나만 — 엑셀이 쓰고 읽는 것이 그것뿐이다.
+zip = { version = "=9.3.0", default-features = false, features = ["deflate-flate2"] }
+# zip 의 deflate 에 순수 Rust 바탕(miniz_oxide)을 단다. 기능을 고르지 않으면 바탕이 없다.
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
+# 계획 엑셀의 XML 을 읽는다.
+quick-xml = "=0.38.4"
+# 열 너비를 셀 때 글자 묶음(grapheme)을 C# StringInfo 처럼 가른다.
+unicode-segmentation = "=1.13.3"
+# 가져오기 결과를 다리의 꼴로 낸다. pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }

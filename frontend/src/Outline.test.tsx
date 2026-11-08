@@ -62,42 +62,42 @@ function 공고(
 }
 
 /** 여덟 줄짜리 접수. 조달요구번호를 몇 개만 펴고 접는지 여기서 본다. */
-const 여덟 = Array.from({ length: 8 }, (_, i) => `MPKPLA269102${86 + i}`);
+const 여덟 = Array.from({ length: 8 }, (_, i) => `TSTPLA265002${86 + i}`);
 
 const tree: Tree = {
   chains: [
     // 세 칸이 다 찬 사슬. 계약은 하나뿐이라 갈라지지 않는다.
     {
-      key: "MPKPLA26910301",
-      request: 접수("MPKPLA26910301", "수질측정기 요청", ["MPKPLA26910301"]),
-      notice: 건(공고("R26BK09017075", "001", "수질측정기 구매",
+      key: "TSTPLA26500301",
+      request: 접수("TSTPLA26500301", "수질측정기 요청", ["TSTPLA26500301"]),
+      notice: 건(공고("R26BK98000575", "001", "수질측정기 구매",
                      "2026/07/02 16:59:28", ["000", "001"])),
-      contracts: [계약("R26TA0911050700", "수질측정기 조달", 2)],
+      contracts: [계약("R26TA9800070700", "수질측정기 조달", 2)],
     },
     // 계약이 둘. 끝 칸만 갈라진다.
     {
-      key: "R26BK09017080",
+      key: "R26BK98000580",
       request: null,
-      notice: 건(공고("R26BK09017080", "000", "가람 절단기 구매",
+      notice: 건(공고("R26BK98000580", "000", "가람 절단기 구매",
                      "2026/07/03 10:00:00", ["000"])),
       contracts: [
-        계약("R26TA0911050800", "가람 절단기 조달", 0),
-        계약("R26TA0911050900", "가람 절단기 조달 (2차분)", 0),
+        계약("R26TA9800070800", "가람 절단기 조달", 0),
+        계약("R26TA9800070900", "가람 절단기 조달 (2차분)", 0),
       ],
     },
     // 접수만 들어온 사슬. 공고도 계약도 아직 없다.
     {
-      key: "MPKPLA26910286",
-      request: 접수("MPKPLA26910286", "26년한별윈치8종구매", 여덟),
+      key: "TSTPLA26500286",
+      request: 접수("TSTPLA26500286", "26년한별윈치8종구매", 여덟),
       notice: null,
       contracts: [],
     },
     // 어디에도 매달리지 못한 계약.
     {
-      key: "R26TA09990001",
+      key: "R26TA98001001",
       request: null,
       notice: null,
-      contracts: [계약("R26TA0999000100", "한별 소나 부품 구매", 0)],
+      contracts: [계약("R26TA9800100100", "한별 소나 부품 구매", 0)],
     },
     // 취소 뒤 재공고로 본번호가 갈린 건. 사슬은 하나이고 본문에는 재공고가 선다.
     {
@@ -105,14 +105,14 @@ const tree: Tree = {
       request: 접수("AAAAAA26000001", "가스성분분석기 요청", ["AAAAAA26000001"]),
       notice: {
         groupBase: "R26BK00000009",
-        current: 공고("R26BK09012082", "000", "가스성분분석기 구매",
+        current: 공고("R26BK98000282", "000", "가스성분분석기 구매",
                     "2026/07/25 09:30:00", ["000"]),
         superseded: [
           공고("R26BK00000009", "001", "가스성분분석기 구매",
               "2026/07/09 14:20:00", ["000", "001"]),
         ],
       },
-      contracts: [계약("R26TA0908046900", "가스성분분석기 조달", 0)],
+      contracts: [계약("R26TA9800066900", "가스성분분석기 조달", 0)],
     },
   ],
 };
@@ -151,14 +151,14 @@ describe("Outline", () => {
     const user = userEvent.setup();
     draw();
 
-    expect(screen.getAllByText("R26TA0911050700")).toHaveLength(1);
+    expect(screen.getAllByText("R26TA9800070700")).toHaveLength(1);
 
     // 펼쳐서 명세를 꺼내도 계약 줄은 그대로 하나다.
     await user.click(screen.getByRole("button", { name: /품목 2/ }));
 
     expect(screen.getByText("품목1")).toBeTruthy();
     expect(screen.getByText("품목2")).toBeTruthy();
-    expect(screen.getAllByText("R26TA0911050700")).toHaveLength(1);
+    expect(screen.getAllByText("R26TA9800070700")).toHaveLength(1);
   });
 
   /**
@@ -204,12 +204,12 @@ describe("Outline", () => {
     draw();
 
     const 사슬하나 = 사슬("26년한별윈치8종구매");
-    expect(within(사슬하나).getByText("MPKPLA26910286")).toBeTruthy();
-    expect(within(사슬하나).queryByText("MPKPLA26910293")).toBeNull();
+    expect(within(사슬하나).getByText("TSTPLA26500286")).toBeTruthy();
+    expect(within(사슬하나).queryByText("TSTPLA26500293")).toBeNull();
 
     await user.click(within(사슬하나).getByRole("button", { name: "외 5건" }));
 
-    expect(within(사슬하나).getByText("MPKPLA26910293")).toBeTruthy();
+    expect(within(사슬하나).getByText("TSTPLA26500293")).toBeTruthy();
   });
 
   /** 차수 셋이 세 줄로 서면 건수가 부풀어 보인다. 본문에는 최신 하나만 선다. */
@@ -217,12 +217,12 @@ describe("Outline", () => {
     const user = userEvent.setup();
     draw();
 
-    expect(screen.getByText("R26BK09017075-001")).toBeTruthy();
-    expect(screen.queryByText("R26BK09017075-000")).toBeNull();
+    expect(screen.getByText("R26BK98000575-001")).toBeTruthy();
+    expect(screen.queryByText("R26BK98000575-000")).toBeNull();
     const summary = within(사슬("수질측정기 요청")).getByText("문서 2개");
     await user.click(summary);
     expect(summary.closest("details")?.open).toBe(true);
-    expect(screen.getByText("차수 R26BK09017075-000 · R26BK09017075-001")).toBeTruthy();
+    expect(screen.getByText("차수 R26BK98000575-000 · R26BK98000575-001")).toBeTruthy();
   });
 
   /**
@@ -237,15 +237,15 @@ describe("Outline", () => {
     const 하나 = 사슬("가스성분분석기 요청");
 
     // 본문에 서는 것은 살아 있는 재공고다. 취소된 원공고는 이름표의 장수로만 남는다.
-    expect(within(하나).getByText("R26BK09012082-000")).toBeTruthy();
+    expect(within(하나).getByText("R26BK98000282-000")).toBeTruthy();
     expect(screen.queryByText("R26BK00000009-001")).toBeNull();
     // 이름표는 공고번호째로 적는다 — 차수만 적으면 갈린 두 본번호의 `000` 이 두 번 나온다.
     expect(within(하나).getByText(
-      "차수 R26BK09012082-000 · R26BK00000009-000 · R26BK00000009-001")).toBeTruthy();
+      "차수 R26BK98000282-000 · R26BK00000009-000 · R26BK00000009-001")).toBeTruthy();
 
     // 접수와 계약이 그 한 사슬에 붙는다. 비어 있는 칸은 하나도 없다.
     expect(within(하나).getByText("AAAAAA26000001-000")).toBeTruthy();
-    expect(within(하나).getByText("R26TA0908046900")).toBeTruthy();
+    expect(within(하나).getByText("R26TA9800066900")).toBeTruthy();
     expect(within(하나).queryByText("(아직 없음)")).toBeNull();
   });
 
@@ -324,7 +324,7 @@ describe("Outline", () => {
     const user = userEvent.setup();
     draw();
 
-    await user.type(screen.getByRole("searchbox"), "MPKPLA26910290");
+    await user.type(screen.getByRole("searchbox"), "TSTPLA26500290");
 
     expect(screen.getByText("26년한별윈치8종구매")).toBeTruthy();
     expect(screen.queryByText("한별 소나 부품 구매")).toBeNull();
@@ -342,7 +342,7 @@ describe("Outline", () => {
     const 칸 = 커서();
     expect(칸).not.toBeNull();
     expect(칸!.classList.contains("cur")).toBe(true);
-    expect(within(칸!).getByText("MPKPLA26910301-000")).toBeTruthy();
+    expect(within(칸!).getByText("TSTPLA26500301-000")).toBeTruthy();
   });
 
   it("↑↓ 는 사슬을 옮긴다", async () => {
@@ -365,7 +365,7 @@ describe("Outline", () => {
 
     // 계약이 하나인 사슬은 셋째 칸에서 멈춘다.
     await user.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
-    expect(within(커서()!).getByText("R26TA0911050700")).toBeTruthy();
+    expect(within(커서()!).getByText("R26TA9800070700")).toBeTruthy();
 
     // 계약이 둘인 사슬에서는 그 자리에서 오른쪽으로 한 칸이 더 있다.
     await user.keyboard("{ArrowDown}");
