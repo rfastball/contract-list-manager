@@ -1,5 +1,5 @@
 //! THIRD-PARTY-NOTICES.txt 가 배포 exe 에 실제로 실리는 것과 같은가 — `== crate` 는 `cargo tree`, `== npm` 은
-//! `package-lock.json` 의 운영 의존, `== font` 는 `frontend/fonts` 와 견준다(C# ThirdPartyNoticesTests 의 Rust 짝). 의존을
+//! `package-lock.json` 의 운영 의존, `== font` 는 `frontend/fonts` 와 견준다. 의존을
 //! 더하거나 판을 올리고 고지를 고치지 않으면 여기서 붉어진다. 수를 박아 두지 않는다 — 판이 오르면 붉어지는 것이 의도다.
 
 use std::path::{Path, PathBuf};
@@ -79,7 +79,7 @@ fn same(
     );
 }
 
-/// C# `ThirdPartyNoticesTests.npm_운영_의존이_이름과_판으로_모두_적혀_있고_적힌_것은_모두_실린다` — 화면(exe 에 박힌다)에 실리는
+/// 화면(exe 에 박힌다)에 실리는
 /// npm 운영 의존은 `package-lock.json` 의 dev · devOptional 이 아닌 꾸러미다.
 #[test]
 fn npm_운영_의존이_이름과_판으로_모두_적혀_있고_적힌_것은_모두_실린다() {
@@ -105,7 +105,7 @@ fn npm_운영_의존이_이름과_판으로_모두_적혀_있고_적힌_것은_�
     same(&shipped, &heads(&text, "npm"), "npm");
 }
 
-/// C# `ThirdPartyNoticesTests.화면에_싣는_글꼴마다_고지가_있다` — `frontend/fonts/*.woff2` 와 `== font` 항목이 짝이다.
+/// `frontend/fonts/*.woff2` 와 `== font` 항목이 짝이다.
 #[test]
 fn 화면에_싣는_글꼴마다_고지가_있다() {
     let fonts = root().join("frontend").join("fonts");

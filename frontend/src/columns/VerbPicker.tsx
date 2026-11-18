@@ -7,7 +7,7 @@ import { groups, verbsFor } from "../flow/verbs";
  * 「+ 단계」 의 동사 고르개. 지금 꼴에서 쓸 수 있는 동사만 묶음별로 보이고, 쳐서 찾는다(§6.4).
  * ↑↓ 로 옮기고 Enter 로 고르며 Esc 로 닫는다.
  */
-export function VerbPicker({ shape, onPick, onClose }: { shape: Shape; onPick: (op: Op) => void; onClose: () => void }) {
+export function VerbPicker({ shape, triggerRef, onPick, onClose }: { shape: Shape; triggerRef: React.RefObject<HTMLButtonElement | null>; onPick: (op: Op) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -22,10 +22,10 @@ export function VerbPicker({ shape, onPick, onClose }: { shape: Shape; onPick: (
   useEffect(() => { input.current?.focus({ preventScroll: true }); root.current?.scrollIntoView?.({ block: "nearest" }); }, []);
   useEffect(() => setActive(0), [query]);
   useEffect(() => {
-    const away = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) onClose(); };
+    const away = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node) && !triggerRef.current?.contains(e.target as Node)) onClose(); };
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
-  }, [onClose]);
+  }, [onClose, triggerRef]);
   useEffect(() => { document.getElementById(`${id}-${current?.op}`)?.scrollIntoView({ block: "nearest" }); }, [current, id]);
 
   return <div className="verb-picker" ref={root} role="dialog" aria-label="단계 추가">
@@ -50,7 +50,7 @@ export function VerbPicker({ shape, onPick, onClose }: { shape: Shape; onPick: (
           </div>)}
         </div>;
       })}
-      {!ordered.length && <p className="column-hint verb-empty">「{q}」에 맞는 동사가 없습니다. 지금 단계({shapeLabel[shape]})에 쓸 수 있는 동사만 보입니다.</p>}
+      {!ordered.length && <p className="column-hint verb-empty">「{q}」에 맞는 동사가 없습니다.</p>}
     </div>
   </div>;
 }

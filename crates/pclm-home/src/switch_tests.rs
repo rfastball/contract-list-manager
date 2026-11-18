@@ -1,4 +1,4 @@
-//! C# `WorkfileSwitchTests` — 작업자료 바꾸기(ADR-032): 옮기기·다른 작업자료 쓰기·스냅샷에서 새로·새 계약자료·백업.
+//! 작업자료 바꾸기(ADR-032): 옮기기·다른 작업자료 쓰기·스냅샷에서 새로·새 계약자료·백업.
 //!
 //! 지키는 것은 둘이다. 바꾸는 사이 확장이 저장한 것이 **사람이 다음에 여는 자료에 있거나, 거절되거나** 둘 중 하나여야
 //! 하고, 바꾸다 멈추면 **쪽지도 파일도 그대로**여야 한다. 홈은 모두 임시 폴더다. 값은 전부 지어낸 것이다.
@@ -11,7 +11,7 @@ use pclm_core::erp::capture::{CaptureInput, ErpCapture};
 use pclm_core::erp::{mapping, tools};
 use pclm_core::storage::{pclm_file, schema, views};
 use pclm_core::{Access, Database, Error, PclmKind, PclmRole};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::home_tests::{Root, count, hash, info, legacy, work};
 use super::*;
@@ -36,8 +36,7 @@ impl Fixture {
                 "INSERT INTO request_series (request_base) VALUES ('R-지어냄');
                  INSERT INTO request (request_base, seq, title, updated_at) VALUES ('R-지어냄', '00', '지어낸 접수', 't');
                  INSERT INTO contract_series (contract_base) VALUES ('C-지어냄');
-                 INSERT INTO contract (contract_base, seq, title, updated_at) VALUES ('C-지어냄', '00', '지어낸 계약', 't');
-                 INSERT INTO plan (request_number, item_name, source_name, imported_at) VALUES ('P-지어냄', '지어낸 품명', '지어낸.xlsx', 't');",
+                 INSERT INTO contract (contract_base, seq, title, updated_at) VALUES ('C-지어냄', '00', '지어낸 계약', 't');",
             )
             .unwrap();
         Fixture {
@@ -59,11 +58,11 @@ impl Fixture {
         info(self.current.path()).dataset_id.unwrap()
     }
 
-    fn submission(&self) -> PathBuf {
+    fn backup(&self) -> PathBuf {
         pclm_file::snapshot(
             &self.current,
-            &self.join("제출.pclm"),
-            PclmRole::SUBMISSION,
+            &self.join("받은.pclm"),
+            PclmRole::BACKUP,
             false,
             &SystemEnv,
         )
@@ -116,7 +115,7 @@ fn no_temporaries(folder: &Path, recursive: bool) -> bool {
 }
 
 fn same(a: &Path, b: &str) -> bool {
-    dotnet::eq_ignore_case(&a.to_string_lossy(), b)
+    paths::eq_ignore_case(&a.to_string_lossy(), b)
 }
 
 // ── 확장 저장 ────────────────────────────────────────────────────────
@@ -136,25 +135,24 @@ fn snapshot(base: &str) -> CaptureInput {
     input
 }
 
-/// 확장 호스트가 이 파일에 저장할 요청을 미리 짓는다. 공고 하나, 충돌 없음.
-fn prepare_capture(path: &Path, home: &Home, dataset_id: &str, base: &str) -> Value {
+/// 확장 호스트가 이 파일에 저장할 것(입력과 그 지문)을 미리 짓는다. 공고 하나, 충돌 없음.
+fn prepare_capture(path: &Path, home: &Home, base: &str) -> (CaptureInput, String) {
     let host = ErpCapture::new(path, &SystemEnv)
         .with_environment("development")
         .with_destination(home);
     let input = snapshot(base);
     let preview = host.inspect(&input).unwrap();
-    json!({
-        "protocolVersion": 2, "requestId": win::new_guid_n(), "method": "capture",
-        "params": { "datasetId": dataset_id, "snapshot": input.to_value(),
-            "captureId": win::new_guid_n(), "baseToken": preview.base_token, "choices": {} },
-    })
+    (input, preview.base_token)
 }
 
-fn send(path: &Path, home: &Home, request: &Value) -> Value {
+/// 확장 호스트의 저장 — 문서 만들기 패널의 저장이 타는 [`ErpCapture::save`]. 거절이면 그 글.
+fn send(path: &Path, home: &Home, (input, token): &(CaptureInput, String)) -> Result<(), String> {
     ErpCapture::new(path, &SystemEnv)
         .with_environment("development")
         .with_destination(home)
-        .dispatch(request, false)
+        .save(input, Some(token), Some(&win::new_guid_n()), &Vec::new())
+        .map(|_| ())
+        .map_err(|e| pclm_core::storage::store::error_message(&e))
 }
 
 /// 창의 고급 도구 「검토한 자료 저장」 도 쪽지를 본다. 창이 연 파일을 쪽지가 더는 가리키지 않으면 거절한다.
@@ -222,7 +220,7 @@ fn 옮기기는_같은_자료를_새_자리에_세우고_옛_파일을_retired_�
         (PclmKind::Ok, Some(PclmRole::WORK), Some(id.as_str()))
     );
     assert_eq!(dump(&target), before);
-    for table in ["request", "contract", "plan"] {
+    for table in ["request", "contract"] {
         assert_eq!(count(&target, table), 1);
     }
 
@@ -259,6 +257,67 @@ fn 옮긴_뒤_다음_시작은_옛_파일을_지우고_쪽지의_옛_자리를_�
     );
     assert!(!old.exists());
     assert!(!resolve::suffixed(&old, "-wal").exists());
+    assert_eq!(f.home.read_config().config.unwrap().retired, None);
+}
+
+/// 남은 호스트가 옛 파일을 쥐고 있어 못 지우면 쪽지의 옛 자리를 남겨, 풀린 뒤의 시작이 마저 지운다.
+#[test]
+fn 옛_파일을_못_지우면_쪽지에_남겨_다음_시작이_다시_지운다() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let f = Fixture::new();
+    let old = f.current.path().to_path_buf();
+    f.home.move_to(&f.current, &f.join("새 자리.pclm")).unwrap();
+
+    // SQLite 처럼 읽기·쓰기만 나눠 열어 둔다 — 지우기는 막힌다.
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0x1 | 0x2)
+        .open(&old)
+        .unwrap();
+    let HomeState::Ready { notes, .. } = f.home.resolve().unwrap() else {
+        panic!("새 자리를 연다");
+    };
+    assert!(old.exists());
+    assert!(notes.is_empty());
+    assert!(same(&old, &f.home.read_config().config.unwrap().retired.unwrap()));
+
+    drop(held);
+    let HomeState::Ready { .. } = f.home.resolve().unwrap() else {
+        panic!("새 자리를 연다");
+    };
+    assert!(!old.exists());
+    assert_eq!(f.home.read_config().config.unwrap().retired, None);
+}
+
+/// 쪽지의 신원이 파일과 달라 쪽지를 고칠 때도 못 지운 옛 자리는 쪽지에 남는다.
+#[test]
+fn 쪽지의_신원을_고칠_때도_못_지운_옛_자리는_남는다() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let f = Fixture::new();
+    let old = f.current.path().to_path_buf();
+    let target = f.join("새 자리.pclm");
+    f.home.move_to(&f.current, &target).unwrap();
+    f.home.write_config(&target, "deadbeef", Some(&old)).unwrap();
+
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0x1 | 0x2)
+        .open(&old)
+        .unwrap();
+    let HomeState::Ready { .. } = f.home.resolve().unwrap() else {
+        panic!("새 자리를 연다");
+    };
+    let config = f.home.read_config().config.unwrap();
+    assert_ne!(config.dataset_id.as_deref(), Some("deadbeef"));
+    assert!(same(&old, &config.retired.unwrap()));
+
+    drop(held);
+    let HomeState::Ready { .. } = f.home.resolve().unwrap() else {
+        panic!("새 자리를 연다");
+    };
+    assert!(!old.exists());
     assert_eq!(f.home.read_config().config.unwrap().retired, None);
 }
 
@@ -326,8 +385,8 @@ fn 새_작업자료_자리에_파일이_있으면_다른_이름을_고르라고_
 #[test]
 fn 옮기기_전에_커밋된_저장은_새_자리에_있다() {
     let f = Fixture::new();
-    let request = prepare_capture(f.current.path(), &f.home, &f.current_id(), "R26BK00000001");
-    assert_eq!(send(f.current.path(), &f.home, &request)["ok"], true);
+    let request = prepare_capture(f.current.path(), &f.home, "R26BK00000001");
+    send(f.current.path(), &f.home, &request).unwrap();
 
     let target = f.join("새 자리.pclm");
     f.home.move_to(&f.current, &target).unwrap();
@@ -337,7 +396,11 @@ fn 옮기기_전에_커밋된_저장은_새_자리에_있다() {
 }
 
 /// 잠금 안에 끼워 저장을 줄 세운다. 줄 선 저장의 답을 돌려준다.
-fn queue_capture(home: &mut Home, path: &Path, request: Value) -> mpsc::Receiver<Value> {
+fn queue_capture(
+    home: &mut Home,
+    path: &Path,
+    request: (CaptureInput, String),
+) -> mpsc::Receiver<Result<(), String>> {
     let (sent, received) = mpsc::channel();
     let queued = Arc::new(Mutex::new(Some((sent, request))));
     let (path, destination) = (path.to_path_buf(), home.clone());
@@ -364,20 +427,14 @@ fn queue_capture(home: &mut Home, path: &Path, request: Value) -> mpsc::Receiver
 fn 옮기는_사이_줄_선_저장은_거절되고_어느_파일에도_쓰이지_않는다() {
     let mut f = Fixture::new();
     let old = f.current.path().to_path_buf();
-    let request = prepare_capture(&old, &f.home, &f.current_id(), "R26BK00000001");
+    let request = prepare_capture(&old, &f.home, "R26BK00000001");
     let reply = queue_capture(&mut f.home, &old, request);
 
     let target = f.join("새 자리.pclm");
     f.home.move_to(&f.current, &target).unwrap();
 
     let reply = reply.recv_timeout(Duration::from_secs(60)).unwrap();
-    assert_eq!(reply["ok"], false);
-    assert!(
-        reply["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("저장 대상이 바뀌었습니다")
-    );
+    assert!(reply.unwrap_err().contains("저장 대상이 바뀌었습니다"));
     for path in [&old, &target] {
         assert_eq!(count(path, "notice"), 0);
         assert_eq!(count(path, "erp_capture"), 0);
@@ -408,13 +465,13 @@ fn 다른_작업자료를_쓰면_쪽지만_바뀌고_지금_자료는_작업자�
 }
 
 #[test]
-fn 제출본은_그_자리에서_작업자료로_쓰지_않는다() {
+fn 백업은_그_자리에서_작업자료로_쓰지_않는다() {
     let f = Fixture::new();
-    let submission = f.submission();
+    let backup = f.backup();
     let config = f.config_bytes();
 
-    let Err(Error::PclmFile(error)) = f.home.use_in_place(&f.current, &submission) else {
-        panic!("제출본은 쓰지 않는다");
+    let Err(Error::PclmFile(error)) = f.home.use_in_place(&f.current, &backup) else {
+        panic!("백업은 쓰지 않는다");
     };
 
     assert!(
@@ -430,15 +487,12 @@ fn 다른_작업자료로_바꾸는_사이_줄_선_저장은_거절된다() {
     let mut f = Fixture::new();
     let other = work(&f.join("다른 작업자료.pclm"));
     let current = f.current.path().to_path_buf();
-    let request = prepare_capture(&current, &f.home, &f.current_id(), "R26BK00000001");
+    let request = prepare_capture(&current, &f.home, "R26BK00000001");
     let reply = queue_capture(&mut f.home, &current, request);
 
     f.home.use_in_place(&f.current, &other).unwrap();
 
-    assert_eq!(
-        reply.recv_timeout(Duration::from_secs(60)).unwrap()["ok"],
-        false
-    );
+    assert!(reply.recv_timeout(Duration::from_secs(60)).unwrap().is_err());
     assert_eq!(info(&current).role.as_deref(), Some(PclmRole::WORK));
     assert_eq!(count(&current, "notice"), 0);
     assert_eq!(count(&other, "notice"), 0);
@@ -447,15 +501,15 @@ fn 다른_작업자료로_바꾸는_사이_줄_선_저장은_거절된다() {
 // ── 스냅샷에서 새로 ──────────────────────────────────────────────────
 
 #[test]
-fn 제출본에서_새_계약자료를_만들면_새_신원의_작업자료가_서고_원본은_그대로다() {
+fn 백업에서_새_계약자료를_만들면_새_신원의_작업자료가_서고_원본은_그대로다() {
     let f = Fixture::new();
-    let submission = f.submission();
-    let submission_id = info(&submission).dataset_id;
-    let before = hash(&submission);
+    let backup = f.backup();
+    let backup_id = info(&backup).dataset_id;
+    let before = hash(&backup);
     let target = f.join("이어서.pclm");
 
     f.home
-        .create_from_snapshot(&f.current, &submission, &target)
+        .create_from_snapshot(&f.current, &backup, &target)
         .unwrap();
 
     let made = info(&target);
@@ -463,16 +517,16 @@ fn 제출본에서_새_계약자료를_만들면_새_신원의_작업자료가_�
         (made.kind, made.role.as_deref(), made.version),
         (PclmKind::Ok, Some(PclmRole::WORK), schema::VERSION)
     );
-    assert_ne!(made.dataset_id, submission_id);
+    assert_ne!(made.dataset_id, backup_id);
     assert_ne!(made.dataset_id, Some(f.current_id()));
-    assert_eq!(dump(&submission), dump(&target));
+    assert_eq!(dump(&backup), dump(&target));
 
     let config = f.home.read_config().config.unwrap();
     assert!(same(&target, &config.workfile.unwrap()));
     assert_eq!(config.dataset_id, made.dataset_id);
     assert_eq!(info(f.current.path()).role.as_deref(), Some(PclmRole::WORK));
 
-    assert_eq!(hash(&submission), before);
+    assert_eq!(hash(&backup), before);
     assert!(!resolve::suffixed(&target, "-wal").exists());
 }
 
@@ -509,14 +563,14 @@ fn 옛_v19_파일에서_새_계약자료를_만들면_사본을_올리고_원본
 #[test]
 fn 새_계약자료를_뜰_자리에_파일이_있으면_덮지_않는다() {
     let f = Fixture::new();
-    let submission = f.submission();
+    let backup = f.backup();
     let target = f.join("있는 것.pclm");
     std::fs::write(&target, "남의 것").unwrap();
     let config = f.config_bytes();
 
     assert!(matches!(
         f.home
-            .create_from_snapshot(&f.current, &submission, &target),
+            .create_from_snapshot(&f.current, &backup, &target),
         Err(Error::Io(_))
     ));
 
@@ -616,13 +670,13 @@ fn 백업은_작업자료를_덮지_않는다() {
 fn 네트워크_자리는_어느_동작에서도_거절한다() {
     let f = Fixture::new();
     let unc = Path::new(r"\\지어낸서버\공유\계약자료.pclm");
-    let submission = f.submission();
+    let backup = f.backup();
     let config = f.config_bytes();
 
     let results = [
         f.home.move_to(&f.current, unc),
         f.home.use_in_place(&f.current, unc),
-        f.home.create_from_snapshot(&f.current, &submission, unc),
+        f.home.create_from_snapshot(&f.current, &backup, unc),
         f.home.create_new_while_running(&f.current, unc),
         backup_to(&f.current, unc),
     ];

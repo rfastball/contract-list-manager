@@ -1,6 +1,6 @@
-//! C# `OutlineTests` — 쌓인 것을 **생긴 모양대로** 내는지 본다: 접수 → 공고 → 계약 사슬, 계약 아래 명세. 지키는 것은
+//! 쌓인 것을 **생긴 모양대로** 내는지 본다: 접수 → 공고 → 계약 사슬, 계약 아래 명세. 지키는 것은
 //! 평평한 표의 **되풀이가 없다**는 사실과, 사슬이 셋 중 어느 것이 없어도 선다는 사실이다. 접수 뷰의 칸 접기(인도조건·
-//! 수량·빈 줄)도 C# 이 이 묶음에 두었으므로 함께 옮긴다.
+//! 수량·빈 줄)도 이 묶음에서 함께 본다.
 //!
 //! 값은 전부 지어낸 것이다(CLAUDE.md).
 
@@ -20,7 +20,7 @@ fn build(f: &Fixture) -> OutlineTree {
     Outline::new(f.database()).build().unwrap()
 }
 
-/// C# `Request(seq)` — 접수일 2026-06-09, 조달요구 두 줄.
+/// 접수일 2026-06-09, 조달요구 두 줄.
 fn request(f: &Fixture, seq: &str, items: Option<&[&[(&str, &str)]]>) {
     let default: &[&[(&str, &str)]] = &[
         &[
@@ -49,7 +49,7 @@ fn request(f: &Fixture, seq: &str, items: Option<&[&[(&str, &str)]]>) {
     );
 }
 
-/// C# `Notice(seq)` — 게시 2026-07-18.
+/// 게시 2026-07-18.
 fn notice(f: &Fixture, seq: &str) {
     f.notice(
         NOTICE,
@@ -63,7 +63,6 @@ fn notice(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `Contract(seq, 두줄)`.
 fn contract(f: &Fixture, seq: &str, two_lines: bool) {
     let item = |line: &'static str, name: &'static str| -> [(&'static str, &'static str); 6] {
         [
@@ -93,7 +92,7 @@ fn contract(f: &Fixture, seq: &str, two_lines: bool) {
     );
 }
 
-/// C# `Link()` — `ReferenceFixture.Contract`.
+/// `ReferenceFixture.Contract`.
 fn link(f: &Fixture) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -106,7 +105,7 @@ fn link(f: &Fixture) {
     tx.commit().unwrap();
 }
 
-/// C# `LinkRequest()` — `ReferenceFixture.Request`.
+/// `ReferenceFixture.Request`.
 fn link_request(f: &Fixture) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -327,7 +326,7 @@ fn 접수_인도조건은_세부품명이_여럿이어도_같으면_싣는다() 
     );
 }
 
-/// `[Theory]` — 단위가 모두 같으면 수량을 더하고, 갈리면 수량도 단위도 비운다.
+/// 단위가 모두 같으면 수량을 더하고, 갈리면 수량도 단위도 비운다.
 #[test]
 fn 접수_수량은_단위가_같을_때만_더한다() {
     for (first, second, expected) in [("대", "대", "3|대"), ("대", "식", "|")] {
@@ -361,7 +360,7 @@ fn 접수_수량은_단위가_같을_때만_더한다() {
     }
 }
 
-/// `[Theory]` — 접수도 빈 줄을 한 값으로 센다.
+/// 접수도 빈 줄을 한 값으로 센다.
 #[test]
 fn 접수도_빈_줄이_섞이면_칸을_비운다() {
     /// (첫 줄 재고번호, 둘째 줄 재고번호, 첫 줄 수량, 둘째 줄 수량, 기대).

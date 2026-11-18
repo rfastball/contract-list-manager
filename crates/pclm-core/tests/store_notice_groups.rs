@@ -1,4 +1,4 @@
-//! C# `NoticeGroupTests` — 관련공고를 타고 갈린 본번호를 한 건으로 묶는다(스키마 V15). `NoticeRelationTests` 의 차수 몫도
+//! 관련공고를 타고 갈린 본번호를 한 건으로 묶는다(스키마 V15). `NoticeRelationTests` 의 차수 몫도
 //! 여기 둔다. 번호 모양은 실측 코퍼스의 것이지만 담긴 값은 모두 지어낸 것이다.
 
 mod common;
@@ -12,10 +12,10 @@ use pclm_core::storage::store::EntityRef;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
 
-/// C# 이 `DateTime` 을 담는 꼴(Microsoft.Data.Sqlite) — `yyyy-MM-dd HH:mm:ss`.
+/// `DateTime` 이 담기는 꼴 — `yyyy-MM-dd HH:mm:ss`.
 const POSTED: &str = "2026-07-18 00:00:00";
 
-/// C# 이 `decimal` 을 담는 꼴 — `0.0###…` 이라 뜻 없는 `.0` 이 붙는다.
+/// `decimal` 이 담기는 꼴 — `0.0###…` 이라 뜻 없는 `.0` 이 붙는다.
 const AMOUNT: &str = "164872340.0";
 
 // ── 묶기 ─────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ fn reissued_notice_joins_the_original_case() {
     assert!(rows.iter().all(|r| r["현행공고"] == "R26BK98000282-000"));
 }
 
-/// `여러_현행_후보중_재공고_하나만_고른다` (Theory) — 뷰와 `Outline` 이 같은 현행을 고른다.
+/// 뷰와 `Outline` 이 같은 현행을 고른다.
 #[test]
 fn only_a_single_reissue_among_current_candidates_is_chosen() {
     let cases: &[(Option<&str>, Option<&str>, bool)] = &[
@@ -114,7 +114,7 @@ fn latest_round_and_explicit_replacement_come_before_reissue_preference() {
     // 재공고인 옛 차수를 후보에 다시 넣지 않는다. 최신 차수 둘은 여전히 모호하다.
     assert!(rows(&f).iter().all(|r| r["현행공고"].is_empty()));
 
-    // C# 은 레코드 전체를 다시 쓴다 — 이 차수의 제목·게시일시는 NULL 로 돌아간다.
+    // 레코드 전체를 다시 쓴다 — 이 차수의 제목·게시일시는 NULL 로 돌아간다.
     f.sql("UPDATE notice SET title=NULL, posted_at=NULL WHERE notice_base='R26BK00000001' AND seq='001';");
     f.notice(
         "R26BK00000001",
@@ -248,7 +248,7 @@ fn superseded_notices_stand_latest_first() {
     assert_eq!(superseded, ["R26BK98000282-000", "R26BK98000154-000"]);
 }
 
-/// C# `NoticeRelationTests.차수마다_따로_매달린다` — 나중에 넣은 문서가 앞 차수의 관련공고를 조용히 덮었을 자리다.
+/// 나중에 넣은 문서가 앞 차수의 관련공고를 조용히 덮었을 자리다.
 #[test]
 fn related_notices_hang_on_each_round() {
     let f = Fixture::new("ng-relation-rounds");
@@ -567,7 +567,7 @@ fn put_at(f: &Fixture, base: &str, seq: &str, posted: &str, related: &[&str]) {
     );
 }
 
-/// C# `접수와_계약을_잇는다` — 접수와 계약을 하나씩 넣고 **이 공고에** 잇는다. 사람이 짚는 것은 공고이고, 표에 남는 것은
+/// 접수와 계약을 하나씩 넣고 **이 공고에** 잇는다. 사람이 짚는 것은 공고이고, 표에 남는 것은
 /// 그 공고가 속한 건이다.
 fn link_request_and_contract(f: &Fixture, notice_base: &str) {
     request(f, "MBKLMH26930006");
@@ -576,14 +576,12 @@ fn link_request_and_contract(f: &Fixture, notice_base: &str) {
     reference_request(f, "MBKLMH26930006", "000", notice_base);
 }
 
-/// `Assert.Single(new Outline(_database).Build().Chains)`.
 fn only_chain(f: &Fixture) -> OutlineChain {
     let mut chains = Outline::new(f.database()).build().unwrap().chains;
     assert_eq!(chains.len(), 1, "사슬이 하나가 아닙니다");
     chains.remove(0)
 }
 
-/// C# `NoticeRelationTests.Related(base, seq)`.
 fn related(f: &Fixture, base: &str, seq: &str) -> Vec<String> {
     let c = read_only(f);
     let mut s = c
@@ -626,7 +624,7 @@ fn request(f: &Fixture, base: &str) {
     );
 }
 
-/// C# `ReferenceFixture.Contract` — 계약 문서에 명시 참조를 넣고 연결을 다시 짓는다.
+/// 계약 문서에 명시 참조를 넣고 연결을 다시 짓는다.
 fn reference_contract(f: &Fixture, contract_base: &str, notice_base: &str) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -639,7 +637,7 @@ fn reference_contract(f: &Fixture, contract_base: &str, notice_base: &str) {
     tx.commit().unwrap();
 }
 
-/// C# `ReferenceFixture.Request` — 공고 품목이 접수를 가리키게 하고 연결을 다시 짓는다.
+/// 공고 품목이 접수를 가리키게 하고 연결을 다시 짓는다.
 fn reference_request(f: &Fixture, request_base: &str, request_seq: &str, notice_base: &str) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -700,7 +698,7 @@ fn text(v: Value) -> String {
         Value::Integer(i) => i.to_string(),
         Value::Real(r) => r.to_string(),
         Value::Text(t) => t,
-        Value::Blob(_) => "System.Byte[]".into(),
+        Value::Blob(_) => "(바이너리)".into(),
     }
 }
 

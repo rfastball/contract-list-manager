@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "창(C# Pclm.App 의 WPF + WebView2 를 대신하는 Tauri 2 껍데기)과 브라우저 확장의 native messaging 호스트 — 배포되는 계약목록.exe 하나의 두 역할(#8 ⑧b)."
+description = "창(WebView2 위의 Tauri 2 껍데기)과 브라우저 확장의 native messaging 호스트 — 배포되는 계약목록.exe 하나의 두 역할(#8 ⑧b)."
 publish = false
 
 # 배포물은 이 실행 파일 하나다 — publish.ps1 이 `계약목록.exe` 로 놓는다(cargo 의 bin 이름은 ASCII).
@@ -23,7 +23,7 @@ shell = ["dep:tauri", "dep:tauri-build", "dep:windows-sys", "dep:windows", "dep:
 pclm-core = { path = "../pclm-core" }
 pclm-home = { path = "../pclm-home" }
 pclm-bridge = { path = "../pclm-bridge" }
-# 같은 exe 의 둘째 역할 — 브라우저가 띄우는 호스트(C# Program.cs 의 첫 갈래).
+# 같은 exe 의 둘째 역할 — 브라우저가 띄우는 호스트.
 pclm-erp-host = { path = "../pclm-erp-host" }
 # pclm-core 와 같은 판·같은 기능 — 링크하면 기능이 합쳐진다.
 serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }

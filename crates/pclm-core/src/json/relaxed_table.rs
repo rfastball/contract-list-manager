@@ -1,6 +1,6 @@
-//! `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` 이 이스케이프하는 코드 포인트 구간(양 끝 포함).
+//! 느슨한 인코더가 이스케이프하는 코드 포인트 구간(양 끝 포함).
 //!
-//! .NET 8 런타임에서 U+0000..U+10FFFF(서로게이트 제외)를 하나씩 `JsonSerializer.Serialize` 해 떠낸 표다 — 손으로 고치지 않는다.
+//! 옛 판의 런타임에서 U+0000..U+10FFFF(서로게이트 제외)를 하나씩 직렬화해 떠낸 표다 — 손으로 고치지 않는다.
 //! 인코더는 "정의되지 않은 코드 포인트" 표를 런타임에 들고 있어 규칙으로 옮겨 적을 수 없다.
 
 pub(super) const RELAXED_ESCAPED: &[(u32, u32)] = &[

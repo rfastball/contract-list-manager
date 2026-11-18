@@ -1,14 +1,14 @@
-//! 작업자료를 열 수 없을 때의 시작 화면(C# `Pclm.App/StartWindow.cs`, ADR-030) — WPF 창 대신 작업 대화상자(TaskDialog).
+//! 작업자료를 열 수 없을 때의 시작 화면(ADR-030) — 작업 대화상자(TaskDialog).
 //!
 //! **여기서는 사람이 누르기 전에 아무것도 만들지 않는다.** 쪽지가 깨졌거나 가리키는 파일이 없을 때 빈 자료를 세우고 넘어가면,
 //! 사람은 자료가 사라진 줄 알고 확장은 그 빈 자료에 쌓는다. 무엇이 왜 안 되는지 보이고, 있는 파일을 찾을지 새로 만들지를
-//! 사람이 고른다. 빈 자료가 서는 길은 「새로 만들기」(`Home::create_new` → `PclmFile.Create`) 하나다.
+//! 사람이 고른다. 빈 자료가 서는 길은 「새로 만들기」(`Home::create_new` → `pclm_file::create`) 하나다.
 //!
-//! 글 · 단추 · 그 뒤 동작은 C# 과 같다: 「파일 찾기…」 · 「새로 만들기…」 · 「닫기」(Esc 도). 고른 파일을 받지 못하면 까닭을
+//! 글 · 단추 · 그 뒤 동작: 「파일 찾기…」 · 「새로 만들기…」 · 「닫기」(Esc 도). 고른 파일을 받지 못하면 까닭을
 //! 알림 상자로 보이고 이 화면에 머문다. 받았으면 닫고 부른 쪽이 처음부터 다시 본다(쪽지가 바뀌었다) — 여기서 곧장 여는 길을
 //! 따로 두면 시작 흐름이 두 벌이 된다.
 //!
-//! C# 과 다른 것: 경로가 글 상자가 아니라 본문의 한 줄이다(골라 복사하는 대신 Ctrl+C 가 대화상자의 글 전부를 복사한다).
+//! 경로는 글 상자가 아니라 본문의 한 줄이다(골라 복사하는 대신 Ctrl+C 가 대화상자의 글 전부를 복사한다).
 
 #![allow(unsafe_code)]
 
@@ -35,11 +35,11 @@ const CLOSE: i32 = 103;
 
 /// 시작 화면이 어떻게 끝났나.
 pub enum Outcome {
-    /// 파일을 찾았거나 새로 만들었다(C# `DialogResult = true`) — 부른 쪽이 처음부터 다시 본다.
+    /// 파일을 찾았거나 새로 만들었다 — 부른 쪽이 처음부터 다시 본다.
     Chosen,
     /// 닫았다 — 앱을 내린다.
     Closed,
-    /// 뜻밖의 오류(C# 에서 잡지 않던 것). 부른 쪽이 오류 기록에 남긴다.
+    /// 뜻밖의 오류. 부른 쪽이 오류 기록에 남긴다.
     Failed(String),
 }
 
@@ -82,7 +82,7 @@ fn run(home: &Home, message: &str, path: Option<&Path>) -> Outcome {
         }
     };
     let Some(indirect) = indirect else {
-        return Outcome::Failed("시작 화면(작업 대화상자)을 띄우지 못했습니다.".into());
+        return Outcome::Failed("시작 화면을 띄우지 못했습니다.".into());
     };
 
     let mut content = message.to_string();
@@ -94,7 +94,7 @@ fn run(home: &Home, message: &str, path: Option<&Path>) -> Outcome {
     let instruction = wide("작업자료를 열지 못했습니다");
     let content = wide(&content);
     let footer = wide(
-        "다른 자료를 대신 열거나 빈 자료를 만들지 않았습니다. 있는 작업자료를 찾거나 새로 만드세요.",
+        "있는 작업자료를 찾거나 새로 만드세요.",
     );
     let labels = [wide("파일 찾기…"), wide("새로 만들기…"), wide("닫기")];
     let buttons = [
@@ -141,7 +141,7 @@ fn run(home: &Home, message: &str, path: Option<&Path>) -> Outcome {
     }
     if shown < 0 {
         return Outcome::Failed(format!(
-            "시작 화면(작업 대화상자)을 띄우지 못했습니다(0x{:08X}).",
+            "시작 화면을 띄우지 못했습니다(0x{:08X}).",
             shown as u32
         ));
     }
@@ -184,7 +184,7 @@ unsafe extern "system" fn callback(
                 default_ext: ".pclm".into(),
                 file_name: pclm_home::DEFAULT_WORKFILE_NAME.into(),
                 overwrite_prompt: false,
-                initial: documents(),
+                initial: pclm_home::win::documents(),
             };
             let Some(file) = dialogs::show(owner, &pick) else {
                 return S_FALSE;
@@ -203,24 +203,5 @@ unsafe extern "system" fn callback(
             context.failed = Some(error_message(&error));
             S_OK
         }
-    }
-}
-
-/// `Environment.GetFolderPath(SpecialFolder.MyDocuments)` — 열기 · 저장 고르기 창이 처음 여는 자리.
-pub fn documents() -> Option<String> {
-    use windows_sys::Win32::System::Com::CoTaskMemFree;
-    use windows_sys::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath};
-    let mut path: windows_sys::core::PWSTR = std::ptr::null_mut();
-    // SAFETY: 받은 글은 CoTaskMemFree 로 놓는다.
-    unsafe {
-        if SHGetKnownFolderPath(&FOLDERID_Documents, 0, std::ptr::null_mut(), &mut path) < 0
-            || path.is_null()
-        {
-            return None;
-        }
-        let length = (0..).take_while(|&i| *path.add(i) != 0).count();
-        let text = String::from_utf16_lossy(std::slice::from_raw_parts(path, length));
-        CoTaskMemFree(path as *const _);
-        Some(text)
     }
 }

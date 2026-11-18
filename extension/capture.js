@@ -20,7 +20,7 @@ function pclmFieldElements(selector) {
 // MAIN world에서만 실행한다. 선언형 프로필의 필드만 돌려주며 원본 표 전체를 전송하지 않는다.
 // 수집하는 화면(ADR-037)은 hello 의 매핑에서 screen 을 단 프로필이다 — 그 프로필이 그 화면의 고유키도 들고 있다. 받는지는
 // 화면의 메뉴 번호가 그 목록에 있는가로만 정하고, 화면 하나에 프로필 하나다. 번호를 읽지 못했거나 목록에 없거나 목록이 비었으면
-// (화면을 싣지 않는 옛 호스트) unsupported 표시를 단 오류를 던진다 — 지금 보는 화면이 그것으로 「수집 안 함」 을 세운다.
+// (화면을 단 프로필이 없는 매핑) unsupported 표시를 단 오류를 던진다 — 지금 보는 화면이 그것으로 「수집 안 함」 을 세운다.
 // 목록의 화면인데 그 프로필의 번호 칸을 읽지 못하면 그것은 평범한 오류다(다시 읽기).
 function pclmReadMapped(profiles) {
   if (location.origin !== "https://www.g2b.go.kr" || window !== window.top)

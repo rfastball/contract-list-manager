@@ -9,12 +9,10 @@ import { EditorView } from "@codemirror/view";
 import { parseFlow, printFlow } from "./flow/syntax";
 
 /**
- * 설정 안의 <b>제출·취합</b>.
+ * 설정.
  *
  * <p>부품만 띄우지 않고 <code>App</code> 을 통째로 세우는 까닭: <b>알림(토스트)을 세우는 것은 App</b>
- * 이라, <code>SettingsPanel</code> 만 띄우면 단추를 눌러도 무엇을 알렸는지 볼 데가 없다. 여기서
- * 붙드는 것이 바로 그 알림이다 — 제출본이 어디에 떨어졌는지, 무엇이 겹쳤는지는 알림에
- * 서지 않으면 사람에게 닿지 않는다.</p>
+ * 이라, <code>SettingsPanel</code> 만 띄우면 단추를 눌러도 무엇을 알렸는지 볼 데가 없다.</p>
  *
  * <p>값은 전부 가짜 다리가 지어낸 것이다.</p>
  */
@@ -60,122 +58,21 @@ async function 설정열기() {
   return { user, dialog: await screen.findByRole("dialog", { name: "설정" }) };
 }
 
-describe("설정 — 제출·취합", () => {
-  it("제출본 만들기 단추가 submit 을 부르고 경로를 알린다", async () => {
-    const { user, dialog } = await 설정열기();
-
-    await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
-
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("submit", []));
-    expect(await screen.findByText(/제출본을 만들었습니다.+제출_홍길동_/)).toBeTruthy();
-  });
-
-  /** 제출본은 저장된 이름으로 뜬다 — 칸에 적고 저장하지 않은 이름은 만들기 전에 먼저 저장한다. */
-  it("저장하지 않은 이름으로 제출본을 만들면 그 이름을 먼저 저장하고 만든다", async () => {
-    const { user, dialog } = await 설정열기();
-    const 이름 = within(dialog).getByLabelText("제출자 이름");
-    await user.clear(이름);
-    await user.type(이름, "김철수");
-
-    await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
-
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("submit", []));
-    const 차례 = 부름.mock.calls.map(([m]) => m);
-    expect(부름).toHaveBeenCalledWith("saveSettings", ["김철수"]);
-    expect(차례.indexOf("saveSettings")).toBeLessThan(차례.indexOf("submit"));
-    await 본디("saveSettings", ["홍길동"]);   // 가짜 다리의 설정은 파일 안에서 이어진다 — 다음 시험을 위해 되돌린다.
-  });
-
-  it("이름을 저장하지 못하면 제출본을 만들지 않고, 이미 저장된 이름이면 다시 저장하지 않는다", async () => {
-    가로채기("saveSettings", () => Promise.reject(new Error("시험용 저장 실패")));
-    const { user, dialog } = await 설정열기();
-    const 이름 = within(dialog).getByLabelText("제출자 이름");
-    await user.clear(이름);
-    await user.type(이름, "김철수");
-    await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
-    expect(await screen.findByText("시험용 저장 실패")).toBeTruthy();
-    expect(부름).not.toHaveBeenCalledWith("submit", []);
-
-    부름.mockImplementation(본디);
-    await user.clear(이름);
-    await user.type(이름, "홍길동");
-    부름.mockClear();
-    await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("submit", []));
-    expect(부름.mock.calls.some(([m]) => m === "saveSettings")).toBe(false);
-  });
-
-  it("「저장」 은 설정 창을 닫지 않는다", async () => {
-    const { user, dialog } = await 설정열기();
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    expect(await screen.findByText("설정을 저장했습니다.")).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "설정" })).toBe(dialog);
-    expect((dialog as HTMLDialogElement).open).toBe(true);
-  });
-
-  /** 그만둔 것은 실패가 아니다. 아무 말도 하지 않는 것이 맞다. */
-  it("제출을 그만두면 아무 말도 하지 않는다", async () => {
-    가로채기("submit", () => Promise.resolve(null));
-
-    const { user, dialog } = await 설정열기();
-    await user.click(within(dialog).getByRole("button", { name: "제출본 만들기" }));
-
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("submit", []));
-    expect(screen.queryByText(/제출본을 만들었습니다/)).toBeNull();
-  });
-
-  it("취합 단추가 merge 를 부르고 요약을 알린다", async () => {
-    const { user, dialog } = await 설정열기();
-
-    await user.click(within(dialog).getByRole("button", { name: "제출본 취합하기…" }));
-
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("merge", []));
-
-    // 셈과 두 자리가 함께 서야 한다 — 겹친 것이 무엇이었는지는 그 글(txt)에 있다.
-    const 알림 = await screen.findByText(/제출본 3개/);
-    expect(알림.textContent).toMatch(/충돌 2건/);
-    expect(알림.textContent).toMatch(/취합_\d{8}\.pclm/);
-    expect(알림.textContent).toMatch(/취합_\d{8}\.txt/);
-  });
-
-  /** 빈 폴더를 고른 사람에게 "다 되었다" 고 말하지 않는다 — 까닭을 그대로 보인다. */
-  it("취합이 실패하면 까닭을 그대로 보인다", async () => {
-    가로채기("merge", () => Promise.reject(
-      new Error("합칠 제출본을 찾지 못했습니다 — 이 폴더에 제출본(.pclm)이 없습니다.")));
-
-    const { user, dialog } = await 설정열기();
-    await user.click(within(dialog).getByRole("button", { name: "제출본 취합하기…" }));
-
-    expect(await screen.findByText(/합칠 제출본을 찾지 못했습니다/)).toBeTruthy();
-  });
-});
-
 describe("설정 — 자동 수집", () => {
-  it("사용 여부는 즉시, 이름은 입력 완료 후 저장하고 실패해도 입력을 유지한다", async () => {
+  it("켜기 · 끄기만 즉시 저장한다 — 담당자 이름은 패널의 내 정보라 여기 칸이 없다", async () => {
     const { user, dialog } = await 설정열기();
     const section = await within(dialog).findByRole("region", { name: "자동 수집" });
     const enabled = within(section).getByRole("checkbox", { name: "자동 수집 사용" }) as HTMLInputElement;
     expect(enabled.checked).toBe(false);
     expect(within(section).queryByRole("button")).toBeNull();
-    const name = within(section).getByLabelText(/^담당자 이름/) as HTMLInputElement;
-    await user.clear(name); await user.type(name, "합성 이름");
-    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(0);
+    expect(within(section).queryByRole("textbox")).toBeNull();
     await user.click(enabled);
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "합성 이름" })]));
-    await waitFor(() => expect(name.disabled).toBe(false));
-    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(1);
-    await user.clear(name);
-    expect(부름.mock.calls.filter(([method]) => method === "saveAutoCaptureSettings")).toHaveLength(1);
-    await user.keyboard("{Enter}");
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "" })]));
-    await waitFor(() => expect(name.disabled).toBe(false));
-    await user.type(name, "키보드 이름"); await user.tab({ shift: true });
-    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true, name: "키보드 이름" })]));
-    await waitFor(() => expect(name.disabled).toBe(false));
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("saveAutoCaptureSettings", [JSON.stringify({ enabled: true })]));
+    await waitFor(() => expect(enabled.disabled).toBe(false));
+    expect(enabled.checked).toBe(true);
     가로채기("saveAutoCaptureSettings", () => Promise.reject(new Error("저장 실패")));
-    await user.clear(name); await user.type(name, "유지할 이름"); await user.tab();
+    await user.click(enabled);
     expect((await within(section).findByRole("alert")).textContent).toContain("저장 실패");
-    expect(name.value).toBe("유지할 이름");
   });
 });
 
@@ -225,8 +122,11 @@ it("가공열은 단계마다 표본 값을 보이고, 꼴이 깨진 식과 실�
   expect((await grid.findAllByText("책상(001) / 의자(002)")).length).toBeGreaterThan(0);
   await act(async () => { release!(); });
   expect(grid.queryByText("늦게 도착한 이전 결과")).toBeNull();
-  // 번호가 빈 표본 B 는 서식 단계에서 빈 값 수로 드러난다.
+  // 번호가 빈 표본 B 는 서식 단계에서 빈 값 수로 드러난다 — 보표는 고른 자료 한 건만 그린다.
+  expect(grid.queryByText("빈 값 1")).toBeNull();
+  await user.selectOptions(grid.getByRole("combobox", { name: "미리보기 자료" }), "1");
   expect(grid.getAllByText("빈 값 1").length).toBeGreaterThan(0);
+  await user.selectOptions(grid.getByRole("combobox", { name: "미리보기 자료" }), "0");
   const request = 부름.mock.calls.filter(([method]) => method === "traceComputedColumn").slice(-1)[0];
   expect(request[1][0]).toBe("notice");
   const sent = JSON.parse(request[1][1] as string) as { version: number; flow: { steps: { op: string; text?: string }[] } };
@@ -264,7 +164,7 @@ it("가공열은 단계마다 표본 값을 보이고, 꼴이 깨진 식과 실�
   expect(saved[1].slice(0, 2)).toEqual(["notice", "품명번호요약"]);
   expect(JSON.parse(saved[1][2] as string)).toMatchObject({ version: 2, source: "flow" });
   expect(await ui.findByRole("button", { name: /^품명번호요약 · 식 · …잇기/ })).toBeTruthy();
-  expect(ui.getByText("저장됨")).toBeTruthy();
+  expect(ui.queryByText(/저장됨|변경됨/)).toBeNull();
 
   // 저장하지 않은 변경은 다른 열로 옮길 때 묻는다.
   await user.click(ui.getByRole("button", { name: "단계 추가" }));
@@ -282,7 +182,7 @@ it("가공열은 단계마다 표본 값을 보이고, 꼴이 깨진 식과 실�
   await user.click(ui.getByRole("button", { name: "열 메뉴" }));
   await user.click(ui.getByRole("menuitem", { name: "열 제거…" }));
   const confirm = await screen.findByRole("dialog", { name: "열 제거 확인" });
-  expect(confirm.textContent).toContain("같은 이름으로 다시 만들어도 식별자가 달라");
+  expect(confirm.textContent).toContain("같은 이름으로 다시 만들어도 다시 연결해야 합니다");
   await user.click(within(confirm).getByRole("button", { name: "열 제거" }));
   await waitFor(() => expect(ui.queryByRole("button", { name: /^품명번호요약/ })).toBeNull());
 });
@@ -308,7 +208,7 @@ it("SQL 탭은 컴파일된 SQL 을 읽기 전용으로 보이고, 확인을 거
   // 꺼낸 SQL 은 다리가 컴파일한 그 글이고, 편집면은 고칠 때마다 다리의 검증을 부른다.
   const compiledCall = 부름.mock.calls.filter(([method]) => method === "compileComputedColumn").slice(-1)[0];
   expect(compiledCall[1][0]).toBe("contract");
-  expect(await ui.findByText(/검사를 통과했습니다/)).toBeTruthy();
+  expect(await ui.findByRole("table", { name: "미리보기 자료 결과" })).toBeTruthy();
   const checked = 부름.mock.calls.filter(([method]) => method === "validateComputedSql").slice(-1)[0];
   expect(checked[1][1]).toContain("FROM v_계약품목");
   // 실제 편집기의 키맵을 거쳐 여러 줄 들여쓰기와 키보드 탈출을 확인한다.
@@ -331,7 +231,7 @@ it("SQL 탭은 컴파일된 SQL 을 읽기 전용으로 보이고, 확인을 거
   // Tab을 취소하지 않아 브라우저의 기본 초점 이동에 맡긴다.
   expect(fireEvent.keyDown(editor, { key: "Tab", keyCode: 9 })).toBe(true);
   expect(lines()).toEqual(indented);
-  await ui.findByText(/검사를 통과했습니다/);
+  await ui.findByRole("table", { name: "미리보기 자료 결과" });
   await user.click(ui.getByRole("button", { name: "저장" }));
   await waitFor(() => expect(부름.mock.calls.some(([method, args]) => method === "saveComputedColumn"
     && JSON.parse(args[2] as string).source === "sql")).toBe(true));
@@ -517,15 +417,50 @@ it("흐름식 편집기는 다른 열로 옮기면 그 열의 식을 보이고, 
   expect(props.onDirtyChange).toHaveBeenLastCalledWith(false);
 });
 
+it("편집 방식 탭은 고른 탭 하나만 Tab 으로 닿고, 방향키 · Home · End 로 옮기면 바로 고르며 잠긴 탭은 건너뛴다", async () => {
+  const props = {
+    initialEntity: "notice" as const, initialField: "품명 나열", onClose: vi.fn(), onDirtyChange: vi.fn(),
+    onAddColumn: vi.fn(), onUpdateColumn: vi.fn(), onRemoveColumn: vi.fn(), onMoveColumn: vi.fn(), onSaveComputed: vi.fn(async () => {}), onFreezeColumn: vi.fn(),
+  };
+  const user = userEvent.setup();
+  render(<ColumnManager {...props} columns={[
+    { entityType: "notice", fieldName: "품명 나열", kind: "computed", choices: [], formula: { version: 2, id: "a", source: "flow", flow: parseFlow('품목 |> 꺼내기 세부품명 |> 잇기 ", "').flow } },
+    { entityType: "notice", fieldName: "SQL 열", kind: "computed", choices: [], formula: { version: 2, id: "b", source: "sql", sql: "SELECT 1" } },
+  ]} />);
+  const ui = within(await screen.findByRole("region", { name: "열 관리" }));
+  const 탭 = (name: string) => ui.getByRole("tab", { name });
+  const 고른탭 = () => ui.getAllByRole("tab").filter(t => t.getAttribute("aria-selected") === "true").map(t => t.textContent);
+  expect(await ui.findByRole("tab", { name: "단계" })).toHaveProperty("tabIndex", 0);
+  expect(탭("흐름식").tabIndex).toBe(-1);
+  act(() => 탭("단계").focus());
+  await user.keyboard("{ArrowRight}");
+  expect(고른탭()).toEqual(["흐름식"]);
+  expect(document.activeElement).toBe(탭("흐름식"));
+  await user.keyboard("{End}");
+  expect(document.activeElement).toBe(탭("SQL"));
+  await user.keyboard("{Home}");
+  expect(고른탭()).toEqual(["단계"]);
+  await user.keyboard("{ArrowLeft}");
+  expect(고른탭()).toEqual(["SQL"]);
+
+  // 꺼낸 SQL 열은 단계 · 흐름식이 잠겨 방향키가 SQL 에 머문다.
+  await user.click(ui.getByRole("button", { name: /^SQL 열 · 식/ }));
+  await waitFor(() => expect(고른탭()).toEqual(["SQL"]));
+  act(() => 탭("SQL").focus());
+  await user.keyboard("{ArrowRight}");
+  expect(고른탭()).toEqual(["SQL"]);
+  await user.keyboard("{Home}");
+  expect(document.activeElement).toBe(탭("SQL"));
+  expect(탭("단계").tabIndex).toBe(-1);
+});
+
 
 /**
  * 브라우저 수집(확장 준비·상태·고급 JSON 검토)은 나라장터 화면으로 옮겼다 — 그 약속은 Nara.test 가 붙든다.
- * 설정에는 자료 관리와 화면 표시, 보기 구성만 남긴다.
+ * 설정에는 자료 관리와 화면 표시, 뷰 구성만 남긴다.
  */
 it("설정에는 중복 바로가기가 없고 수집은 사이드바에서 연다", async () => {
   const { user, dialog } = await 설정열기();
-  expect(within(dialog).queryByRole("button", { name: "계획 엑셀" })).toBeNull();
-  expect(within(dialog).queryByRole("heading", { name: "계획 엑셀" })).toBeNull();
   expect(within(dialog).queryByRole("heading", { name: "브라우저 수집" })).toBeNull();
   expect(within(dialog).queryByRole("heading", { name: "열 관리" })).toBeNull();
   expect(within(dialog).queryByText("Edge · Chrome 확장 추가")).toBeNull();
@@ -603,7 +538,7 @@ describe("수집 열 표시", () => {
   });
 });
 
-it("보기 구성을 가져오면 사이드바와 열 정의를 다시 읽는다", async () => {
+it("뷰 구성을 가져오면 사이드바와 열 정의를 다시 읽는다", async () => {
   const current = await 본디("userViews", []) as UserView[];
   const added = { ...current[0], id: "imported-dashboard-test", name: "가져온 보고서" };
   let imported = false;
@@ -624,7 +559,7 @@ it("보기 구성을 가져오면 사이드바와 열 정의를 다시 읽는다
     await user.click(within(dialog).getByRole("button", { name: "구성 파일 가져오기…" }));
     expect(imported).toBe(false);
     await user.click(await within(dialog).findByRole("button", { name: "확인한 구성 추가하기" }));
-    expect(await within(dialog).findByText(/1개 보기를 추가했습니다/)).toBeTruthy();
+    expect(await within(dialog).findByText(/1개 뷰를 추가했습니다/)).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "닫기" }));
     expect(await within(screen.getByRole("complementary", { name: "작업 탐색" })).findByRole("button", { name: added.name })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "구조" }));
@@ -633,26 +568,10 @@ it("보기 구성을 가져오면 사이드바와 열 정의를 다시 읽는다
   } finally { await 본디("removeColumn", ["contract", "가져온 확인열"]); }
 });
 
-it("시작 때 설정을 읽지 못했으면 「설정」 이 다시 읽고, 또 못 읽으면 까닭을 알린다 — 말없이 지나가지 않는다", async () => {
-  // 시작 때 한 번, 「설정」 을 누른 첫 번에 한 번 거절한다.
-  스위치.설정오류 = 2;
-  try {
-    const user = userEvent.setup();
-    render(<App />);
-    // 시작 때의 실패. 알림이 걷히기를 기다리지 않고 누른다 — 누른 뒤의 알림이 그 까닭을 말한다.
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("설정 파일이 잠겨 있습니다."));
-    await user.click(await screen.findByRole("button", { name: "설정" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("설정을 읽지 못했습니다. 설정 파일이 잠겨 있습니다."));
-    expect(screen.queryByRole("dialog", { name: "설정" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "설정" }));
-    expect(await screen.findByRole("dialog", { name: "설정" })).toBeTruthy();
-  } finally { 스위치.설정오류 = 0; }
-});
-
-it("다른 보기 구성 파일을 고르다 실패하면 앞 파일의 미리보기와 「확인한 구성 추가하기」 를 거둔다", async () => {
+it("다른 뷰 구성 파일을 고르다 실패하면 앞 파일의 미리보기와 「확인한 구성 추가하기」 를 거둔다", async () => {
   let 실패 = false;
   부름.mockImplementation((method, args) => {
-    if (method === "pickViewPackage") return 실패 ? Promise.reject(new Error("보기 구성 파일은 2MB까지 가져올 수 있습니다."))
+    if (method === "pickViewPackage") return 실패 ? Promise.reject(new Error("뷰 구성 파일은 2MB까지 가져올 수 있습니다."))
       : Promise.resolve({ name: "앞.json", json: "{}", preview: {
         views: [{ name: "앞 보기", importName: "앞 보기" }], columns: [], errors: [], includesAllColumnsForSql: false, token: "checked",
       } });
@@ -665,33 +584,30 @@ it("다른 보기 구성 파일을 고르다 실패하면 앞 파일의 미리�
   expect(await within(dialog).findByText("앞.json 가져오기 미리보기")).toBeTruthy();
   실패 = true;
   await user.click(고르기);
-  expect((await within(dialog).findByRole("alert")).textContent).toBe("보기 구성 파일은 2MB까지 가져올 수 있습니다.");
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("뷰 구성 파일은 2MB까지 가져올 수 있습니다.");
   expect(within(dialog).queryByText("앞.json 가져오기 미리보기")).toBeNull();
   expect(within(dialog).queryByRole("button", { name: "확인한 구성 추가하기" })).toBeNull();
 });
 
-/**
- * 서식용 예시 보기는 처음부터 들어 있다. 「예시 보기 다시 추가…」 는 파일을 고르지 않고 exe 에 실린 구성을 같은 미리보기 → 추가
- * 흐름으로 들인다 — 지웠으면 그 이름으로, 남아 있으면 복사본으로 선다.
- */
-it("예시 보기 다시 추가는 미리보기를 거쳐 들이고 이름이 겹치면 복사본으로 보인다", async () => {
+/** 「문서 서식」 은 앱이 열 때마다 맞추는 보기라 다시 추가할 일이 없다 — 내보내기만 다른 보기와 같다. */
+it("문서 서식도 내보낼 보기로 보이고 다시 추가하는 단추는 없다", async () => {
+  const { dialog } = await 설정열기();
+  expect(await within(dialog).findByRole("checkbox", { name: /문서 서식/ })).toBeTruthy();
+  expect(within(dialog).getByText("조달 자료와 입력한 값은 담지 않습니다.")).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /예시 보기/ })).toBeNull();
+});
+
+/** 「문서 서식」 은 사람이 고칠 수 있어 처음 상태로 되돌리는 길이 설정에 있다 — 한 번 묻고 부른다. */
+it("문서 서식 처음 상태로는 한 번 묻고 resetDocumentView 를 부른다", async () => {
   try {
     const { user, dialog } = await 설정열기();
-    expect(await within(dialog).findByRole("checkbox", { name: /서식용 예시/ })).toBeTruthy();
-    // 설명은 짧게 — 무엇을 하는지와 무엇을 담지 않는지만, 예시는 무엇이고 다시 추가하면 어떻게 되는지만.
-    expect(within(dialog).getByText("보기 구성을 JSON 파일로 내보내거나 가져옵니다. 조달 자료와 입력한 값은 담지 않습니다.")).toBeTruthy();
-    expect(within(dialog).getByText("「서식용 예시」는 입찰공고·구매추진안내·계약체결안내 서식을 채우는 기본 보기입니다. 다시 추가하면 처음 구성으로 하나 더 생깁니다.")).toBeTruthy();
-    const 단추 = await within(dialog).findByRole("button", { name: "예시 보기 다시 추가…" });
+    const 단추 = await within(dialog).findByRole("button", { name: "문서 서식 처음 상태로…" });
     await waitFor(() => expect((단추 as HTMLButtonElement).closest("fieldset")!.disabled).toBe(false));
     await user.click(단추);
-    expect(await within(dialog).findByText("예시 보기 가져오기 미리보기")).toBeTruthy();
-    expect(부름.mock.calls.some(([m]) => m === "importViewPackage")).toBe(false);
-    expect(within(dialog).getByText("서식용 예시 (복사본)", { selector: "li strong" })).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "확인한 구성 추가하기" }));
-    expect(await within(dialog).findByText(/1개 보기를 추가했습니다/)).toBeTruthy();
-    expect(within(dialog).getByRole("checkbox", { name: /서식용 예시 \(복사본\)/ })).toBeTruthy();
-    // 사이드바가 다시 읽힐 때까지 기다린다 — 추가 뒤 다시 읽기가 시험 밖으로 새지 않게.
-    expect(await within(screen.getByRole("complementary", { name: "작업 탐색" })).findByRole("button", { name: "서식용 예시 (복사본)" })).toBeTruthy();
+    expect(부름.mock.calls.some(([m]) => m === "resetDocumentView")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "처음 상태로" }));
+    await waitFor(() => expect(부름).toHaveBeenCalledWith("resetDocumentView", []));
+    expect(await within(dialog).findByText("문서 서식을 처음 상태로 되돌렸습니다.")).toBeTruthy();
   } finally { 사용자뷰초기화(); }
 });
 
@@ -739,7 +655,7 @@ describe("설정 — 작업자료", () => {
     await user.click(within(confirm).getByRole("button", { name: "옮기고 다시 띄우기" }));
 
     await waitFor(() => expect(부름).toHaveBeenCalledWith("moveWorkfile", ["D:\\계약\\계약자료.pclm"]));
-    expect(await screen.findByText(/작업자료를 바꿨습니다 — 창을 다시 띄웁니다/)).toBeTruthy();
+    expect(await screen.findByText(/작업자료를 바꿨습니다/)).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "작업자료 옮기기" })).toBeNull();
   });
 
@@ -755,20 +671,20 @@ describe("설정 — 작업자료", () => {
     expect(바꿨나()).toBe(false);
   });
 
-  it("제출본으로 바꾸면 원본은 그대로 두고 사본을 새 계약자료로 만든다고 말한 뒤 둘을 함께 넘긴다", async () => {
+  it("백업으로 바꾸면 원본은 그대로 두고 사본을 새 계약자료로 만든다고 말한 뒤 둘을 함께 넘긴다", async () => {
     const { user, dialog } = await 설정열기();
     await user.click(within(dialog).getByRole("button", { name: "작업자료 바꾸기…" }));
 
     await waitFor(() => expect(부름).toHaveBeenCalledWith("pickWorkfile", ["switch"]));
     const confirm = await screen.findByRole("dialog", { name: "새 계약자료로 이어 쓰기" });
-    expect(confirm.textContent).toMatch(/제출본의 사본을/);
+    expect(confirm.textContent).toMatch(/백업의 사본을/);
     expect(confirm.textContent).toMatch(/원본은 바뀌지 않습니다/);
     expect(confirm.textContent).toMatch(/열려 있던 확장 검토 화면은 다시 확인해야 합니다/);
 
     await user.click(within(confirm).getByRole("button", { name: "만들고 다시 띄우기" }));
 
     await waitFor(() => expect(부름).toHaveBeenCalledWith("switchWorkfile", [
-      "C:\\Users\\홍길동\\Documents\\제출_홍길동_20260901.pclm",
+      "C:\\Users\\홍길동\\Documents\\계약자료_백업_20260901.pclm",
       "C:\\Users\\홍길동\\Documents\\계약자료.pclm",
     ]));
   });
@@ -840,7 +756,6 @@ describe("설정 — 창", () => {
     await user.click(box);
     await waitFor(() => expect(부름).toHaveBeenCalledWith("saveWindowPrefs", ["false", "false"]));
     await waitFor(() => expect((box as HTMLInputElement).checked).toBe(false));
-    expect(부름.mock.calls.some(([m]) => m === "saveSettings")).toBe(false);
   });
 
   /** 하나를 바꿀 때 다른 하나는 지금 값 그대로 함께 간다 — 빠뜨리면 다리가 그것을 꺼짐으로 바꾼다. */
@@ -861,13 +776,13 @@ describe("설정 — 창", () => {
     창.몸가짐 = {
       ...창.몸가짐,
       autostartAvailable: false,
-      autostartReason: "시험 홈(--home)으로 띄운 창이라 자동 실행을 바꾸지 않습니다. 업무 홈의 창에서 바꾸세요.",
+      autostartReason: "--home 으로 띄운 창에서는 자동 실행을 바꿀 수 없습니다.",
     };
     const { dialog } = await 설정열기();
     const box = await within(dialog).findByRole("checkbox", { name: "Windows 에 로그인하면 자동으로 켭니다" });
 
     expect((box as HTMLInputElement).disabled).toBe(true);
-    expect(within(dialog).getByText(/시험 홈\(--home\)으로 띄운 창이라/)).toBeTruthy();
+    expect(within(dialog).getByText(/--home 으로 띄운 창에서는/)).toBeTruthy();
     expect(within(dialog).queryByText("알림 영역 두기가 켜져 있으면 창 없이 조용히 시작합니다.")).toBeNull();
     // 알림 영역 두기는 그대로 열려 있다.
     expect((within(dialog).getByRole("checkbox", { name: "닫아도 끝내지 않고 알림 영역에 둡니다" }) as HTMLInputElement).disabled).toBe(false);

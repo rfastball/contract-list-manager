@@ -1,16 +1,17 @@
-//! 가공식 v2 의 꼴 검사(C# `Storage/Flow.cs` 의 `Check` 와 그 재료 — `FlowEnv`·`FlowLinked`·`FlowIssue`·
-//! `FlowChecked`·`Verbs`·`EnvFor`·`EnvForView`·`ToNumber`). 자료 모형과 읽기·쓰기는 [`super::flow`] 에 있다.
+//! 가공식 v2 의 꼴 검사와 그 재료(`FlowEnv`·`FlowLinked`·`FlowIssue`·
+//! `FlowChecked`·동사표). 자료 모형과 읽기·쓰기는 [`super::flow`] 에 있다.
 //!
 //! **화면의 `frontend/src/flow/` 와 한 벌이다.** 동사 이름·인자 자리·꼴 표가 갈리면 화면에서 되던 식이 저장에서
-//! 막히거나, 막혀야 할 식이 저장된다. 세 쪽(vitest·xunit·이 크레이트의 `flow_cases` 시험)이
+//! 막히거나, 막혀야 할 식이 저장된다. 두 쪽(vitest·이 크레이트의 `flow_cases` 시험)이
 //! `tests/flow-cases.json` 하나를 함께 돌려 갈림을 잡는다.
 
 use crate::error::{Error, Result};
 use crate::storage::flow::{Flow, FlowBranch, FlowClause, FlowDefinition, FlowSource, FlowStep};
+use crate::storage::flow_format::{self, Code};
 use crate::storage::{computed_column, views};
 use crate::text::utf16_len;
 
-/// C# `FlowLinked(Fields, Items, Many)` — 이을 수 있는 연결 문서 하나. `many` 면 원천이 행목록이다(§11.1-2).
+/// 이을 수 있는 연결 문서 하나. `many` 면 원천이 행목록이다(§11.1-2).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowLinked {
     pub fields: Vec<String>,
@@ -18,8 +19,8 @@ pub struct FlowLinked {
     pub many: bool,
 }
 
-/// C# `FlowEnv(Base, Items, Linked, View)` — 꼴 검사가 보는 재료. `view` 면 맞춤 뷰의 재료다(docs/user-views.md §3):
-/// 「이 행」 이 없고 접수·공고·계약이 모두 한 건이다. `linked` 는 C# 사전의 넣은 차례 그대로다.
+/// 꼴 검사가 보는 재료. `view` 면 맞춤 뷰의 재료다(docs/user-views.md §3):
+/// 「이 행」 이 없고 접수·공고·계약이 모두 한 건이다. `linked` 는 넣은 차례 그대로다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowEnv {
     pub base: Vec<String>,
@@ -29,13 +30,13 @@ pub struct FlowEnv {
 }
 
 impl FlowEnv {
-    /// `env.Linked.TryGetValue(kind, …)`.
+    /// 종류로 연결 문서를 찾는다.
     pub fn link(&self, kind: &str) -> Option<&FlowLinked> {
         self.linked.iter().find(|(k, _)| k == kind).map(|(_, l)| l)
     }
 }
 
-/// C# `FlowIssue(Index, Message, Final)` — 꼴 검사의 오류. `index` 0 이 원천, i+1 이 `steps[i]` 다.
+/// 꼴 검사의 오류. `index` 0 이 원천, i+1 이 `steps[i]` 다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowIssue {
     pub index: usize,
@@ -44,7 +45,7 @@ pub struct FlowIssue {
 }
 
 impl FlowIssue {
-    /// `FlowIssue.Describe` — 저장 거절에 싣는 말(「3단계: …」).
+    /// 저장 거절에 싣는 말(「3단계: …」).
     pub fn describe(&self) -> String {
         let place = if self.index == 0 {
             "시작 데이터".to_string()
@@ -55,7 +56,6 @@ impl FlowIssue {
     }
 }
 
-/// C# `FlowChecked(Shapes, Fields, Errors, Final)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowChecked {
     pub shapes: Vec<Option<&'static str>>,
@@ -65,13 +65,12 @@ pub struct FlowChecked {
 }
 
 impl FlowChecked {
-    /// `FlowChecked.Ok`.
     pub fn ok(&self) -> bool {
         self.errors.is_empty()
     }
 }
 
-/// C# `Flow.Verb(Op, Word, Io)` — 동사 하나. `io` 는 들어감 → 나옴(화면 `verbs.ts` 와 같은 표).
+/// 동사 하나. `io` 는 들어감 → 나옴(화면 `verbs.ts` 와 같은 표).
 #[derive(Clone, Copy, Debug)]
 pub struct Verb {
     pub op: &'static str,
@@ -87,7 +86,6 @@ const fn verb(
     Verb { op, word, io }
 }
 
-/// `Flow.Verbs`.
 pub const VERBS: &[Verb] = &[
     verb("filter", "거르기", &[("rows", "rows")]),
     verb("sort", "정렬", &[("rows", "rows"), ("values", "values")]),
@@ -100,7 +98,16 @@ pub const VERBS: &[Verb] = &[
     verb("nth", "번째", &[("rows", "row"), ("values", "value")]),
     verb("first", "처음", &[("rows", "row"), ("values", "value")]),
     verb("last", "마지막", &[("rows", "row"), ("values", "value")]),
-    verb("format", "서식", &[("rows", "values"), ("row", "value")]),
+    verb(
+        "format",
+        "서식",
+        &[
+            ("rows", "values"),
+            ("row", "value"),
+            ("number", "value"),
+            ("date", "value"),
+        ],
+    ),
     verb("get", "꺼내기", &[("rows", "values"), ("row", "value")]),
     verb("join", "잇기", &[("values", "value")]),
     verb("abbrev", "줄여쓰기", &[("values", "value")]),
@@ -126,7 +133,6 @@ pub const VERBS: &[Verb] = &[
     verb("div", "나누기", &[("number", "number")]),
     verb("round", "반올림", &[("number", "number")]),
     verb("floor", "버림", &[("number", "number")]),
-    verb("thousands", "천단위", &[("number", "value")]),
     verb("plain", "그대로", &[("number", "value")]),
     verb("toDate", "날짜로", &[("value", "date")]),
     verb("dateAdd", "날짜더하기", &[("date", "date")]),
@@ -134,15 +140,13 @@ pub const VERBS: &[Verb] = &[
     verb("year", "연도", &[("date", "number")]),
     verb("month", "월", &[("date", "number")]),
     verb("quarter", "분기", &[("date", "number")]),
-    verb("dateFormat", "날짜서식", &[("date", "value")]),
 ];
 
-/// `Flow.ByOp`.
 pub fn verb_of(op: &str) -> Option<&'static Verb> {
     VERBS.iter().find(|v| v.op == op)
 }
 
-/// `Flow.Shapes` — 꼴의 사람 말. 꼴은 이 여섯뿐이다(C# 사전에 없는 열쇠는 `KeyNotFoundException`).
+/// 꼴의 사람 말. 꼴은 이 여섯뿐이다(모르는 꼴로 부르면 멈춘다).
 pub fn shape_word(shape: &str) -> &'static str {
     match shape {
         "rows" => "행목록",
@@ -155,7 +159,7 @@ pub fn shape_word(shape: &str) -> &'static str {
     }
 }
 
-/// `Flow.LinkWords` — 가공열에서 연결 문서를 부르는 말.
+/// 가공열에서 연결 문서를 부르는 말.
 pub fn link_words(kind: &str) -> Option<&'static str> {
     match kind {
         "notice" => Some("연결공고"),
@@ -165,7 +169,7 @@ pub fn link_words(kind: &str) -> Option<&'static str> {
     }
 }
 
-/// `Flow.DocWords` — 맞춤 뷰의 문서 이름(글 꼴의 `공고.공고명` 이자 뷰 SQL 의 바깥 행 별칭).
+/// 맞춤 뷰의 문서 이름(글 꼴의 `공고.공고명` 이자 뷰 SQL 의 바깥 행 별칭).
 pub fn doc_words(kind: &str) -> Option<&'static str> {
     match kind {
         "request" => Some("접수"),
@@ -175,16 +179,19 @@ pub fn doc_words(kind: &str) -> Option<&'static str> {
     }
 }
 
-/// `Flow.DocWords` 의 열쇠 차례(사전에 넣은 차례).
+/// 문서 이름의 열쇠 차례(사전에 넣은 차례).
 const DOC_KINDS: [&str; 3] = ["request", "notice", "contract"];
 
-/// `Flow.MaxBranches` — `경우` 의 갈래 수 상한(화면 `check.ts` 의 `maxBranches`).
+/// `경우` 의 갈래 수 상한(화면 `check.ts` 의 `maxBranches`).
 pub const MAX_BRANCHES: usize = 20;
 
-/// `Flow.Ends` — 저장할 수 있는 끝 꼴.
+/// `앞채우기` 길이 상한(화면 `check.ts` 의 `maxPad`) — 컴파일러가 이만큼의 zeroblob 을 줄마다 짓는다.
+pub const MAX_PAD: i32 = 1000;
+
+/// 저장할 수 있는 끝 꼴.
 const ENDS: [&str; 3] = ["value", "number", "date"];
 
-/// `Flow.LinkWord` — 이 재료에서 연결 문서를 부르는 말. 가공열은 `연결공고`, 맞춤 뷰는 `공고`. 모르면 그대로.
+/// 이 재료에서 연결 문서를 부르는 말. 가공열은 `연결공고`, 맞춤 뷰는 `공고`. 모르면 그대로.
 pub fn link_word(env: &FlowEnv, link: Option<&str>) -> String {
     let link = link.unwrap_or("");
     let word = if env.view {
@@ -195,7 +202,7 @@ pub fn link_word(env: &FlowEnv, link: Option<&str>) -> String {
     word.unwrap_or(link).to_string()
 }
 
-/// `Flow.Qualified` — 맞춤 뷰에서 단계가 읽는 행의 열(`공고.공고명`)을 (종류, 열)로 가른다. 첫 점에서 가른다.
+/// 맞춤 뷰에서 단계가 읽는 행의 열(`공고.공고명`)을 (종류, 열)로 가른다. 첫 점에서 가른다.
 pub fn qualified(field: &str) -> Option<(&'static str, &str)> {
     let dot = field.find('.')?;
     if dot == 0 {
@@ -206,7 +213,7 @@ pub fn qualified(field: &str) -> Option<(&'static str, &str)> {
     Some((kind, &field[dot + 1..]))
 }
 
-/// `Flow.Clauses` — 단계의 조건 마디 모두(`경우` 의 갈래 포함).
+/// 단계의 조건 마디 모두(`경우` 의 갈래 포함).
 pub fn clauses(step: &FlowStep) -> impl Iterator<Item = &FlowClause> {
     let own = step.cond.iter().flatten().flatten();
     let branches = step
@@ -219,7 +226,7 @@ pub fn clauses(step: &FlowStep) -> impl Iterator<Item = &FlowClause> {
 }
 
 impl Flow {
-    /// `Flow.EnvFor` — 이 자료 종류의 재료. 기본 열은 사람 열을 뺀 면 뷰의 열, 품목은 `ComputedColumn.Fields`,
+    /// 이 자료 종류의 재료. 기본 열은 사람 열을 뺀 면 뷰의 열, 품목은 [`crate::storage::computed_column::fields`],
     /// 연결은 §11.1-2 의 표 — 공고·접수에서 연결계약은 여러 건이다.
     pub fn env_for(entity: &str) -> Result<FlowEnv> {
         fn link(kind: &str, many: bool) -> Result<FlowLinked> {
@@ -254,7 +261,7 @@ impl Flow {
         })
     }
 
-    /// `Flow.EnvForView` — 맞춤 뷰의 재료. 문서마다 그 면 뷰의 열을 모두 읽는다: 기본 열 끝에 사람 열·가공열
+    /// 맞춤 뷰의 재료. 문서마다 그 면 뷰의 열을 모두 읽는다: 기본 열 끝에 사람 열·가공열
     /// `own`(종류 → 이름, 차례대로)을 더한다. 맞춤 뷰는 면 뷰 위층이라 그 열을 읽어도 순환이 없다.
     pub fn env_for_view(own: &[(String, Vec<String>)]) -> FlowEnv {
         let link = |kind: &str| {
@@ -288,7 +295,7 @@ impl Flow {
         }
     }
 
-    /// `Flow.SourceShape` — 원천의 꼴과 필드. 오류면 글.
+    /// 원천의 꼴과 필드. 오류면 글.
     pub fn source_shape(
         from: &FlowSource,
         env: &FlowEnv,
@@ -305,6 +312,7 @@ impl Flow {
             Some("items") => Ok(("rows", env.items.clone())),
             Some("text") => Ok(("value", Vec::new())),
             Some("number") => Ok(("number", Vec::new())),
+            Some("today") => Ok(("date", Vec::new())),
             Some("field") => {
                 if env.base.iter().any(|b| b == field.unwrap_or("")) {
                     Ok(("value", Vec::new()))
@@ -348,7 +356,7 @@ impl Flow {
         }
     }
 
-    /// `Flow.Placeholders` — 서식의 `{필드}` 를 차례대로. 짝이 안 맞으면 오류 글.
+    /// 서식의 `{필드}` 를 차례대로. 짝이 안 맞으면 오류 글.
     pub fn placeholders(text: &str) -> std::result::Result<Vec<String>, String> {
         let chars: Vec<char> = text.chars().collect();
         let mut output = Vec::new();
@@ -383,7 +391,7 @@ impl Flow {
         Ok(output)
     }
 
-    /// `Flow.Check` — 꼴 검사(§4.2·§4.4). 오류는 그것을 만든 단계에 붙고, 첫 오류 뒤의 단계는 꼴을 모른다(`None`).
+    /// 꼴 검사(§4.2·§4.4). 오류는 그것을 만든 단계에 붙고, 첫 오류 뒤의 단계는 꼴을 모른다(`None`).
     /// 화면의 `checkFlow` 와 같은 결과를 낸다. 단계·원천은 [`Flow::parse`] 를 지난 것이라 비어 있지 않다.
     pub fn check(flow: &FlowDefinition, env: &FlowEnv) -> FlowChecked {
         let steps: Vec<&FlowStep> = flow.steps.iter().flatten().flatten().collect();
@@ -471,8 +479,8 @@ impl Flow {
         }
     }
 
-    /// `Flow.ToNumber` — 글을 수로. 쉼표와 앞뒤 공백을 걷고 `^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)$` 꼴만 읽는다(지수
-    /// 표기는 받지 않는다). 화면의 `toNumber`, SQL 의 숫자 판정(`FlowCompiler.Number`)과 같은 규칙이다.
+    /// 글을 수로. 쉼표와 앞뒤 공백을 걷고 `^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)$` 꼴만 읽는다(지수
+    /// 표기는 받지 않는다). 화면의 `toNumber`, SQL 의 숫자 판정(`flow_compiler` 의 숫자 판정)과 같은 규칙이다.
     pub fn to_number(text: &str) -> Option<f64> {
         let t = text.replace(',', "");
         let t = t.trim();
@@ -520,7 +528,6 @@ fn eun_neun(word: &str) -> String {
     format!("{word}{}", if batchim { "은" } else { "는" })
 }
 
-/// `Flow.VerbWord`.
 fn verb_word(step: &FlowStep) -> String {
     let op = step.op.as_deref().unwrap_or("");
     if op == "nth" {
@@ -529,7 +536,7 @@ fn verb_word(step: &FlowStep) -> String {
     verb_of(op).map_or_else(|| op.to_string(), |v| v.word.to_string())
 }
 
-/// `Flow.CondProblem` — 조건 검사. 행을 견주면 마디의 필드는 그 행의 필드다. 값 하나를 견주면 빈 필드가 지금
+/// 조건 검사. 행을 견주면 마디의 필드는 그 행의 필드다. 값 하나를 견주면 빈 필드가 지금
 /// 값이고, 적힌 필드는 바깥의 열이라 `outer` 를 탄다.
 fn cond_problem(
     cond: Option<&Vec<Option<FlowClause>>>,
@@ -560,7 +567,6 @@ fn cond_problem(
     None
 }
 
-/// `Flow.StepProblem`.
 fn step_problem(step: &FlowStep, input: &str, fields: &[String], env: &FlowEnv) -> Option<String> {
     let rowish = matches!(input, "rows" | "row");
     let need_field = |f: Option<&str>| -> Option<String> {
@@ -613,6 +619,15 @@ fn step_problem(step: &FlowStep, input: &str, fields: &[String], env: &FlowEnv) 
                     .map(|bad| format!("줄여쓰기에는 {{앞}}·{{나머지}}만 씁니다: {{{bad}}}")),
             }
         }
+        "format" if matches!(input, "number" | "date") => {
+            match flow_format::parse(step.text.as_deref().unwrap_or(""), input == "date") {
+                Err(error) => Some(error),
+                Ok(Code::Korean { .. }) if !env.view => {
+                    Some("[DBNum4] 는 맞춤 뷰에서만 씁니다".into())
+                }
+                Ok(_) => None,
+            }
+        }
         "format" => match Flow::placeholders(step.text.as_deref().unwrap_or("")) {
             Err(error) => Some(error),
             Ok(ph) => ph
@@ -632,9 +647,14 @@ fn step_problem(step: &FlowStep, input: &str, fields: &[String], env: &FlowEnv) 
         }
         "substr" => (step.n.unwrap_or(0) < 1 || step.length.unwrap_or(-1) < 0)
             .then(|| "시작은 1 이상, 길이는 0 이상입니다".into()),
+        "padStart" if step.length.unwrap_or(0) > MAX_PAD => {
+            Some(format!("길이는 {MAX_PAD} 이하로 적으세요"))
+        }
         "padStart" => (step.length.unwrap_or(0) < 1
             || step.text.as_deref().map_or(0, utf16_len) < 1)
             .then(|| "길이와 채울 글자를 적으세요".into()),
+        "round" | "floor" => (!(-15..=15).contains(&step.n.unwrap_or(0)))
+            .then(|| "소수 자리는 -15~15 사이여야 합니다".into()),
         "ifEmpty" => field.and_then(base_field),
         "map" => step
             .pairs
@@ -663,18 +683,13 @@ fn step_problem(step: &FlowStep, input: &str, fields: &[String], env: &FlowEnv) 
         }
         "dateDiff" => match field {
             Some(f) if !f.is_empty() => base_field(f),
-            _ => Some("뺄 날짜 열을 고르세요".into()),
+            _ => Some("기준 날짜 열을 고르세요".into()),
         },
-        "dateFormat" => step
-            .text
-            .as_deref()
-            .is_none_or(str::is_empty)
-            .then(|| "서식을 적으세요".into()),
         _ => None,
     }
 }
 
-/// `Flow.DocField` — 맞춤 뷰에서 단계가 읽는 행의 열(`공고.공고명`)이 그 문서에 있는가. 없으면 오류 글.
+/// 맞춤 뷰에서 단계가 읽는 행의 열(`공고.공고명`)이 그 문서에 있는가. 없으면 오류 글.
 fn doc_field(field: &str, env: &FlowEnv) -> Option<String> {
     let Some((kind, column)) = qualified(field) else {
         return Some(format!(

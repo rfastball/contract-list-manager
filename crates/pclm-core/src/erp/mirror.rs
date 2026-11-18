@@ -1,4 +1,4 @@
-//! 지금 보는 화면의 투영(C# `Erp/Mirror.cs`, ADR-036). 확장이 읽어 보낸 스냅샷을 **창 안에서** 미리 보고, 사람이 읽을
+//! 지금 보는 화면의 투영(ADR-036). 확장이 읽어 보낸 스냅샷을 **창 안에서** 미리 보고, 사람이 읽을
 //! 모양으로 편다. 쓰지 않는다 — 투영의 쓰기는 모두 되돌린다. 링크를 짓는 [`explicit_links::resolve`] 는 부르지 않는다.
 //!
 //! **칸은 계약면의 표기 그대로다** — 쓰기 잠금 안의 savepoint 에 그 화면을 적용하고 면 뷰에서 읽은 뒤 되돌린다. 표기를 아는
@@ -37,7 +37,7 @@ fn option(value: &Option<String>) -> Value {
     value.clone().map_or(Value::Null, Value::String)
 }
 
-/// C# `MirrorField` — 칸 하나. `kind` 는 `id`(번호 열)·`same`·`changed`·`new`(견줄 차수가 없다)·`override`(사람이 고친 칸의
+/// 칸 하나. `kind` 는 `id`(번호 열)·`same`·`changed`·`new`(견줄 차수가 없다)·`override`(사람이 고친 칸의
 /// 아래 값이 이번 화면으로 바뀐다)·`blank`(있던 값을 화면이 비워 보냈다).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorField {
@@ -71,7 +71,7 @@ impl MirrorField {
     }
 }
 
-/// C# `ScreenRow` — 확장이 화면에서 읽어 보낸 이름표와 보이는 글 한 줄. 값은 화면에 보인 그대로다.
+/// 확장이 화면에서 읽어 보낸 이름표와 보이는 글 한 줄. 값은 화면에 보인 그대로다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScreenRow {
     pub group: String,
@@ -91,7 +91,7 @@ impl ScreenRow {
     }
 }
 
-/// C# `MirrorExport` — 「현재 화면 엑셀로 내보내기」 의 그 탭 마지막 결과.
+/// 「현재 화면 엑셀로 내보내기」 의 그 탭 마지막 결과.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorExport {
     pub at: i64,
@@ -109,7 +109,7 @@ impl MirrorExport {
     }
 }
 
-/// C# `MirrorItemBefore` — 견준 차수의 같은 순번 품목.
+/// 견준 차수의 같은 순번 품목.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorItemBefore {
     pub quantity: String,
@@ -118,7 +118,6 @@ pub struct MirrorItemBefore {
     pub amount: String,
 }
 
-/// C# `MirrorItem`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorItem {
     pub line: String,
@@ -158,7 +157,7 @@ impl MirrorItem {
     }
 }
 
-/// C# `MirrorPlace` — 접수 → 공고 → 계약 의 한 칸. `state` 는 `here`·`linked`·`ref`·`missing`.
+/// 접수 → 공고 → 계약 의 한 칸. `state` 는 `here`·`linked`·`ref`·`missing`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorPlace {
     pub kind: String,
@@ -190,7 +189,7 @@ impl MirrorPlace {
     }
 }
 
-/// C# `MirrorRound` — `state` 는 `stored`·`current`·`ghost`. `saved_on` 은 로컬 `MM/dd`.
+/// `state` 는 `stored`·`current`·`ghost`. `saved_on` 은 로컬 `MM/dd`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorRound {
     pub seq: String,
@@ -210,7 +209,7 @@ impl MirrorRound {
     }
 }
 
-/// C# `MirrorMissing` — 작업자료에 있는데 이번 화면에 없는 행(`__row`) 하나.
+/// 작업자료에 있는데 이번 화면에 없는 행(`__row`) 하나.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorMissing {
     pub table: String,
@@ -234,7 +233,7 @@ impl MirrorMissing {
     }
 }
 
-/// C# `MirrorScreen` — 수집하는 화면 하나(ADR-037).
+/// 수집하는 화면 하나(ADR-037).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorScreen {
     pub code: String,
@@ -254,7 +253,7 @@ impl MirrorScreen {
     }
 }
 
-/// C# `MirrorShot` — 지금 보는 화면을 작업자료에 비춘 것.
+/// 지금 보는 화면을 작업자료에 비춘 것.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MirrorShot {
     pub entity_type: String,
@@ -335,12 +334,11 @@ impl MirrorShot {
     }
 }
 
-/// `Mirror.KindName`.
 pub fn kind_name(entity_type: &str) -> &'static str {
     screens::kind_name(entity_type)
 }
 
-/// `Mirror.SupportedScreens` — 수집하는 화면들. 매핑을 읽지 못하면 기본 매핑으로 물러선다: 화면과 고유키는 기본의 것으로
+/// 수집하는 화면들. 매핑을 읽지 못하면 기본 매핑으로 물러선다: 화면과 고유키는 기본의 것으로
 /// 고정이라 같다.
 pub fn supported_screens(database: &Database, env: &dyn Env) -> Vec<MirrorScreen> {
     let mapping = MappingStore::new(database, env)
@@ -409,7 +407,7 @@ fn items_of(entity_type: &str) -> ItemView {
     }
 }
 
-/// `Mirror.Wipes` — 있던 값을 빈 값으로 지우는 변경. 늦게 그려진 탭을 빈 칸으로 읽은 것이 대부분이라 유지가 기본이다.
+/// 있던 값을 빈 값으로 지우는 변경. 늦게 그려진 탭을 빈 칸으로 읽은 것이 대부분이라 유지가 기본이다.
 pub fn wipes(change: &CaptureChange) -> bool {
     change.conflict
         && change.override_column.is_none()
@@ -418,7 +416,7 @@ pub fn wipes(change: &CaptureChange) -> bool {
         && !change.before.as_deref().unwrap_or("").is_empty()
 }
 
-/// `Mirror.DefaultChoices` — 더하고 바꾸는 것은 기본, 지우는 것은 사람이 고를 때만. 덮개(`__override`)·있던 값이 비게
+/// 더하고 바꾸는 것은 기본, 지우는 것은 사람이 고를 때만. 덮개(`__override`)·있던 값이 비게
 /// 되는 것([`wipes`])·화면에 없는 행(`__row`)은 그대로 두고, `picks` 에 있을 때만 적용한다. 충돌마다 하나를 빠짐없이 낸다.
 pub fn default_choices(preview: &CapturePreview, picks: &[String]) -> Choices {
     let mut choices: Choices = Vec::new();
@@ -440,7 +438,7 @@ pub fn default_choices(preview: &CapturePreview, picks: &[String]) -> Choices {
     choices
 }
 
-/// `Mirror.AsNewRows` — 작업자료에 있는 줄과 짝이 없는 화면의 줄은 모두 새 줄로 둔다(`rowMatches` 를 0 으로). 투영과
+/// 작업자료에 있는 줄과 짝이 없는 화면의 줄은 모두 새 줄로 둔다(`rowMatches` 를 0 으로). 투영과
 /// 가져오기가 함께 부른다: baseToken 은 rowMatches 까지 셈하므로 한쪽만 고치면 토큰이 갈린다.
 pub(crate) fn as_new_rows(
     mut inspect: impl FnMut(&CaptureInput) -> Result<CapturePreview>,
@@ -465,7 +463,7 @@ pub(crate) fn as_new_rows(
     Ok((paired, preview))
 }
 
-/// `Mirror.Prepare` — 창의 가져오기가 쓸 입력과 그 미리보기([`as_new_rows`]).
+/// 창의 가져오기가 쓸 입력과 그 미리보기([`as_new_rows`]).
 pub fn prepare(
     capture: &ErpCapture<'_>,
     input: &CaptureInput,
@@ -473,7 +471,41 @@ pub fn prepare(
     as_new_rows(|i| capture.inspect(i), input)
 }
 
-/// `Mirror.Project` — 스냅샷 하나를 투영한다. 쓰기 잠금을 짧게 쥐고(BEGIN IMMEDIATE) 그 안의 savepoint 에서만 쓴 뒤 모두
+/// 저장하기 전의 판단 한 벌 — [`prepare`] 로 짝짓고 [`default_choices`] 로 고른 입력과, 그대로 적용하면 바뀌는 칸의 수.
+pub struct SavePlan {
+    /// 저장에 쓸 입력 — 짝 없는 화면의 줄은 새 줄로 둔 것([`as_new_rows`]).
+    pub input: CaptureInput,
+    pub preview: CapturePreview,
+    pub choices: Choices,
+    /// 고른 것이 `keep` 이 아닌 변경의 수. 0 이면 「같은 내용이 이미 저장되어 있습니다」 다.
+    pub changed: usize,
+}
+
+/// 화면을 기본 규칙으로 저장하면 무엇이 바뀌는가. 자동 수집이 저장할지를 이것으로 가린다 — 같은 판단을 따로 셈하는 곳이
+/// 생기면 「저장된 것과 같다」 의 뜻이 두 벌이 된다. 쓰지 않는다.
+pub fn plan(capture: &ErpCapture<'_>, input: &CaptureInput) -> Result<SavePlan> {
+    let (live, preview) = prepare(capture, input)?;
+    let choices = default_choices(&preview, &[]);
+    let changed = preview
+        .changes
+        .iter()
+        .filter(|ch| {
+            choices
+                .iter()
+                .find(|(k, _)| *k == ch.id)
+                .map(|(_, v)| v.as_str())
+                != Some("keep")
+        })
+        .count();
+    Ok(SavePlan {
+        input: live,
+        preview,
+        choices,
+        changed,
+    })
+}
+
+/// 스냅샷 하나를 투영한다. 쓰기 잠금을 짧게 쥐고(BEGIN IMMEDIATE) 그 안의 savepoint 에서만 쓴 뒤 모두
 /// 되돌린다. `screen` 은 확장이 함께 보낸 화면의 이름표와 보이는 글이다. `zone` 은 「고친 날」 을 로컬로 읽는 시간대다.
 pub fn project(
     capture: &ErpCapture<'_>,
@@ -491,7 +523,7 @@ pub fn project(
     shot
 }
 
-/// `Mirror.ScreenRows` — 탭 보고 한 탭의 `screenRows`. 없거나 모양이 틀린 줄은 건너뛴다.
+/// 탭 보고 한 탭의 `screenRows`. 없거나 모양이 틀린 줄은 건너뛴다.
 pub fn screen_rows(tab: &Value) -> Vec<ScreenRow> {
     let Some(Value::Array(list)) = tab.as_object().and_then(|t| t.get("screenRows")) else {
         return Vec::new();
@@ -509,7 +541,7 @@ pub fn screen_rows(tab: &Value) -> Vec<ScreenRow> {
         .collect()
 }
 
-/// `Mirror.Export` — 탭 보고 한 탭의 `export`. 없거나 모양이 틀리면 `None`.
+/// 탭 보고 한 탭의 `export`. 없거나 모양이 틀리면 `None`.
 pub fn export(tab: &Value) -> Option<MirrorExport> {
     let e = tab.as_object()?.get("export")?.as_object()?;
     let at = match e.get("at")? {
@@ -532,7 +564,7 @@ pub fn export(tab: &Value) -> Option<MirrorExport> {
     Some(MirrorExport { at, ok, message })
 }
 
-/// `Mirror.Points` — 화면 줄의 자리가 그 source 를 가리키는가. 표 자리(`table:x`)는 그 표의 모든 줄(`table:x:n`)을
+/// 화면 줄의 자리가 그 source 를 가리키는가. 표 자리(`table:x`)는 그 표의 모든 줄(`table:x:n`)을
 /// 가리킨다.
 pub fn points(source: &str, row: &str) -> bool {
     !source.is_empty()
@@ -543,7 +575,7 @@ pub fn points(source: &str, row: &str) -> bool {
                 && row.as_bytes()[source.len()] == b':'))
 }
 
-/// `Mirror.Input` — 탭 보고의 스냅샷을 수집 입력으로. 확장의 `inspect` 와 같은 모양이다.
+/// 탭 보고의 스냅샷을 수집 입력으로. `document` 요청의 `snapshot` 과 같은 모양이다.
 pub fn input(snapshot: &Value) -> Result<CaptureInput> {
     CaptureInput::from_json(snapshot)?.ok_or_else(|| Error::invalid("화면 자료가 비었습니다."))
 }
@@ -558,7 +590,7 @@ fn distinct(items: Vec<String>) -> Vec<String> {
     out
 }
 
-/// `Mirror.SourcesOf` — 면 열 하나를 채우는 화면의 자리.
+/// 면 열 하나를 채우는 화면의 자리.
 fn sources_of(
     profile: Option<&MappingProfile>,
     entity_type: &str,
@@ -603,7 +635,7 @@ fn sources_of(
     distinct(sources)
 }
 
-/// `Mirror.RefSource` — 그 종류를 참조하는 번호 칸의 자리(`ref_<종류>_base` 를 채우는 것).
+/// 그 종류를 참조하는 번호 칸의 자리(`ref_<종류>_base` 를 채우는 것).
 fn ref_source(profile: Option<&MappingProfile>, kind: &str) -> Option<String> {
     let profile = profile?;
     let target = format!("ref_{kind}_base");
@@ -627,7 +659,6 @@ fn get_or<'r>(row: &'r ViewRow, name: &str) -> &'r str {
     get(row, name).unwrap_or("")
 }
 
-/// `Mirror.Rows`.
 fn rows(c: &Connection, view: &str, key: &str, value: &str) -> Result<Vec<ViewRow>> {
     let mut statement = c.prepare(&format!("SELECT * FROM \"{view}\" WHERE \"{key}\"=?1"))?;
     let names: Vec<String> = statement.column_names().map(str::to_string).collect();
@@ -651,7 +682,7 @@ fn row(c: &Connection, view: &str, key: &str, value: &str) -> Result<Option<View
     Ok(rows(c, view, key, value)?.into_iter().next())
 }
 
-/// Dapper `QuerySingleOrDefault<string>` — 줄이 없으면 `None`, 둘 이상이면 거절한다.
+/// 줄이 없으면 `None`, 둘 이상이면 거절한다.
 fn single_or_default(c: &Connection, sql: &str, args: &[&str]) -> Result<Option<String>> {
     let mut statement = c.prepare(sql)?;
     let mut found = statement.query(rusqlite::params_from_iter(args.iter()))?;
@@ -660,7 +691,7 @@ fn single_or_default(c: &Connection, sql: &str, args: &[&str]) -> Result<Option<
     };
     let value = text_of(first.get_ref(0)?);
     if found.next()?.is_some() {
-        return Err(Error::invalid("Sequence contains more than one element"));
+        return Err(Error::invalid("한 줄이어야 할 결과가 여러 줄입니다."));
     }
     Ok(value)
 }
@@ -675,7 +706,7 @@ fn texts(c: &Connection, sql: &str, args: &[&str]) -> Result<Vec<Option<String>>
     Ok(out)
 }
 
-/// `Mirror.DropLater` — 그 차수보다 늦은 차수를 걷는다. savepoint 안에서만 부른다.
+/// 그 차수보다 늦은 차수를 걷는다. savepoint 안에서만 부른다.
 fn drop_later(c: &Connection, entity_type: &str, base: &str, seq: &str) -> Result<()> {
     c.execute(
         &format!(
@@ -686,17 +717,15 @@ fn drop_later(c: &Connection, entity_type: &str, base: &str, seq: &str) -> Resul
     Ok(())
 }
 
-/// `int.Parse(seq, InvariantCulture)` — 차수를 수로.
+/// 차수를 수로.
 fn seq_number(seq: &str) -> Result<i32> {
     let t = seq.trim_matches(|c: char| matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' '));
     let body = t.strip_prefix(['-', '+']).unwrap_or(t);
     if body.is_empty() || !body.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::invalid(format!(
-            "The input string '{seq}' was not in a correct format."
-        )));
+        return Err(Error::invalid(format!("차수가 수가 아닙니다: {seq}")));
     }
     t.parse()
-        .map_err(|_| Error::invalid("Value was either too large or too small for an Int32."))
+        .map_err(|_| Error::invalid(format!("차수가 너무 큽니다: {seq}")))
 }
 
 fn project_in(
@@ -1127,8 +1156,8 @@ fn project_in(
     })
 }
 
-/// `Mirror.TableName` — 딸린 표의 사람이 읽을 이름.
-fn table_name(table: &str) -> &str {
+/// 딸린 표의 사람이 읽을 이름.
+pub(crate) fn table_name(table: &str) -> &str {
     if table.ends_with("_item") {
         "품목"
     } else if table == "notice_schedule" {
@@ -1146,7 +1175,7 @@ fn table_name(table: &str) -> &str {
     }
 }
 
-/// `Mirror.LabelOf` — 지울 줄의 원값(JSON)에서 그 줄을 알아볼 글 하나. 없으면 빈 문자열.
+/// 지울 줄의 원값(JSON)에서 그 줄을 알아볼 글 하나. 없으면 빈 문자열.
 fn label_of(json_text: Option<&str>) -> String {
     let Some(json_text) = json_text.filter(|t| !t.is_empty()) else {
         return String::new();
@@ -1186,7 +1215,7 @@ fn label_of(json_text: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// `Mirror.Place` — 접수 → 공고 → 계약 의 자리. **지금 저장된 연결로만** 읽는다.
+/// 접수 → 공고 → 계약 의 자리. **지금 저장된 연결로만** 읽는다.
 fn place_of(
     c: &Connection,
     ty: &str,
@@ -1309,7 +1338,7 @@ fn place_of(
             None => (None, None),
         };
         if found.next()?.is_some() {
-            return Err(Error::invalid("Sequence contains more than one element"));
+            return Err(Error::invalid("한 줄이어야 할 결과가 여러 줄입니다."));
         }
         if notice.is_none()
             && let Some(n) = ref_notice.filter(|n| !n.is_empty())
@@ -1340,7 +1369,7 @@ fn place_of(
     ])
 }
 
-/// `Mirror.From` — 「화면 · 이름표」. 머리 칸이면 그 칸의 이름표, 표에서 오면 그 표가 선 구역의 제목.
+/// 「화면 · 이름표」. 머리 칸이면 그 칸의 이름표, 표에서 오면 그 표가 선 구역의 제목.
 fn from_of(sources: &[String], screen: &[ScreenRow]) -> String {
     for source in sources.iter().filter(|s| !s.starts_with("table:")) {
         if let Some(r) = screen
@@ -1358,7 +1387,7 @@ fn from_of(sources: &[String], screen: &[ScreenRow]) -> String {
     String::new()
 }
 
-/// `Mirror.Shown` — 화면 표기. 그 칸이 화면에 보인 글이 계약면의 표기와 다를 때만. 머리 칸 하나에서 오는 열만.
+/// 화면 표기. 그 칸이 화면에 보인 글이 계약면의 표기와 다를 때만. 머리 칸 하나에서 오는 열만.
 fn shown(value: &str, sources: &[String], screen: &[ScreenRow]) -> Option<String> {
     let header: Vec<&String> = sources
         .iter()
@@ -1374,7 +1403,7 @@ fn shown(value: &str, sources: &[String], screen: &[ScreenRow]) -> Option<String
     (!text.is_empty() && text != value).then(|| text.to_string())
 }
 
-/// `Mirror.ItemRows` — 스냅샷의 품목 표 행 수. 표가 없거나 하나로 정해지지 않으면 0.
+/// 스냅샷의 품목 표 행 수. 표가 없거나 하나로 정해지지 않으면 0.
 fn item_rows_of(mapping: &MappingSet, input: &CaptureInput, ty: &str) -> i64 {
     let target = format!("{ty}_item");
     let Some(table) = mapping

@@ -14,15 +14,14 @@ export function FlowCodeEditor({ env, ...rest }: Common & { env: FlowEnv }) {
   return <CodeEditor label="흐름식" extensions={extensions} {...rest} />;
 }
 
-export function SqlCodeEditor({ label, schema, view, outer, onIssues, ...rest }: Common & {
+export function SqlCodeEditor({ label, schema, view, outer, ...rest }: Common & {
   label: string;
   /** 없으면 하이라이트만 하는 읽기 전용 보기. */
   schema?: Record<string, string[]>;
   view?: string;
   /** 바깥 행의 별칭 → 계약면 뷰. 없으면 현재(view) 하나. 맞춤 뷰는 접수·공고·계약. */
   outer?: Record<string, string>;
-  onIssues?: (n: number) => void;
 }) {
-  const extensions = useMemo(() => schema ? sqlExtensions(schema, view ?? "", onIssues, outer) : sqlReadOnly, [schema, view, onIssues, outer]);
+  const extensions = useMemo(() => schema ? sqlExtensions(schema, view ?? "", outer) : sqlReadOnly, [schema, view, outer]);
   return <CodeEditor label={label} extensions={extensions} {...rest} />;
 }

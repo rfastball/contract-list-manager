@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { call } from "../bridge";
 import { Modal } from "../Modal";
 import type { ColumnContext, ColumnTrace, EntityType, SqlCheck } from "../types";
@@ -46,7 +46,7 @@ const sampleName = (i: number) => String.fromCharCode(65 + i);
 const dropWord: Partial<Record<Op, string>> = { distinct: "겹쳐 빠짐", filter: "걸러짐", take: "잘림" };
 const flowOf = (f: FormulaV2 | null) => f?.source === "flow" ? f.flow : null;
 
-/** `=` 가공열 편집 — 값 흐름 보표(§6.4). 행은 단계, 열은 미리보기 자료 문서. 칸은 그 단계까지의 값. */
+/** `=` 가공열 편집 — 값 흐름 보표(§6.4). 행은 단계, 값 열은 고른 미리보기 자료 한 건. 칸은 그 단계까지의 값. */
 export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, onSuggestName, userView = false, sampleKeys, codeDraft, onCodeDraftChange }: Props) {
   const [tab, setTab] = useState<Tab>(formula?.source === "sql" ? "sql" : "steps");
   const [trace, setTrace] = useState<ColumnTrace | null>(null);
@@ -54,7 +54,7 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
   const [traceError, setTraceError] = useState("");
   const [tracing, setTracing] = useState(false);
   const [sel, setSel] = useState(0);
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<number | null>(null);
   const [sample, setSample] = useState(0);
   const [escaping, setEscaping] = useState(false);
   const [compiled, setCompiled] = useState<{ packed: string; sql: string; error?: string } | null>(null);
@@ -100,6 +100,10 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
   const ejected = userView ? (compilable && trace && tracedFor === compilable ? { packed: compilable, sql: trace.sql } as { packed: string; sql: string; error?: string } : null)
     : compiled && compiled.packed === compilable ? compiled : null;
   useEffect(() => { if (flow && sel > flow.steps.length) setSel(flow.steps.length); }, [flow, sel]);
+  // 보표는 고른 미리보기 자료 한 건만 그린다. 자료 수가 줄면 고른 번호를 끝으로 당긴다.
+  const shown = !!trace?.samples.length;
+  const picked = shown ? Math.min(sample, trace!.samples.length - 1) : 0;
+  useEffect(() => { if (shown && sample !== picked) setSample(picked); }, [shown, sample, picked]);
 
   const putFlow = (next: Flow) => onChange({ version: 2, id: formula?.id ?? "", source: "flow", flow: next });
   const setFlow = (next: Flow) => {
@@ -122,49 +126,65 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
     const next = Math.min(k, flow.steps.length - 1); setSel(next); focusRow(next);
   };
   const addStep = (op: Op) => {
-    if (!flow || !checked || !env) return;
-    const at = Math.min(sel, flow.steps.length);
-    const step: Step = defaultStep(op, checked.fields[at] ?? [], rowColumns(env));
+    if (!flow || !checked || !env || picking === null) return;
+    const at = picking;
+    const step: Step = defaultStep(op, checked.fields[at] ?? [], rowColumns(env), checked.shapes[at]);
     const steps = [...flow.steps];
     steps.splice(at, 0, step);
-    setFlow({ ...flow, steps }); setPicking(false); setSel(at + 1); focusRow(at + 1);
+    setFlow({ ...flow, steps }); setPicking(null); setSel(at + 1); focusRow(at + 1);
   };
+  const openPicker = (at: number, button: HTMLButtonElement) => {
+    addButton.current = button;
+    setPicking(p => p === at ? null : at);
+  };
+  const closePicker = () => {
+    const button = addButton.current;
+    setPicking(null);
+    requestAnimationFrame(() => { if (button?.isConnected && addButton.current === button) button.focus(); });
+  };
+  const picker = !readOnly && picking !== null && checked?.shapes[picking]
+    ? <tr className="trace-picker-row"><td colSpan={shown ? 2 : 1} className="trace-rail">
+      <VerbPicker key={picking} shape={checked.shapes[picking]!} triggerRef={addButton} onPick={addStep} onClose={closePicker} />
+    </td></tr> : null;
 
   const tabs: [Tab, string][] = [["steps", "단계"], ["code", "흐름식"], ["sql", "SQL"]];
+  const locked = (t: Tab) => formula?.source === "sql" && t !== "sql";
+  const open = tabs.map(([t]) => t).filter(t => !locked(t));
   return <div className="flow-editor">
-    <div className="flow-tabs" role="tablist" aria-label="편집 방식">
+    {/* 방향키는 잠기지 않은 탭만 따르고, 옮기면 바로 고른다(App 의 자료 종류 탭과 같다). */}
+    <div className="flow-tabs" role="tablist" aria-label="편집 방식" onKeyDown={e => {
+      if (!(e.target as HTMLElement).closest('[role="tab"]')) return;
+      const i = open.indexOf(tab);
+      const next = e.key === "ArrowRight" ? open[(i + 1) % open.length] : e.key === "ArrowLeft" ? open[(i + open.length - 1) % open.length]
+        : e.key === "Home" ? open[0] : e.key === "End" ? open[open.length - 1] : undefined;
+      if (!next) return;
+      e.preventDefault();
+      setTab(next);
+      document.getElementById(`flow-tab-${next}`)?.focus();
+    }}>
       {tabs.map(([t, label]) => <button key={t} type="button" role="tab" id={`flow-tab-${t}`} aria-controls={`flow-panel-${t}`} aria-selected={tab === t}
-        disabled={formula?.source === "sql" && t !== "sql"} onClick={() => setTab(t)}>{label}</button>)}
+        tabIndex={tab === t ? 0 : -1} disabled={locked(t)} onClick={() => setTab(t)}>{label}</button>)}
       <span className="flow-tabs-status" role="status">{tracing ? "미리보기 자료 계산 중…" : ""}</span>
     </div>
-    {formula?.source === "sql" && <p className="column-context flow-sql-note">SQL로 직접 쓰는 열입니다. 단계나 흐름식으로는 되돌릴 수 없습니다.</p>}
-    {tab !== "code" && codeDraft?.problem && <p className="flow-error-line" role="alert">흐름식에 저장하지 않은 문구가 있습니다. 흐름식 탭에서 고치세요. {codeDraft.problem}</p>}
-    {traceError && <p className="flow-error-line">미리보기 자료 값을 계산하지 못했습니다. {traceError}</p>}
+    {formula?.source === "sql" && <p className="column-context flow-sql-note">단계나 흐름식으로 되돌릴 수 없습니다.</p>}
+    {tab !== "code" && codeDraft?.problem && <p className="flow-error-line" role="alert">흐름식에 저장하지 않은 문구가 있습니다. 흐름식 탭에서 고치세요.</p>}
+    {traceError && <p className="flow-error-line" role="alert">미리보기 자료 값을 계산하지 못했습니다. {traceError}</p>}
 
     {tab === "steps" && <div className="flow-panel" role="tabpanel" id="flow-panel-steps" aria-labelledby="flow-tab-steps">
       {!flow ? (readOnly ? <p className="column-hint">식이 없습니다.</p> : env ? <QuickStart env={env} links={links} onFlow={(f, name) => { setFlow(f); setSel(f.steps.length); if (name) onSuggestName(name); }} /> : <p role="status">시작 데이터를 불러오는 중…</p>)
-        : <>
-          {!readOnly && <div className="trace-add">
-            <button ref={addButton} type="button" className="action" aria-label="단계 추가" aria-describedby="trace-add-position" aria-haspopup="dialog" aria-expanded={picking}
-              disabled={!checked?.shapes[Math.min(sel, flow.steps.length)]} onClick={() => setPicking(p => !p)}>
-              <Icon name="plus" />단계 추가</button>
-            <span id="trace-add-position" className="column-hint" role="status">추가 위치: {sel === 0 ? "시작 데이터" : `${sel}단계`} 뒤</span>
-            {picking && checked?.shapes[Math.min(sel, flow.steps.length)] && <VerbPicker shape={checked.shapes[Math.min(sel, flow.steps.length)]!}
-              onPick={addStep} onClose={() => { setPicking(false); addButton.current?.focus(); }} />}
-          </div>}
-          <label className="trace-sample-picker">미리보기 자료<select value={sample} onChange={e => setSample(Number(e.target.value))}>
-            {(trace?.samples ?? []).map((s, i) => <option key={i} value={i}>미리보기 자료 {sampleName(i)} · {s.title || s.base}</option>)}</select></label>
+        : <div className="flow-steps"><div className="flow-trace">
           <div className="trace-scroll">
-            <table className="trace" role="grid" aria-label="값 흐름" aria-rowcount={flow.steps.length + 2}>
+            <table className="trace trace-flow" role="grid" aria-label="값 흐름"
+              aria-rowcount={flow.steps.length + 2 + Number(!!env) + Number(!readOnly) + Number(!!picker) + Number(shown)}>
               <thead><tr>
                 <th scope="col" className="trace-step-head">단계</th>
-                {(trace?.samples ?? []).map((s, i) => <th key={i} scope="col" data-sample={i} className={i === sample ? "is-picked" : undefined}>
-                  <span className="trace-sample-name">미리보기 자료 {sampleName(i)}</span>
-                  <small title={s.title || s.base}>{s.title || s.base}</small><small className="trace-sample-count">{s.rows ?? context?.sources[i]?.totalRows ?? 0}품목</small>
-                </th>)}
+                {shown && <th scope="col">
+                  <select aria-label="미리보기 자료" value={picked} onChange={e => setSample(Number(e.target.value))}>
+                    {trace!.samples.map((s, i) => <option key={i} value={i}>{sampleName(i)} · {s.title || s.base} · {s.rows ?? context?.sources[i]?.totalRows ?? 0}품목</option>)}</select>
+                </th>}
               </tr></thead>
               <tbody onKeyDown={e => {
-                if (e.target instanceof HTMLElement && e.target.tagName !== "TR") return;
+                if (!(e.target instanceof HTMLTableRowElement) || e.target.parentElement !== e.currentTarget) return;
                 const n = flow.steps.length;
                 if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); if (!readOnly) moveStep(sel, e.key === "ArrowUp" ? -1 : 1); return; }
                 if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); const k = Math.max(0, Math.min(n, sel + (e.key === "ArrowUp" ? -1 : 1))); setSel(k); focusRow(k); return; }
@@ -176,50 +196,70 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
                   const firstBad = checked?.errors.find(x => !x.final)?.index;
                   const blocked = firstBad !== undefined && k > firstBad;
                   const shape = checked?.shapes[k] ?? null;
+                  const previousShape = k > 0 ? checked?.shapes[k - 1] : null;
                   const word = step ? verbWord(step) : printSource(flow.from, mode);
                   const args = step ? printArgs(step, mode) : "";
                   const cells = trace && trace.steps.length === flow.steps.length + 1 ? trace.steps[k] : null;
-                  return <tr key={k} ref={el => { rows.current[k] = el; }} tabIndex={k === sel ? 0 : -1} aria-selected={k === sel}
-                    className={[k === sel ? "is-selected" : "", issue ? "has-error" : "", blocked ? "is-blocked" : ""].filter(Boolean).join(" ") || undefined}
+                  return <Fragment key={k}><tr ref={el => { rows.current[k] = el; }} tabIndex={k === sel ? 0 : -1} aria-selected={k === sel}
+                    className={["trace-stage", k === 0 ? "trace-start" : "", k === sel ? "is-selected" : "", k === sel && env ? "has-settings" : "", issue ? "has-error" : "", blocked ? "is-blocked" : ""].filter(Boolean).join(" ")}
                     onClick={() => setSel(k)} onFocus={() => setSel(k)}>
-                    <th scope="row">
+                    <th scope="row" className="trace-rail">
+                      <span className={`trace-node${k === 0 ? " trace-node-start" : ""}`} aria-hidden="true">{k > 0 ? k : null}</span>
                       <div className="trace-step"><span className="code trace-verb">{word}</span>{args && <span className="code trace-args">{args}</span>}</div>
-                      <div className="trace-meta">{k === 0 ? "시작 데이터" : `${k}단계`}{shape ? ` · ${shapeLabel[shape]}` : ""}</div>
+                      <span className="sr-only">{k === 0 ? "시작 데이터" : `${k}단계`}{shape ? ` · ${shapeLabel[shape]}` : ""}</span>
+                      {shape && (k === 0 || previousShape && previousShape !== shape) && <div className="trace-meta" aria-hidden="true">
+                        {k > 0 && previousShape ? `${shapeLabel[previousShape]} → ` : ""}{shapeLabel[shape]}</div>}
                       {issue && !blocked && <p className="trace-error"><Icon name="alert" size={14} />{issue}</p>}
                     </th>
-                    {(trace?.samples ?? []).map((_, i) => <td key={i} data-sample={i} className={i === sample ? "is-picked" : undefined}>
+                    {shown && <td>
                       {blocked ? <span className="trace-blocked">앞 단계를 고치면 계산합니다</span>
-                        : <TraceCell v={cells?.values[i]} shape={shape} op={step?.op} />}
-                    </td>)}
-                  </tr>;
+                        : <TraceCell v={cells?.values[picked]} shape={shape} op={step?.op} />}
+                    </td>}
+                  </tr>
+                  {k === sel && env && <tr className="trace-settings-row"><td colSpan={shown ? 2 : 1} className="trace-rail">
+                    <StepSettings index={k} flow={flow} env={env} panelRef={settings}
+                      fields={checked?.fields[k - 1] ?? []} input={k > 0 ? checked?.shapes[k - 1] ?? null : null}
+                      sampleRows={k > 0 ? rowsOf(trace?.steps[k - 1]?.values[picked]) : undefined}
+                      readOnly={readOnly} entityLinks={links} onChange={setFlow}
+                      onMove={d => moveStep(k, d)} onRemove={() => removeStep(k)} />
+                    {!readOnly && k < flow.steps.length && <button type="button" className="trace-insert"
+                      aria-label={`${k === 0 ? "시작 데이터" : `${k}단계`} 뒤에 단계 추가`} aria-haspopup="dialog" aria-expanded={picking === k}
+                      disabled={!checked?.shapes[k]} onClick={e => openPicker(k, e.currentTarget)}><Icon name="plus" /></button>}
+                  </td></tr>}
+                  {picking === k && k < flow.steps.length && picker}
+                  </Fragment>;
                 })}
               </tbody>
-              {trace && <tfoot><tr className="trace-final">
-                <th scope="row">열에 찍힐 값</th>
-                {trace.final.map((v, i) => <td key={i} data-sample={i} className={i === sample ? "is-picked" : undefined}>{checked && !checked.ok
-                  ? <span className="trace-blocked">식을 고치면 계산합니다</span> : v || <span className="blank-mark">빈 값</span>}</td>)}
-              </tr></tfoot>}
+              <tfoot>
+                {!readOnly && <tr className="trace-add-row"><td colSpan={shown ? 2 : 1} className="trace-rail">
+                  <span className="trace-node trace-node-add" aria-hidden="true" />
+                  <button type="button" className="action" aria-label="단계 추가" aria-haspopup="dialog" aria-expanded={picking === flow.steps.length}
+                    disabled={!checked?.shapes[flow.steps.length]} onClick={e => openPicker(flow.steps.length, e.currentTarget)}>
+                    <Icon name="plus" />단계 추가</button>
+                </td></tr>}
+                {picking === flow.steps.length && picker}
+                {shown && <tr className="trace-final">
+                <th scope="row" className="trace-rail"><span className="trace-node trace-node-final" aria-hidden="true" />열에 찍힐 값</th>
+                <td>{checked && !checked.ok
+                  ? <span className="trace-blocked">식을 고치면 계산합니다</span> : trace!.final[picked] || <span className="blank-mark">빈 값</span>}</td>
+              </tr>}
+              </tfoot>
             </table>
           </div>
-          <p className="column-hint trace-keys">↑↓ 단계 고르기 · Alt+↑↓ 옮기기 · Delete 지우기 · Enter 설정</p>
-          {env && <StepSettings index={Math.min(sel, flow.steps.length)} flow={flow} env={env} panelRef={settings}
-            fields={checked?.fields[Math.min(sel, flow.steps.length) - 1] ?? []} input={sel > 0 ? checked?.shapes[sel - 1] ?? null : null}
-            sampleRows={sel > 0 ? rowsOf(trace?.steps[sel - 1]?.values[sample]) : undefined} sampleTitle={trace?.samples[sample] ? sampleName(sample) : undefined}
-            readOnly={readOnly} entityLinks={links} onChange={setFlow}
-            onMove={d => moveStep(sel, d)} onRemove={() => removeStep(sel)} />}
-        </>}
+          </div>
+        </div>}
     </div>}
 
     {tab === "code" && <div className="flow-panel" role="tabpanel" id="flow-panel-code" aria-labelledby="flow-tab-code">
-      {env && <FlowCode flow={flow} env={env} readOnly={readOnly} onFlow={putFlow} draft={codeDraft} onDraftChange={onCodeDraftChange} />}
+      {env && <FlowCode flow={flow} env={env} readOnly={readOnly} onFlow={putFlow} draft={codeDraft} onDraftChange={onCodeDraftChange}
+        checkError={checked && !checked.ok ? checked.errors[0]?.message ?? "" : ""} />}
+      {/* 깨진 원문 옆에 마지막으로 읽은 식의 값을 보이지 않는다 — 지금 식의 보표일 때만. */}
+      {!codeDraft?.problem && checked?.ok && trace && tracedFor === packed && <SampleResults samples={trace.samples} final={trace.final} note={trace.note} />}
     </div>}
 
     {tab === "sql" && <div className="flow-panel" role="tabpanel" id="flow-panel-sql" aria-labelledby="flow-tab-sql">
       {formula?.source === "sql" ? <SqlEdit entity={entity} formula={formula} context={context} readOnly={readOnly} onChange={onChange} userView={userView} sampleKeys={keys} />
         : <>
-          <p className="column-hint">단계에서 자동 생성한 읽기 전용 SQL입니다. 단계나 흐름식을 바꾸면 이 쿼리도 갱신됩니다. 직접 편집으로 전환하면 단계·흐름식 편집을 더 이상 사용할 수 없습니다. {userView
-            ? <>바깥 행의 문서는 <span className="code">접수</span>·<span className="code">공고</span>·<span className="code">계약</span>으로 부릅니다.</>
-            : <>바깥 행은 <span className="code">현재</span>로 부릅니다.</>}</p>
           <Suspense fallback={loading}><SqlCodeEditor label="컴파일된 SQL" readOnly value={!flow ? "-- 식이 없습니다"
             : !checked?.ok ? "-- 식에 오류가 있어 SQL을 만들지 않았습니다" : ejected ? (ejected.error ? `-- ${ejected.error}` : ejected.sql) : "-- 계산 중…"} /></Suspense>
           {!readOnly && <div className="column-controls flow-sql-actions">
@@ -231,8 +271,8 @@ export function ColumnFlow({ entity, formula, context, env, readOnly, onChange, 
 
     {escaping && ejected?.sql && <Modal label="SQL로 꺼내기 확인" onClose={() => setEscaping(false)}>
       <h2>SQL로 꺼내 직접 편집할까요?</h2>
-      <p>지금 식을 SQL 원문으로 바꿔 직접 고칠 수 있게 합니다. <strong>바꾼 뒤에는 단계나 흐름식으로 되돌릴 수 없습니다.</strong></p>
-      <p className="column-hint">SQL은 공개 뷰(v_공고 등)만 읽을 수 있고, 저장할 때 미리보기 자료로 실제 실행해 검사합니다.</p>
+      <p><strong>바꾼 뒤에는 단계나 흐름식으로 되돌릴 수 없습니다.</strong></p>
+      <p className="column-hint">SQL은 공개 뷰(v_공고 등)만 읽을 수 있습니다.</p>
       <div className="column-controls"><button className="action" onClick={() => setEscaping(false)}>취소</button>
         <button className="action primary" onClick={() => { onChange({ version: 2, id: formula?.id ?? "", source: "sql", sql: ejected.sql }); setEscaping(false); setTab("sql"); }}>SQL로 꺼내기</button></div>
     </Modal>}
@@ -264,7 +304,6 @@ function QuickStart({ env, links, onFlow }: { env: FlowEnv; links: LinkKind[]; o
       {links.map(k => <button key={k} type="button" className="action" onClick={() => onFlow({ from: { kind: "linked", link: k }, steps: [] })}>{docWord[k]}</button>)}
       <button type="button" className="action" onClick={() => onFlow({ from: { kind: "text", text: "" }, steps: [] })}>글자</button>
     </div>
-    <p className="column-hint">문서를 고르면 그 문서 한 건에서 시작합니다. 다음 단계에서 꺼낼 열을 고르세요.</p>
   </section>;
   return <section className="quick-start" aria-label="빠른 시작">
     <h3>어디에서 시작할까요?</h3>
@@ -278,7 +317,6 @@ function QuickStart({ env, links, onFlow }: { env: FlowEnv; links: LinkKind[]; o
       <button type="button" className="action" disabled={!field} onClick={() => onFlow({ from: { kind: "field", field }, steps: [] })}>이 열에서 시작</button>
     </div>}
     <h3>자주 쓰는 묶음</h3>
-    <p className="column-hint">고르면 단계가 채워집니다. 채워진 단계는 하나씩 고칠 수 있습니다.</p>
     <ul className="quick-presets">
       {presets(env).map(p => <li key={p.id}>
         <button type="button" className="action" disabled={!p.flow} title={p.unavailable} onClick={() => p.flow && onFlow(p.flow, p.name)}>{p.label}</button>
@@ -289,14 +327,13 @@ function QuickStart({ env, links, onFlow }: { env: FlowEnv; links: LinkKind[]; o
   </section>;
 }
 
-function FlowCode({ flow, env, readOnly, onFlow, draft, onDraftChange }: { flow: Flow | null; env: FlowEnv; readOnly: boolean; onFlow: (f: Flow) => void;
-  draft: FlowCodeDraft | null; onDraftChange: (draft: FlowCodeDraft) => void }) {
+function FlowCode({ flow, env, readOnly, onFlow, draft, onDraftChange, checkError }: { flow: Flow | null; env: FlowEnv; readOnly: boolean; onFlow: (f: Flow) => void;
+  draft: FlowCodeDraft | null; onDraftChange: (draft: FlowCodeDraft) => void; checkError: string }) {
   const mode = { view: !!env.view };
   const text = draft?.text ?? (flow ? printFlow(flow, mode) : "");
   const problem = text.trim() ? draft?.problem ?? "" : "";
   const empty = !text.trim() && !!flow;
   return <>
-    <p className="column-hint" id="flow-code-hint">고치는 대로 단계에 반영되고, 읽을 수 없는 곳에는 밑줄이 그어집니다. Ctrl+Space로 동사와 열을 완성합니다.</p>
     <Suspense fallback={loading}><FlowCodeEditor env={env} value={text} readOnly={readOnly} describedBy="flow-code-hint" placeholder={env.view ? "공고.품목 |> 꺼내기 세부품명 |> 잇기 \", \"" : "품목 |> 꺼내기 세부품명 |> 잇기 \", \""}
       onChange={value => {
         if (!value.trim()) { onDraftChange({ text: value, problem: flow ? "식이 비어 있습니다" : "" }); return; }
@@ -305,8 +342,8 @@ function FlowCode({ flow, env, readOnly, onFlow, draft, onDraftChange }: { flow:
           onDraftChange({ text: value, problem: "" }); onFlow(next);
         } catch (e) { onDraftChange({ text: value, problem: e instanceof FlowSyntaxError ? e.message : (e as Error).message }); }
       }} /></Suspense>
-    <p className={problem || empty ? "flow-error-line" : "column-hint"} aria-live="polite">{problem ? `이 식을 읽을 수 없습니다: ${problem}. 단계에는 마지막으로 읽은 식이 남아 있습니다.`
-      : empty ? "식이 비어 있습니다. 단계에는 마지막으로 읽은 식이 남아 있습니다." : flow ? `단계 ${flow.steps.length}개로 반영했습니다.` : ""}</p>
+    <p className={problem || empty || checkError ? "flow-error-line" : "column-hint"} id="flow-code-hint" aria-live="polite">{problem ? `이 식을 읽을 수 없습니다: ${problem}. 단계에는 마지막으로 읽은 식이 남아 있습니다.`
+      : empty ? "식이 비어 있습니다. 단계에는 마지막으로 읽은 식이 남아 있습니다." : checkError || "Ctrl+Space로 동사와 열을 완성합니다."}</p>
   </>;
 }
 
@@ -328,7 +365,6 @@ function SqlEdit({ entity, formula, context, readOnly, onChange, userView = fals
   entity?: EntityType; formula: Extract<FormulaV2, { source: "sql" }>; context: ColumnContext | null; readOnly: boolean; onChange: (f: FormulaV2) => void;
   userView?: boolean; sampleKeys?: string;
 }) {
-  const [issues, setIssues] = useState(0);
   const [check, setCheck] = useState<{ sql: string; result?: SqlCheck; error?: string } | null>(null);
   const view = context?.available?.view ?? "";
   const schema = useMemo(() => context?.available?.schema ?? {}, [context]);
@@ -345,20 +381,22 @@ function SqlEdit({ entity, formula, context, readOnly, onChange, userView = fals
   const current = check && check.sql === formula.sql ? check : null;
   const refused = current?.error ?? (current?.result && !current.result.ok ? current.result.error : null);
   return <>
-    <p className="column-hint" id="sql-hint">값 하나를 돌려주는 SELECT 문을 씁니다. {userView
-      ? "바깥 행의 문서는 접수·공고·계약으로 부르고, 공개 뷰만 읽을 수 있습니다."
-      : <>바깥 행은 <span className="code">현재</span>({view})로 부르고, 공개 뷰만 읽을 수 있습니다.</>} Ctrl+Space로 뷰·열·함수를 완성합니다.</p>
-    <Suspense fallback={loading}><SqlCodeEditor label="SQL" value={formula.sql} readOnly={readOnly} schema={schema} view={view} onIssues={setIssues} describedBy="sql-hint"
+    <Suspense fallback={loading}><SqlCodeEditor label="SQL" value={formula.sql} readOnly={readOnly} schema={schema} view={view} describedBy="sql-hint"
       outer={userView ? viewOuter : undefined} onChange={sql => onChange({ ...formula, sql })} /></Suspense>
-    {issues > 0 && <p className="flow-error-line">고칠 곳이 {issues}군데 있습니다. 밑줄에 마우스를 올리면 이유가 보입니다.</p>}
-    <p className={refused ? "flow-error-line" : "column-hint"} role="status">{!current ? "SQL을 검사하는 중…"
-      : refused ? `저장할 수 없습니다: ${refused}` : "검사를 통과했습니다. 저장할 때 뷰에 넣어 한 번 더 확인합니다."}</p>
-    {current?.result?.ok && <div className="sql-results">
-      <table className="trace"><caption>미리보기 자료 결과</caption>
-        <thead><tr><th scope="col">미리보기 자료</th><th scope="col">열에 찍힐 값</th></tr></thead>
-        <tbody>{current.result.samples.map((s, i) => <tr key={i}><th scope="row">미리보기 자료 {sampleName(i)} <small>{s.title || s.base}</small></th>
-          <td>{current.result!.final[i] || <span className="blank-mark">빈 값</span>}</td></tr>)}</tbody></table>
-      {current.result.note && <p className="column-hint">{current.result.note}</p>}
-    </div>}
+    <p className={refused ? "flow-error-line" : "column-hint"} id="sql-hint" role="status">{refused ? `저장할 수 없습니다: ${refused}` : <>{userView
+      ? "바깥 행의 문서는 접수·공고·계약으로 부르고, 공개 뷰만 읽을 수 있습니다."
+      : <>바깥 행은 <span className="code">현재</span>({view})로 부르고, 공개 뷰만 읽을 수 있습니다.</>} Ctrl+Space로 뷰·열·함수를 완성합니다.</>}</p>
+    {current?.result?.ok && <SampleResults samples={current.result.samples} final={current.result.final} note={current.result.note} />}
   </>;
+}
+
+/** 미리보기 자료마다 열에 찍힐 값 — SQL 편집과 흐름식 탭이 같이 쓴다. */
+function SampleResults({ samples, final, note }: Pick<SqlCheck, "samples" | "final" | "note">) {
+  return <div className="sql-results">
+    <table className="trace"><caption>미리보기 자료 결과</caption>
+      <thead><tr><th scope="col">미리보기 자료</th><th scope="col">열에 찍힐 값</th></tr></thead>
+      <tbody>{samples.map((s, i) => <tr key={i}><th scope="row">미리보기 자료 {sampleName(i)} <small>{s.title || s.base}</small></th>
+        <td>{final[i] || <span className="blank-mark">빈 값</span>}</td></tr>)}</tbody></table>
+    {note && <p className="column-hint">{note}</p>}
+  </div>;
 }

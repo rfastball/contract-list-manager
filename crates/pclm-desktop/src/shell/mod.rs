@@ -1,9 +1,9 @@
-//! 창(C# `Pclm.App` 의 `App.xaml.cs` · `MainWindow.xaml.cs`) — Tauri 2 위의 WebView2 하나와 다리 하나.
+//! 창 — Tauri 2 위의 WebView2 하나와 다리 하나.
 //!
 //! 그림은 전부 화면(React)이 그리고 여기서는 **창을 띄우고 다리를 놓는 일**만 한다. 화면과의 통로는 앱 명령 `bridge` 하나
-//! (`{id, method, args}` 글 → 다리의 답 글, C# `ReplyJson` 과 같은 바이트)와 알림 이벤트 `pclm:notice`(`{notice}` 글)다.
+//! (`{id, method, args}` 글 → 다리의 답 글)와 알림 이벤트 `pclm:notice`(`{notice}` 글)다.
 //!
-//! 시작의 차례는 C# `OnStartup` 그대로다: 인자 → 홈 → 열람 사본 · 옛 exe 치우기 · 파일 연결(업무 홈만) → 열람 창이면 그리로 →
+//! 시작의 차례: 인자 → 홈 → 열람 사본 · 옛 exe 치우기 · 파일 연결(업무 홈만) → 열람 창이면 그리로 →
 //! 홈 잠금(못 얻으면 떠 있는 창을 불러내고 끝) → 쪽지 → 작업자료(못 열면 시작 화면) → 알릴 것 → 확장 · 자동 실행 고침(업무 홈만)
 //! → 다리 → 창.
 
@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use pclm_bridge::{Bridge, FolderPrompt, Host, OpenPrompt, Os, SavePrompt, WindowsOs};
+use pclm_bridge::{Bridge, Host, OpenPrompt, Os, SavePrompt, WindowsOs};
 use pclm_core::Error;
 use pclm_core::storage::store::error_message;
 use pclm_home::window_prefs::WindowPrefs;
@@ -37,7 +37,7 @@ use self::win::{Icon, message_box};
 use crate::launch::{self, HomeChoice};
 use crate::{association, old_executables};
 
-/// 시계 · 식별자 · 시간대 — 진짜(C# `DateTime.Now`).
+/// 시계 · 식별자 · 시간대 — 진짜.
 static SYSTEM: SystemEnv = SystemEnv;
 
 /// 창은 하나다. 화면이 받는 권한(capabilities/main.json)이 이 이름에 걸려 있다.
@@ -46,7 +46,7 @@ const LABEL: &str = "main";
 /// 알림 이벤트의 이름. 실리는 것은 다리의 `notice_json` 글(`{"notice":…}`) 그대로다.
 const NOTICE: &str = "pclm:notice";
 
-/// C# `MainWindow.xaml` 의 `Width="1560" Height="820"` — 창 테두리까지 친 크기(DIP).
+/// 창 테두리까지 친 크기(DIP).
 const WIDTH: f64 = 1560.0;
 const HEIGHT: f64 = 820.0;
 
@@ -60,9 +60,9 @@ struct Shell {
     app: OnceLock<AppHandle<Wry>>,
     bridge: Mutex<Option<Arc<Bridge<'static>>>>,
     tray: Mutex<Option<tray::Tray>>,
-    /// 정말로 내리는 중인가(C# `_exiting`). 닫기를 숨기기로 바꾸는 길이 진짜 끝내기까지 삼키면 안 된다.
+    /// 정말로 내리는 중인가. 닫기를 숨기기로 바꾸는 길이 진짜 끝내기까지 삼키면 안 된다.
     exiting: AtomicBool,
-    /// 작업자료를 바꿔 다시 띄우기로 했는가(C# `_restartAsked`).
+    /// 작업자료를 바꿔 다시 띄우기로 했는가.
     restart_asked: AtomicBool,
     /// 창(WebView2)을 지었는가. 로그인할 때 알림 영역으로만 켜졌으면 처음 보일 때 짓는다.
     built: AtomicBool,
@@ -72,7 +72,7 @@ struct Shell {
 
 pub fn run(args: Vec<String>) -> ExitCode {
     // 콘솔이 없는 창 프로그램이라, 터지면 까닭을 볼 데가 없다. 화면에 띄우고 파일로도 남긴다. 홈이 정해지기 전에 터지면 업무
-    // 홈에 남긴다(C# `_errorLog` 의 처음 값).
+    // 홈에 남긴다.
     let default_log = Home::default_home().map(|h| h.error_log_path()).ok();
     let launch = match launch::parse(&args) {
         Ok(launch) => launch,
@@ -148,7 +148,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
             Err(error) => return fail(Some(&log), &error_message(&error)),
         }
     };
-    // 옛 자료를 옮겨 왔거나 판올림 전에 백업을 떴으면 조용히 넘어가지 않는다.
+    // 판올림 전에 백업을 떴거나 옮기기 전 자리의 옛 파일을 지웠으면 조용히 넘어가지 않는다.
     for note in &notes {
         message_box(None, note, Icon::Information);
     }
@@ -183,7 +183,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     // 보일 때 선다. 꺼져 있으면 숨을 곳이 없으니 작업 표시줄에 내려 둔다.
     let code = shell.run_app(!(launch.background && prefs.close_to_tray), &log);
 
-    // C# 의 차례: 창이 닫히며 다리가 놓이고(자동 수집 멈춤 · 연결 닫기), 앱이 내려가며 불러내기 · 알림 영역 · 잠금을 놓는다.
+    // 창이 닫히며 다리가 놓이고(자동 수집 멈춤 · 연결 닫기), 앱이 내려가며 불러내기 · 알림 영역 · 잠금을 놓는다.
     shell.detach();
     drop(activation);
     shell.set_tray(false);
@@ -241,7 +241,7 @@ fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
-/// C# `App.Report` 뒤의 `Quit(1)`.
+/// 오류를 알린 뒤 종료 코드 1 로 끝낸다.
 fn fail(log: Option<&Path>, message: &str) -> ExitCode {
     match log {
         Some(log) => win::report(log, message, message),
@@ -273,12 +273,12 @@ impl Shell {
         bridge.set_ui_origin(self.ui.clone());
         bridge.set_host(self);
         let bridge = Arc::new(bridge);
-        // C# `MainWindow` 가 지을 때 부른다. 열람 창은 하지 않는다(다리가 가린다).
+        // 창을 지을 때 부른다. 열람 창은 하지 않는다(다리가 가린다).
         bridge.start_auto_capture();
         *self.bridge.lock().unwrap_or_else(|e| e.into_inner()) = Some(bridge);
     }
 
-    /// 다리를 놓는다(C# `Closed += _bridge.Dispose()`). 아직 풀고 있는 요청이 쥔 것은 그 요청이 끝날 때 놓인다.
+    /// 다리를 놓는다 — 창이 닫힐 때. 아직 풀고 있는 요청이 쥔 것은 그 요청이 끝날 때 놓인다.
     fn detach(&self) {
         let bridge = self.bridge.lock().unwrap_or_else(|e| e.into_inner()).take();
         drop(bridge);
@@ -295,7 +295,7 @@ impl Shell {
         self.app.get()?.get_webview_window(LABEL)
     }
 
-    /// 창의 차례(Tauri 의 주 실마리)에서 한다 — C# `Dispatcher.BeginInvoke`.
+    /// 창의 차례(Tauri 의 주 실마리)에서 한다.
     fn on_main(&'static self, work: fn(&'static Shell)) {
         if let Some(app) = self.app.get() {
             let _ = app.run_on_main_thread(move || work(self));
@@ -353,7 +353,7 @@ impl Shell {
         })
     }
 
-    /// 창을 짓는다(C# `MainWindow` + `StartAsync`). 주 실마리에서 지으면 WebView2 가 막힐 수 있어(Tauri 의 경고) 따로 실마리에서.
+    /// 창을 짓는다. 주 실마리에서 지으면 WebView2 가 막힐 수 있어(Tauri 의 경고) 따로 실마리에서.
     fn build_window(&'static self, minimized: bool) {
         if self.built.swap(true, Ordering::SeqCst) {
             return;
@@ -385,7 +385,7 @@ impl Shell {
             .title(&self.title)
             .inner_size(WIDTH, HEIGHT)
             .visible(false)
-            // 사용자 자료가 아니라 홈에 WebView2 프로필을 둔다(C# 과 같은 자리).
+            // 사용자 자료가 아니라 홈에 WebView2 프로필을 둔다.
             .data_directory(self.home.webview2_directory())
             // 앱 화면이지 브라우저가 아니다 — 개발자 도구는 디버그 빌드에서만 연다. 깃발이 아니라 빌드 설정에 매단다.
             .devtools(cfg!(debug_assertions))
@@ -409,7 +409,7 @@ impl Shell {
         Ok(())
     }
 
-    /// C# `StartAsync` 의 WebView2 설정 — 나가는 물건에서는 오른쪽 단추 메뉴와 개발자 도구를 닫고, 상태 표시줄을 끄고, 화면
+    /// WebView2 설정 — 나가는 물건에서는 오른쪽 단추 메뉴와 개발자 도구를 닫고, 상태 표시줄을 끄고, 화면
     /// 프로세스가 죽으면 다리에 알린다(`page_failed` — 「닫기 요청」 에 답할 쪽이 없으니 저장하지 않음 깃발을 내린다).
     fn configure_webview(&'static self, window: &WebviewWindow<Wry>) {
         let _ = window.with_webview(move |webview| {
@@ -501,7 +501,7 @@ impl Shell {
         let _ = window.set_focus();
     }
 
-    /// 정말로 내린다(C# `Quit`). 닫기를 숨기기로 바꾸는 길이 이것만은 삼키지 않는다.
+    /// 정말로 내린다. 닫기를 숨기기로 바꾸는 길이 이것만은 삼키지 않는다.
     fn quit(&self, code: i32) {
         self.exiting.store(true, Ordering::SeqCst);
         if let Some(app) = self.app.get() {
@@ -542,7 +542,7 @@ impl Shell {
     }
 }
 
-/// C# `Height="820" Width="1560"` 은 테두리까지 친 크기다. Tauri 는 안쪽 크기를 받으므로 지은 뒤 테두리만큼 뺀다.
+/// `WIDTH` · `HEIGHT` 는 테두리까지 친 크기다. Tauri 는 안쪽 크기를 받으므로 지은 뒤 테두리만큼 뺀다.
 fn fit_outer_size(window: &WebviewWindow<Wry>) {
     let (Ok(scale), Ok(outer), Ok(inner)) = (
         window.scale_factor(),
@@ -560,12 +560,12 @@ fn fit_outer_size(window: &WebviewWindow<Wry>) {
     ));
 }
 
-/// 화면이 보낸 글 한 통 → 다리의 답 글. 다리는 화면 실마리를 막지 않게 따로 실마리에서 푼다(C# 은 요청마다 `Task.Run`).
+/// 화면이 보낸 글 한 통 → 다리의 답 글. 다리는 화면 실마리를 막지 않게 따로 실마리에서 푼다.
 /// 답을 낸 뒤 다시 띄우기 · 닫기는 다리 `handle` 이 창에 넘긴다 — 창은 그것을 제 차례로 미룬다.
 #[tauri::command]
 async fn bridge(request: String) -> Result<String, String> {
     let shell = SHELL.get().copied().ok_or("창이 아직 서지 않았습니다.")?;
-    let bridge = shell.bridge().ok_or("다리가 놓였습니다.")?;
+    let bridge = shell.bridge().ok_or("창이 닫혔습니다.")?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut reply = String::new();
         bridge.handle(&request, &mut |answer| reply = answer);
@@ -578,18 +578,8 @@ async fn bridge(request: String) -> Result<String, String> {
 /// 명령이 창을 찾는 자리. 프로세스에 창은 하나다.
 static SHELL: OnceLock<&'static Shell> = OnceLock::new();
 
-/// 고르기 창과 창의 일 — C# `App.Wire` 와 `Restart` · `CloseWindow` · `ApplyCloseToTray`. 열람 창은 고르기 창만 단다.
+/// 고르기 창과 창의 일 — 다시 띄우기 · 닫기 · 알림 영역 두기. 열람 창은 고르기 창만 단다.
 impl Host for Shell {
-    fn pick_folder(&self, prompt: &FolderPrompt) -> Option<String> {
-        dialogs::show_on_own_thread(
-            self.owner(),
-            Pick::Folder {
-                title: prompt.title.clone(),
-                initial: prompt.initial.clone(),
-            },
-        )
-    }
-
     fn pick_save_path(&self, prompt: &SavePrompt) -> Option<String> {
         dialogs::show_on_own_thread(
             self.owner(),
@@ -599,18 +589,7 @@ impl Host for Shell {
                 default_ext: prompt.default_ext.clone(),
                 file_name: prompt.file_name.clone(),
                 overwrite_prompt: prompt.allow_overwrite,
-                initial: start_screen::documents(),
-            },
-        )
-    }
-
-    fn pick_plan_excel(&self, prompt: &OpenPrompt) -> Option<String> {
-        dialogs::show_on_own_thread(
-            self.owner(),
-            Pick::Open {
-                title: prompt.title.clone(),
-                filter: prompt.filter.clone(),
-                initial: None,
+                initial: pclm_home::win::documents(),
             },
         )
     }
@@ -621,7 +600,7 @@ impl Host for Shell {
             Pick::Open {
                 title: prompt.title.clone(),
                 filter: prompt.filter.clone(),
-                initial: start_screen::documents(),
+                initial: pclm_home::win::documents(),
             },
         )
     }

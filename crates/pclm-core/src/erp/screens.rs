@@ -1,4 +1,4 @@
-//! 수집하는 나라장터 화면(C# `Erp/Screens.cs`) — 화면의 메뉴 번호(다섯 자리)로 가린 허용 목록이다(ADR-037).
+//! 수집하는 나라장터 화면 — 화면의 메뉴 번호(다섯 자리)로 가린 허용 목록이다(ADR-037).
 //!
 //! 목록은 따로 두지 않는다: 매핑에서 `screen` 을 단 프로필들이 그것이고, 같은 프로필이 그 화면의 고유키를 들고 있다.
 //! 받는 것은 번호가 목록에 있고 **그리고** 그 프로필의 고유키가 읽힐 때뿐이다 — 뒤의 것은 [`mapping::map`] 이 본다.
@@ -14,9 +14,9 @@ pub fn supported(mapping: &MappingSet) -> impl Iterator<Item = &MappingProfile> 
     mapping.profiles_iter().filter(|p| p.screen.is_some())
 }
 
-/// `Screens.IsCode` — 메뉴 번호의 모양(`\A\d{5}\z`, .NET 의 `\d` 는 유니코드 십진 숫자)인가.
+/// 메뉴 번호의 모양(`\A\d{5}\z`, `\d` 는 유니코드 십진 숫자)인가.
 pub fn is_code(value: Option<&str>) -> bool {
-    value.is_some_and(|v| v.chars().count() == 5 && v.chars().all(mapping::dotnet_digit))
+    value.is_some_and(|v| v.chars().count() == 5 && v.chars().all(mapping::unicode_digit))
 }
 
 /// `Screens.ProfileFor` — 그 화면을 읽는 프로필. 목록에 없으면 `None`.
@@ -44,7 +44,7 @@ pub fn leaf(point_info: &Value) -> Option<String> {
     None
 }
 
-/// `Mirror.KindName` — 사람이 읽을 종류 이름.
+/// 사람이 읽을 종류 이름.
 pub fn kind_name(entity_type: &str) -> &'static str {
     match entity_type {
         "request" => "접수",
@@ -58,7 +58,7 @@ pub fn kind_name(entity_type: &str) -> &'static str {
 pub fn check(mapping: &MappingSet, code: Option<&str>, profile: &str, live: bool) -> Result<()> {
     if !is_code(code) {
         return Err(Error::invalid(if live {
-            "화면 번호를 읽지 못했습니다. 접수·공고·계약 상세 화면에서 다시 읽어 주세요."
+            "화면 번호를 읽지 못했습니다. 접수·공고·계약서 화면에서 다시 읽어 주세요."
         } else {
             "이 JSON 에는 화면 번호(depth)가 없어 받지 않습니다."
         }));

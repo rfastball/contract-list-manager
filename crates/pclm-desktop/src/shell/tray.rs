@@ -1,4 +1,4 @@
-//! 알림 영역의 아이콘(C# `Pclm.App/TrayIcon.cs`). 「알림 영역에 두기」 가 켜져 있는 동안만 선다 — 닫기(X)를 누른 창이 여기로
+//! 알림 영역의 아이콘. 「알림 영역에 두기」 가 켜져 있는 동안만 선다 — 닫기(X)를 누른 창이 여기로
 //! 숨는다.
 //!
 //! 두 번 누르면 창을 다시 띄우고, 오른쪽 단추 메뉴로 「열기」(굵게 — 두 번 누르기와 같은 일) · 「끝내기」 를 고른다. 창을 닫아도
@@ -39,7 +39,7 @@ const EXIT: usize = 2;
 pub struct Actions {
     pub open: Box<dyn Fn() + Send>,
     pub exit: Box<dyn Fn() + Send>,
-    /// 로그오프 · 종료(C# `SessionEnding`) — 창이 알림 영역으로 숨으며 Windows 를 붙들지 않게 한다.
+    /// 로그오프 · 종료 — 창이 알림 영역으로 숨으며 Windows 를 붙들지 않게 한다.
     pub session_ending: Box<dyn Fn() + Send>,
 }
 
@@ -57,7 +57,7 @@ pub struct Tray {
 }
 
 impl Tray {
-    /// `text` 는 마우스를 갖다 대면 보일 글. 알림 영역은 63자에서 자른다(C# 처럼 62자 뒤에 「…」).
+    /// `text` 는 마우스를 갖다 대면 보일 글. 알림 영역은 63자에서 자른다(62자 뒤에 「…」).
     pub fn new(text: &str, actions: Actions) -> Option<Tray> {
         let units: Vec<u16> = text.encode_utf16().collect();
         let tip = if units.len() > 63 {
@@ -79,7 +79,7 @@ impl Tray {
         })
     }
 
-    /// 풍선 알림(C# `ShowBalloonTip(10_000, …, Info)`). 몇 초 동안만 보인다 — 놓쳐도 아이콘은 남는다.
+    /// 풍선 알림. 몇 초 동안만 보인다 — 놓쳐도 아이콘은 남는다.
     pub fn notify(&self, title: &str, text: &str) {
         let message = Box::new((wide(title), wide(text)));
         let pointer = Box::into_raw(message);

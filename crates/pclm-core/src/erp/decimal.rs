@@ -1,11 +1,11 @@
-//! 계약 총액의 셈(C# `decimal`) — 품목 금액의 합에서 10원 미만을 버린 것과 머리 총액을 견준다.
+//! 계약 총액의 셈 — 품목 금액의 합에서 10원 미만을 버린 것과 머리 총액을 견준다.
 //!
-//! 값은 (가수, 소수 자리) 한 쌍이다. .NET `decimal` 은 96비트 가수에 소수 자리 0~28 이고, 여기서 쓰는 것은 더하기·10 으로
+//! 값은 (가수, 소수 자리) 한 쌍이다. 십진 수는 96비트 가수에 소수 자리 0~28 이고, 여기서 쓰는 것은 더하기·10 으로
 //! 나눠 버리기·같은가 뿐이라 정확한 정수 셈으로 같은 답이 나온다.
 
 use crate::error::Error;
 
-/// .NET `decimal` 의 가수 한도(2^96 - 1).
+/// 십진 수의 가수 한도(2^96 - 1).
 const MAX: i128 = 79_228_162_514_264_337_593_543_950_335;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,13 +15,11 @@ pub(crate) struct Decimal {
 }
 
 fn overflow() -> Error {
-    Error::InvalidOperation("Value was either too large or too small for a Decimal.".into())
+    Error::InvalidOperation("금액이 너무 커서 셀 수 없습니다.".into())
 }
 
 fn format_error(s: &str) -> Error {
-    Error::InvalidOperation(format!(
-        "The input string '{s}' was not in a correct format."
-    ))
+    Error::InvalidOperation(format!("금액이 수가 아닙니다: {s}"))
 }
 
 impl Decimal {
@@ -30,8 +28,8 @@ impl Decimal {
         scale: 0,
     };
 
-    /// `decimal.Parse(s, CultureInfo.InvariantCulture)` — `NumberStyles.Number`: 앞뒤 공백, 앞 또는 뒤의 부호, 천 단위
-    /// 쉼표, 소수점. 지수·괄호·통화 기호는 받지 않는다(`FormatException`).
+    /// 로케일 없는 십진 수 읽기 — 앞뒤 공백, 앞 또는 뒤의 부호, 천 단위
+    /// 쉼표, 소수점. 지수·괄호·통화 기호는 받지 않는다(오류).
     pub(crate) fn parse(s: &str) -> Result<Decimal, Error> {
         let ws = |c: char| matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ');
         let t = s.trim_matches(ws);
@@ -110,7 +108,7 @@ impl Decimal {
         Ok(Decimal { mantissa, scale })
     }
 
-    /// `decimal.Truncate(x / 10) * 10` — 10원 미만을 버린 정수.
+    /// 10 으로 나눠 소수를 버린 뒤 10 을 곱한다 — 10원 미만을 버린 정수.
     pub(crate) fn truncate_tens(self) -> Decimal {
         let divisor = 10i128.pow(self.scale + 1);
         Decimal {
@@ -128,7 +126,7 @@ impl Decimal {
         }
     }
 
-    /// `ToString(CultureInfo.InvariantCulture)` — 소수 자리를 그대로 적는다. 음의 0 은 부호가 없다.
+    /// 로케일 없는 글 — 소수 자리를 그대로 적는다. 음의 0 은 부호가 없다.
     pub(crate) fn to_text(self) -> String {
         let negative = self.mantissa < 0;
         let digits = format!(
@@ -155,7 +153,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn number_style_like_dotnet() {
+    fn number_style_accepts_signs_and_separators() {
         let ok = |s: &str| Decimal::parse(s).unwrap().to_text();
         assert_eq!(ok(" 1,000.50 "), "1000.50");
         assert_eq!(ok("5-"), "-5");

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { Branch, Clause, Compare, Flow, FlowEnv, LinkKind, Shape, Source, Step } from "../flow/ast";
-import { rowColumns, shapeLabel, wordOf } from "../flow/ast";
+import { rowColumns, wordOf } from "../flow/ast";
 import { verbByOp, type Arg } from "../flow/verbs";
 import { maxBranches } from "../flow/check";
 import { unitWord, verbWord } from "../flow/syntax";
@@ -18,7 +18,6 @@ type Props = {
   input: Shape | null;
   /** 서식 단계에서 눌러 끼울 미리보기 자료 품목(고른 미리보기 자료의 들어오는 행). */
   sampleRows?: Row[];
-  sampleTitle?: string;
   readOnly: boolean;
   entityLinks: LinkKind[];
   onChange: (flow: Flow) => void;
@@ -31,11 +30,9 @@ type Props = {
 export function StepSettings(props: Props) {
   const { index, flow, readOnly } = props;
   const heading = index === 0 ? "시작 데이터" : verbWord(flow.steps[index - 1]);
-  const verb = index ? verbByOp.get(flow.steps[index - 1].op) : null;
   return <section className="step-settings" aria-label="단계 설정" ref={props.panelRef} tabIndex={-1}>
     <header className="step-settings-head">
-      <h3><span className={index ? "code" : undefined}>{heading}</span> 설정</h3>
-      {verb && <p className="column-hint">{verb.desc}{props.input ? ` (들어오는 값: ${shapeLabel[props.input]})` : ""}</p>}
+      <h3 className="sr-only"><span className={index ? "code" : undefined}>{heading}</span> 설정</h3>
       {index > 0 && !readOnly && <div className="step-settings-tools">
         <button type="button" className="icon-button" aria-label="단계 위로 옮기기" title="위로 (Alt+↑)" disabled={index <= 1} onClick={() => props.onMove(-1)}><Icon name="up" /></button>
         <button type="button" className="icon-button" aria-label="단계 아래로 옮기기" title="아래로 (Alt+↓)" disabled={index >= flow.steps.length} onClick={() => props.onMove(1)}><Icon name="down" /></button>
@@ -73,15 +70,13 @@ function SourceSettings({ flow, env, entityLinks, onChange }: Props) {
     {from.kind === "linked" && <>
       <label>{env.view ? "문서" : "연결 문서"}<select value={from.link} onChange={e => set({ kind: "linked", link: e.target.value as LinkKind })}>
         {entityLinks.map(k => <option key={k} value={k}>{wordOf(env, k)}</option>)}</select></label>
-      <label>읽을 것<select value={from.items ? "\u0000items" : from.field ?? "\u0000row"} onChange={e => {
+      <label>읽을 대상<select value={from.items ? "\u0000items" : from.field ?? "\u0000row"} onChange={e => {
         const v = e.target.value;
         set(v === "\u0000items" ? { kind: "linked", link: from.link, items: true } : v === "\u0000row" ? { kind: "linked", link: from.link } : { kind: "linked", link: from.link, field: v });
       }}>
-        <option value={"\u0000row"}>문서 자체(한 행)</option><option value={"\u0000items"}>그 문서의 품목</option>
+        <option value={"\u0000row"}>문서 전체(한 행)</option><option value={"\u0000items"}>그 문서의 품목</option>
         {(env.linked[from.link]?.fields ?? []).map(f => <option key={f} value={f}>{f}</option>)}
       </select></label>
-      <p className="column-hint">{env.view ? "같은 조달 건의 그 문서(최신 차수)를 읽습니다. 그 문서가 없는 건이면 빈 값입니다."
-        : "사람이 확정한 연결 문서의 최신 차수를 읽습니다. 연결이 없으면 빈 값이고, 그 문서의 사용자 열은 읽을 수 없습니다."}</p>
     </>}
     {from.kind === "text" && <label>글자<input className="text" value={from.text} onChange={e => set({ kind: "text", text: e.target.value })} /></label>}
     {from.kind === "number" && <label>수<input className="text" type="number" value={from.value} onChange={e => set({ kind: "number", value: Number(e.target.value) })} /></label>}
@@ -110,14 +105,13 @@ function ArgSettings(props: Props & { step: Step }) {
   return <div className="step-form">
     {verb.args.map((a, i) => <ArgControl key={i} a={a} step={step} put={put} fields={fields} base={rowColumns(env)} baseLabel={env.view ? "문서의 열" : "이 행의 열"}
       rowish={rowish} formatRef={step.op === "format" ? format : undefined} />)}
-    {step.op === "format" && <SamplePicker rows={props.sampleRows} fields={fields} title={props.sampleTitle} onPick={insert} />}
+    {step.op === "format" && <SamplePicker rows={props.sampleRows} fields={fields} onPick={insert} />}
   </div>;
 }
 
-function SamplePicker({ rows, fields, title, onPick }: { rows?: Row[]; fields: string[]; title?: string; onPick: (f: string) => void }) {
+function SamplePicker({ rows, fields, onPick }: { rows?: Row[]; fields: string[]; onPick: (f: string) => void }) {
   if (!fields.length) return null;
   return <div className="format-sample">
-    <p className="column-hint">아래 표의 값이나 열 이름을 누르면 서식의 커서 자리에 <span className="code">{"{필드}"}</span>가 들어갑니다{title ? ` (미리보기 자료 ${title}의 품목)` : ""}.</p>
     <div className="format-sample-scroll"><table>
       <thead><tr>{fields.map(f => <th key={f}><button type="button" className="field-token" onClick={() => onPick(f)}>{f}</button></th>)}</tr></thead>
       <tbody>{(rows ?? []).slice(0, 5).map((r, i) => <tr key={i}>{fields.map(f => <td key={f}>
@@ -149,7 +143,7 @@ function ArgControl({ a, step, put, fields, base, baseLabel, rowish, formatRef }
       if (a.optional && !rowish) return null;
       return <FieldSelect label={a.label} value={step.field} options={a.scope === "row" ? fields : base} optional={a.optional} onChange={field => put({ field })} />;
     case "fields":
-      if (!rowish) return <p className="column-hint">같은 값은 하나만 남깁니다.</p>;
+      if (!rowish) return null;
       return <fieldset className="chip-field"><legend>{a.label} <span className="column-hint">고르지 않으면 모든 열</span></legend>
         <div className="chips">{fields.map(f => {
           const at = step.fields?.indexOf(f) ?? -1;

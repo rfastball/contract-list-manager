@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, getConfig, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -20,6 +20,7 @@ vi.mock("./mock", async (importOriginal) => {
 
 const 부름 = vi.mocked(invoke);
 const 본디 = 부름.getMockImplementation()!;
+const asyncWrapper = getConfig().asyncWrapper;
 
 const 가로채기 = (method: string, 대신: () => Promise<unknown>) =>
   부름.mockImplementation((m, args) => (m === method ? 대신() : 본디(m, args)));
@@ -42,8 +43,21 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  configure({ asyncWrapper });
   vi.unstubAllGlobals();
 });
+
+const 시간이흐르면 = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+function 가상시간() {
+  vi.useFakeTimers();
+  // RTL의 기본 microtask 정리는 Jest 시계만 진행하므로 Vitest 시계도 직접 연결한다.
+  configure({ asyncWrapper: async callback => {
+    const result = await callback();
+    await 시간이흐르면(0);
+    return result;
+  } });
+}
 
 const 오늘 = (hhmm: string) => {
   const d = new Date();
@@ -59,8 +73,9 @@ const 기본 = () => [
 ];
 
 async function 나라장터열기() {
-  const user = userEvent.setup();
+  const user = userEvent.setup(vi.isFakeTimers() ? { advanceTimers: vi.advanceTimersByTime } : {});
   render(<App />);
+  if (vi.isFakeTimers()) await 시간이흐르면(0);
   await user.click(await screen.findByRole("tab", { name: /^나라장터/ }));
   await screen.findByRole("heading", { name: "나라장터", level: 1 });
   return user;
@@ -101,6 +116,12 @@ describe("원천 상태", () => {
   it("디스크에 풀어 둔 확장이 앱의 판과 다르면 붙은 판이 같아도 옛 판이다", () => {
     const s = status({ diskVersion: "0.8.0", live: [붙음("0.9.0")] });
     expect(원천상태(s, false)).toMatchObject({ kind: "stale", staleVersion: "0.8.0" });
+    const current = "a".repeat(64), old = "b".repeat(64);
+    for (const [disk, running, kind] of [
+      [current, current, "live"], [current, old, "stale"], [old, old, "stale"], [null, current, "stale"], [current, null, "stale"],
+    ] as const) {
+      expect(원천상태(status({ embeddedRevision: current, diskRevision: disk, live: [{ ...붙음("0.9.0"), revision: running }] }), false).kind).toBe(kind);
+    }
   });
 
   it("상태를 읽지 못한 창은 준비 전으로 본다", () => {
@@ -129,16 +150,20 @@ describe("원천 상태", () => {
   });
 
   it("확장 상태는 화면과 상관없이 다시 읽어, 브라우저가 붙고 끊기면 사이드바가 저절로 바뀐다", async () => {
+    가상시간();
     스위치.확장 = "끊김";
     render(<App />);
-    const source = await screen.findByRole("tab", { name: /^나라장터 수집/ });
-    await waitFor(() => expect(source.textContent).toContain("연결 안 됨"));
+    await 시간이흐르면(0);
+    const source = screen.getByRole("tab", { name: /^나라장터 수집/ });
+    expect(source.textContent).toContain("연결 안 됨");
     스위치.확장 = "연결";
-    await waitFor(() => expect(source.textContent).toContain("연결됨"), { timeout: 4000 });
-  }, 10000);
+    await 시간이흐르면(2000);
+    expect(source.textContent).toContain("연결됨");
+  });
 });
 
 describe("들어옴", () => {
+  beforeEach(가상시간);
   /** 새 수집 한 건을 맨 앞에 넣고 판을 올린다 — 다리가 저장한 뒤의 모습이다. */
   const 들어온다 = (kind: "접수" | "공고" | "계약", number: string, title: string) => {
     수집.줄 = [수집줄(오늘("09:30"), kind, number, title, true), ...수집.줄];
@@ -147,8 +172,9 @@ describe("들어옴", () => {
 
   it("창이 떠 있는 동안 들어온 것은 그 갈래에 +N 으로 서고, 그 갈래를 열면 걷힌다", async () => {
     수집.줄 = 기본();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
+    await 시간이흐르면(0);
 
     // 처음 읽은 오늘 것은 이미 본 것으로 친다.
     const contract = await screen.findByRole("tab", { name: /^계약 42건$/ });
@@ -156,45 +182,51 @@ describe("들어옴", () => {
     expect(contract.getAttribute("aria-label")).toBe("계약 42건");
 
     들어온다("계약", "R26TA9800070200", "26년 한별 공압식승강판 20톤 구매");
-    await waitFor(() => expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 1건"), { timeout: 4000 });
+    await 시간이흐르면(1000);
+    expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 1건");
     expect(contract.textContent).toContain("+1");
     // 다른 갈래에는 서지 않는다.
     expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-label")).toBe("공고 6건");
 
     들어온다("계약", "R26TA9800070300", "26년 가람 이온분리-성분측정기 구매");
-    await waitFor(() => expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 2건"), { timeout: 4000 });
+    await 시간이흐르면(1000);
+    expect(contract.getAttribute("aria-label")).toBe("계약 42건, 새로 들어온 2건");
 
     await user.click(contract);
     expect(contract.getAttribute("aria-selected")).toBe("true");
     await waitFor(() => expect(contract.getAttribute("aria-label")).toBe("계약 42건"));
     expect(contract.textContent).not.toContain("+");
-  }, 15000);
+  });
 
   it("그 갈래를 보고 있는 동안 들어온 것은 세지 않는다", async () => {
     수집.줄 = 기본();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
+    await 시간이흐르면(0);
     const request = await screen.findByRole("tab", { name: /^접수/ });
     await waitFor(() => expect(부름).toHaveBeenCalledWith("captures", []));
     await user.click(request);
 
+    const reads = 부름.mock.calls.filter(([m]) => m === "captures").length;
     들어온다("접수", "TSTPLA26500301-000", "지어낸 접수");
-    await waitFor(() => expect(부름.mock.calls.filter(([m]) => m === "captures").length).toBeGreaterThan(2), { timeout: 4000 });
-    await new Promise((r) => setTimeout(r, 1200));
+    await 시간이흐르면(2000);
+    expect(부름.mock.calls.filter(([m]) => m === "captures").length).toBeGreaterThan(reads);
     expect(request.getAttribute("aria-label")).not.toMatch(/새로 들어온/);
-  }, 15000);
+  });
 
   it("움직임을 줄이면 흐름 없이 +N 만 선다", async () => {
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {} }));
     수집.줄 = 기본();
     render(<App />);
+    await 시간이흐르면(0);
     const notice = await screen.findByRole("tab", { name: /^공고/ });
     await waitFor(() => expect(부름).toHaveBeenCalledWith("captures", []));
 
     들어온다("공고", "R26BK98000503-000", "지어낸 공고");
-    await waitFor(() => expect(notice.getAttribute("aria-label")).toMatch(/새로 들어온 1건$/), { timeout: 4000 });
+    await 시간이흐르면(1000);
+    expect(notice.getAttribute("aria-label")).toMatch(/새로 들어온 1건$/);
     expect(notice.textContent).toContain("+1");
-  }, 15000);
+  });
 
   it("끊겨 있으면 통로를 따라 미끄러지지 않는다 — 새 줄은 그대로 펼쳐 들어온다", async () => {
     스위치.확장 = "끊김";
@@ -204,9 +236,10 @@ describe("들어옴", () => {
 
     들어온다("공고", "R26BK98000503-000", "지어낸 공고");
     // 줄은 수집 기록이 닿은 그 그림에 서고, 펼침 표시(fresh)는 들어옴 효과가 다음 그림에 단다 — 줄이 보인 순간이 아니라 그 뒤를 본다.
-    await waitFor(() => expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh"), { timeout: 4000 });
+    await 시간이흐르면(1000);
+    expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh");
     expect(document.querySelector(".conduit-glide")).toBeNull();
-  }, 15000);
+  });
 
   it("새 수집은 메뉴 건수와 수집 목록에 나타나고 목록의 새 줄을 알린다", async () => {
     수집.줄 = 기본();
@@ -214,10 +247,11 @@ describe("들어옴", () => {
     await screen.findAllByRole("row", { name: /수질측정기/ });
 
     들어온다("공고", "R26BK98000503-000", "지어낸 공고");
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-label")).toMatch(/새로 들어온 1건$/), { timeout: 4000 });
-    await waitFor(() => expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh"));
+    await 시간이흐르면(1000);
+    expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-label")).toMatch(/새로 들어온 1건$/);
+    expect(screen.getByRole("row", { name: /지어낸 공고/ }).className).toContain("fresh");
     expect(document.querySelector(".conduit-glide")).not.toBeNull();
-  }, 15000);
+  });
 });
 
 describe("나라장터 화면", () => {
@@ -235,6 +269,7 @@ describe("나라장터 화면", () => {
   });
 
   it("준비했으나 인사가 없으면 1단계를 마치고 폴더와 확장 관리 여는 길을 세운 뒤, 첫 인사가 들어오면 저절로 통로로 넘어간다", async () => {
+    가상시간();
     스위치.확장 = "기다림";
     const user = await 나라장터열기();
 
@@ -245,8 +280,11 @@ describe("나라장터 화면", () => {
     expect(within(setup).getByRole("status").textContent).toBe("Chrome 연결을 기다리는 중");
     expect(screen.getByRole("tab", { name: /^나라장터/ }).textContent).toContain("확장 연결 기다림");
 
-    await user.click(within(setup).getByRole("button", { name: "경로 복사" }));
-    expect(await navigator.clipboard.readText()).toBe("C:\\Users\\홍길동\\AppData\\Local\\Pclm\\extension");
+    const copy = vi.spyOn(navigator.clipboard, "writeText");
+    try {
+      await user.click(within(setup).getByRole("button", { name: "경로 복사" }));
+      expect(copy).toHaveBeenCalledWith("C:\\Users\\홍길동\\AppData\\Local\\Pclm\\extension");
+    } finally { copy.mockRestore(); }
     expect(within(setup).getByText(/폴더 경로를 복사했습니다/)).toBeTruthy();
 
     for (const [target, label] of [["chrome", "Chrome 확장 관리 열기"], ["edge", "Edge 확장 관리 열기"]]) {
@@ -258,11 +296,12 @@ describe("나라장터 화면", () => {
 
     // 브라우저가 처음 붙는다 — 2초마다 다시 읽으므로 따로 누를 것이 없다.
     스위치.확장 = "연결";
-    const conduit = await screen.findByRole("region", { name: "수집 통로" }, { timeout: 4000 });
+    await 시간이흐르면(2000);
+    const conduit = screen.getByRole("region", { name: "수집 통로" });
     expect(within(conduit).getByText("연결됨 · 09:12부터")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "확장 설치" })).toBeNull();
     expect(screen.getByRole("tab", { name: /^나라장터 수집/ }).textContent).toContain("연결됨");
-  }, 15000);
+  });
 
   it("붙어 있으면 통로에 브라우저·확장·작업자료를 실선으로 잇고 「연결됨 · HH:MM부터」 를 말한다", async () => {
     await 나라장터열기();
@@ -270,25 +309,24 @@ describe("나라장터 화면", () => {
     expect(within(conduit).getByText("Chrome")).toBeTruthy();
     expect(within(conduit).getByText("09:12부터 연결됨")).toBeTruthy();
     expect(within(conduit).getByText("확장 0.9.0")).toBeTruthy();
-    expect(within(conduit).getByText("나라장터 연결")).toBeTruthy();
     expect(within(conduit).getByText("계약자료.pclm")).toBeTruthy();
     expect(within(conduit).getByText("지금 열린 작업자료")).toBeTruthy();
     expect(within(conduit).getByText("연결됨 · 09:12부터")).toBeTruthy();
-    expect(within(conduit).getByText("지금 보는 화면에서 가져오면 아래 목록과 왼쪽 메뉴에 바로 나타납니다.")).toBeTruthy();
     expect([...conduit.querySelectorAll(".conduit-dash")].every((d) => d.classList.contains("solid"))).toBe(true);
     expect(conduit.querySelector(".dot")!.className).toContain("ok");
     expect(within(conduit).queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "JSON 파일로 가져오기…" })).toBeTruthy();
   });
 
-  it("끊겼으면 점선으로 긋고, 실제 브라우저 이름으로 다시 켜면 이어진다고 말하고, 확장의 「개발 DB 사용」 도 까닭으로 든다", async () => {
+  it("끊겼으면 점선으로 긋고, 현재 판과 끊긴 원인을 추정하지 않는다", async () => {
     스위치.확장 = "끊김";
     await 나라장터열기();
     const conduit = await screen.findByRole("region", { name: "수집 통로" });
     expect(within(conduit).getByText("Chrome · 연결 안 됨")).toBeTruthy();
     expect(within(conduit).getByText("마지막 연결 오늘 18:02")).toBeTruthy();
     expect(within(conduit).getByText("연결 안 됨")).toBeTruthy();
-    expect(within(conduit).getByText("Chrome이 꺼져 있거나 확장이 꺼져 있습니다. Chrome을 켜면 자동으로 다시 연결됩니다. 확장 설정의 「개발 DB 사용」 이 켜져 있어도 이어지지 않습니다.")).toBeTruthy();
+    expect(within(conduit).getByText("확장 · 현재 판 확인 안 됨")).toBeTruthy();
+    expect(within(conduit).getByText("현재 확장 연결을 확인할 수 없습니다. Chrome 실행 여부와 확장 사용 설정을 확인해 주세요.")).toBeTruthy();
     expect([...conduit.querySelectorAll(".conduit-dash")].some((d) => d.classList.contains("solid"))).toBe(false);
     expect(conduit.querySelector(".dot")!.className).toContain("hollow");
     expect(conduit.textContent).not.toMatch(/연결됨/);
@@ -300,12 +338,34 @@ describe("나라장터 화면", () => {
     const alert = await screen.findByRole("alert");
     const conduit = screen.getByRole("region", { name: "수집 통로" });
     expect(within(conduit).getByText("연결됨 · 확장이 옛 판")).toBeTruthy();
-    expect(within(conduit).getByText("옛 판으로도 연결은 되지만, 화면을 읽는 새 규칙이 적용되지 않을 수 있습니다.")).toBeTruthy();
     expect(within(conduit).getByText("옛 판 · 새 판은 0.9.0")).toBeTruthy();
     expect(alert.textContent).toContain("Chrome의 확장이 옛 판(0.8.0)입니다.");
-    expect(alert.textContent).toContain("새 판(0.9.0)으로 자동으로 바뀝니다");
+    expect(alert.textContent).toContain("확장 관리에서 이 확장을 새로고침해 새 판(0.9.0)을 적용하세요.");
     await user.click(within(alert).getByRole("button", { name: "Chrome 확장 관리 열기" }));
     await waitFor(() => expect(부름).toHaveBeenCalledWith("openExtensionSetup", ["chrome"]));
+  });
+
+  it.each([
+    ["waiting-panel", "b".repeat(64), "갱신 대기", "패널을 닫으면 자동 적용"],
+    ["failed", null, "갱신 실패", "앱이 준비한 폴더(C:\\확장)를 로드하세요"],
+    ["failed", "b".repeat(64), "갱신 실패", "앱이 준비한 폴더(C:\\확장)를 로드하세요"],
+    [undefined, null, "확인 필요", "확장 관리에서 새로고침하고"],
+  ] as const)("같은 버전이라도 실행 파일의 상태에 맞게 안내한다: %s / %s", async (updateState, revision, label, guidance) => {
+    스위치.확장상태 = { prepared: true, embeddedVersion: "1.0.1", diskVersion: "1.0.1", embeddedRevision: "a".repeat(64), diskRevision: "a".repeat(64),
+      contacts: [{ browser: "Edge", version: "0.10.1", at: 오늘("08:00") }], folder: "C:\\확장", log: [],
+      live: [{ browser: "Edge", version: "1.0.1", connectedAt: 오늘("09:12"), revision, updateState }] };
+    const user = await 나라장터열기();
+    expect((await screen.findByRole("alert")).textContent).toContain(guidance);
+    expect(screen.getByRole("tab", { name: /^나라장터 수집/ }).textContent).toContain(`확장 ${label}`);
+    expect(screen.getByRole("region", { name: "수집 통로" }).textContent).toContain(`연결됨 · 확장 ${label}`);
+    await user.click(screen.getByRole("button", { name: "Chrome 확장 상태" }));
+    const info = await screen.findByRole("complementary", { name: "확장 정보" });
+    expect(within(info).getByRole("status").textContent).toContain(guidance);
+    const summary = screen.getByRole("region", { name: "연결 요약" });
+    expect(within(summary).getByText(label)).toBeTruthy();
+    expect(within(summary).getByText("연결된 확장 판").nextElementSibling?.textContent).toBe("1.0.1");
+    expect(summary.textContent).not.toContain("0.10.1");
+    expect(screen.queryByText("앱의 최신 확장 파일이 적용되었습니다.")).toBeNull();
   });
 
   it("들어온 자료는 오늘 것을 늦은 것부터 세우고, 「보기」 는 그 종류 탭에서 번호로 찾는다", async () => {
@@ -322,7 +382,6 @@ describe("나라장터 화면", () => {
     ]);
     expect(within(rows[0]).getByText("저장").className).toContain("ok-strong");
     expect(within(rows[1]).getByText("변경 없음").className).toContain("soft");
-    expect(within(list).getByText(/저장된 자료만 보입니다/)).toBeTruthy();
 
     await user.click(within(list).getByRole("button", { name: "공고 R26BK98000502-000 보기" }));
     expect(screen.getByRole("tab", { name: /^공고/ }).getAttribute("aria-selected")).toBe("true");
@@ -362,7 +421,7 @@ describe("나라장터 화면", () => {
     expect(within(log).getByRole("heading", { name: "연결 기록 · 오늘" })).toBeTruthy();
     const items = within(log).getAllByRole("listitem");
     expect(items.map((li) => li.textContent)).toEqual([
-      "09:12연결됨", "08:57연결 끊김", "08:31연결됨", "08:30확장이 0.9.0으로 바뀜 앱의 새 판에 맞춰 자동으로",
+      "09:12연결됨", "08:57연결 끊김", "08:31연결됨", "08:30확장이 0.9.0으로 바뀜 앱과 같은 버전 번호",
     ]);
     expect(items.map((li) => li.querySelector(".log-dot")!.className)).toEqual([
       "log-dot connected", "log-dot disconnected", "log-dot connected", "log-dot updated",
@@ -372,8 +431,9 @@ describe("나라장터 화면", () => {
     expect(recent.textContent).toMatch(/오늘 09:12.*Chrome.*확장 0\.9\.0/);
 
     const info = screen.getByRole("complementary", { name: "확장 정보" });
-    expect(info.textContent).toContain("0.9.0 · 앱과 같음");
-    expect(info.textContent).toContain("판 바뀐 때오늘 08:30 · 자동");
+    expect(info.textContent).toContain("0.9.0 · 앱과 같은 버전 번호");
+    expect(info.textContent).toContain("앱을 업데이트한 뒤에는 버전 번호가 같아도 확장 관리에서 이 확장을 새로고침하세요.");
+    expect(info.textContent).toContain("판 바뀐 때오늘 08:30");
     expect(info.textContent).toContain("C:\\Users\\홍길동\\AppData\\Local\\Pclm\\extension");
     expect(info.textContent).toContain("계약자료.pclm · 작업자료");
     expect(info.textContent).toMatch(/접수1공고1계약1/);
@@ -390,6 +450,7 @@ describe("나라장터 화면", () => {
     const summary = await screen.findByRole("region", { name: "연결 요약" });
     expect(within(summary).getByText("연결 안 됨")).toBeTruthy();
     expect(within(summary).getByText("Chrome · 마지막 연결 오늘 18:02")).toBeTruthy();
+    expect(within(summary).getByText("연결된 확장 판").nextElementSibling?.textContent).toBe("—");
     const log = screen.getByRole("region", { name: "연결 기록" });
     expect(within(log).getAllByRole("listitem")[0].textContent).toBe("18:02연결 끊김");
     expect(log.textContent).not.toMatch(/닫|껐|꺼져|멈/);
@@ -424,7 +485,7 @@ describe("옮겨 온 수집 도구", () => {
     expect((prepare as HTMLButtonElement).disabled).toBe(true);
     const folder = "C:\\Users\\테스트 사용자\\AppData\\Local\\Pclm\\extension";
     complete({ folder, version: "0.3.0" });
-    expect(await within(setup).findByText(/브라우저에서 추가를 완료하세요/)).toBeTruthy();
+    expect(await within(setup).findByText("준비했습니다 · 확장 0.3.0")).toBeTruthy();
     // 폴더 선택 창에 바로 붙여 넣게 경로를 복사해 둔다.
     expect(await within(setup).findByText(/폴더 경로를 복사했습니다/)).toBeTruthy();
     expect(await navigator.clipboard.readText()).toBe(folder);
@@ -593,9 +654,9 @@ describe("옮겨 온 수집 도구", () => {
     await 나라장터열기();
     const conduit = await screen.findByRole("region", { name: "수집 통로" });
     expect(within(conduit).getByText("Edge · 연결 안 됨")).toBeTruthy();
-    expect(within(conduit).getByText("확장 0.4.1")).toBeTruthy();
+    expect(within(conduit).getByText("확장 · 현재 판 확인 안 됨")).toBeTruthy();
     expect(within(conduit).getByText("마지막 연결 09/28 14:02")).toBeTruthy();
-    expect(within(conduit).getByText("Edge가 꺼져 있거나 확장이 꺼져 있습니다. Edge를 켜면 자동으로 다시 연결됩니다. 확장 설정의 「개발 DB 사용」 이 켜져 있어도 이어지지 않습니다.")).toBeTruthy();
+    expect(within(conduit).getByText("현재 확장 연결을 확인할 수 없습니다. Edge 실행 여부와 확장 사용 설정을 확인해 주세요.")).toBeTruthy();
     expect(screen.getByRole("tab", { name: /^나라장터/ }).textContent).toContain("연결 안 됨");
     expect(screen.queryByText("Chrome 연결을 기다리는 중")).toBeNull();
     cleanup();
@@ -604,6 +665,6 @@ describe("옮겨 온 수집 도구", () => {
       [{ browser: "Chrome", version: "0.4.0", connectedAt: "2026-09-27T09:00:00" }]);
     await 나라장터열기();
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Chrome의 확장이 옛 판(0.4.0)입니다. 나라장터 화면을 열면 새 판(0.4.1)으로 자동으로 바뀝니다. 바뀌지 않으면 확장 관리에서 새로고침하세요.");
+      "Chrome의 확장이 옛 판(0.4.0)입니다. 확장 관리에서 이 확장을 새로고침해 새 판(0.4.1)을 적용하세요.");
   });
 });

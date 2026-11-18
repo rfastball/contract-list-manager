@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, getConfig, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -16,6 +16,7 @@ vi.mock("./mock", async (importOriginal) => {
 const 부름 = vi.mocked(invoke);
 const 본디 = 부름.getMockImplementation()!;
 const 길게 = { timeout: 3000 };
+const asyncWrapper = getConfig().asyncWrapper;
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
@@ -44,15 +45,29 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  configure({ asyncWrapper });
 });
+
+const 시간이흐르면 = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+function 가상시간() {
+  vi.useFakeTimers();
+  // RTL의 기본 microtask 정리는 Jest 시계만 진행하므로 Vitest 시계도 직접 연결한다.
+  configure({ asyncWrapper: async callback => {
+    const result = await callback();
+    await 시간이흐르면(0);
+    return result;
+  } });
+}
 
 const 기둥 = () => screen.getByRole("region", { name: "지금 보는 화면" });
 const 상태줄 = () => 기둥().querySelector(".dock-live")!.textContent;
 const 비추는번호 = () => 기둥().querySelector(".dock-no")?.textContent ?? "";
 
 async function 열기() {
-  const user = userEvent.setup();
+  const user = userEvent.setup(vi.isFakeTimers() ? { advanceTimers: vi.advanceTimersByTime } : {});
   render(<App />);
+  if (vi.isFakeTimers()) await 시간이흐르면(0);
   await waitFor(() => expect(비추는번호()).toBe("R26TA0000010101"), 길게);
   return user;
 }
@@ -66,7 +81,7 @@ describe("레일", () => {
     expect(rail.getAttribute("aria-expanded")).toBe("false");
     await user.click(rail);
     expect(기둥().textContent).toContain("Chrome이 연결되어 있지 않아 지금 보는 화면을 알 수 없습니다.");
-    expect(기둥().textContent).toContain("Chrome을 켜면 자동으로 다시 연결되고");
+    expect(기둥().textContent).toContain("Chrome을 켜면 다시 연결됩니다.");
     await user.click(within(기둥()).getByRole("button", { name: "접기" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "지금 보는 화면 — 연결 안 됨, 펼치기" }));
     // 저절로 접히는 자리에서 접은 것은 남기지 않는다 — 남기면 연결된 뒤에도 접힌 채로 있다.
@@ -75,9 +90,11 @@ describe("레일", () => {
   });
 
   it("붙어 있어도 열린 탭이 없으면 접혀 있다가, 탭이 들어오면 저절로 펼친다", async () => {
+    가상시간();
     지금화면.탭 = [];
     지금화면.앞 = null;
     render(<App />);
+    await 시간이흐르면(0);
     const rail = await screen.findByRole("button", { name: "지금 보는 화면 — 열린 탭 없음, 펼치기" }, 길게);
     expect(rail.querySelector(".live-dot")!.className).toContain("on");
     // 레일에는 글이 없다 — 세로로 세우면 한 글자씩 끊겨 읽히지 않는다. 이름과 상태는 단추의 이름에 있다.
@@ -88,14 +105,17 @@ describe("레일", () => {
     expect(document.getElementById("workspace")!.hidden).toBe(false);
     지금화면.탭 = 기본탭();
     지금화면.앞 = "4242:1";
-    await waitFor(() => expect(비추는번호()).toBe("R26TA0000010101"), 길게);
+    await 시간이흐르면(1000);
+    expect(비추는번호()).toBe("R26TA0000010101");
     // 탭이 다시 사라지면 다시 접힌다.
     지금화면.탭 = [];
     지금화면.앞 = null;
-    expect(await screen.findByRole("button", { name: "지금 보는 화면 — 열린 탭 없음, 펼치기" }, 길게)).toBeTruthy();
+    await 시간이흐르면(1000);
+    expect(screen.getByRole("button", { name: "지금 보는 화면 — 열린 탭 없음, 펼치기" })).toBeTruthy();
   });
 
   it("사람이 접으면 탭이 새로 들어와도 접힌 채로 있고, 다시 켜도 남으며, 레일을 누르면 펼친다", async () => {
+    가상시간();
     const user = await 열기();
     await user.click(within(기둥()).getByRole("button", { name: "접기" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "지금 보는 화면 — 탭 3개, 펼치기" }));
@@ -104,10 +124,12 @@ describe("레일", () => {
     const [first] = 기본탭();
     지금화면.탭 = [...기본탭(), { ...first, id: "4242:4", tabId: 4 }];
     지금화면.앞 = "4242:4";
-    expect(await screen.findByRole("button", { name: "지금 보는 화면 — 탭 4개, 펼치기" }, 길게)).toBeTruthy();
+    await 시간이흐르면(1000);
+    expect(screen.getByRole("button", { name: "지금 보는 화면 — 탭 4개, 펼치기" })).toBeTruthy();
     cleanup();
 
     render(<App />);
+    await 시간이흐르면(0);
     expect(await screen.findByRole("button", { name: "지금 보는 화면 — 탭 4개, 펼치기" }, 길게)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "지금 보는 화면 — 탭 4개, 펼치기" }));
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "지금 보는 화면", level: 2 }));
@@ -133,9 +155,11 @@ describe("레일", () => {
   });
 
   it("준비 전이면 「확장 준비 전」, 열람 창이면 「열람 창」 이고 열람 창은 탭을 읽지 않는다", async () => {
+    가상시간();
     스위치.확장 = "설치 전";
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<App />);
+    await 시간이흐르면(0);
     await user.click(await screen.findByRole("button", { name: "지금 보는 화면 — 확장 준비 전, 펼치기" }));
     expect(기둥().textContent).toContain("확장을 준비하면 Chrome에서 보고 있는 나라장터 화면이 여기에 나타납니다.");
     cleanup();
@@ -143,9 +167,10 @@ describe("레일", () => {
     스위치.확장 = "연결";
     스위치.열람 = true;
     render(<App />);
+    await 시간이흐르면(0);
     await user.click(await screen.findByRole("button", { name: "지금 보는 화면 — 열람 창, 펼치기" }));
     expect(기둥().textContent).toContain("열람 창에서는 지금 보는 화면을 쓸 수 없습니다.");
-    await new Promise((r) => setTimeout(r, 300));
+    await 시간이흐르면(2000);
     expect(부름.mock.calls.some(([m]) => m === "mirror" || m === "importShot")).toBe(false);
   });
 
@@ -163,8 +188,8 @@ describe("탭과 따라가기", () => {
     const group = within(기둥()).getByRole("group", { name: "Chrome의 나라장터 탭 3개" });
     const tabs = within(group).getAllByRole("button");
     expect(tabs.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "계약 상세 R26TA0000010101, 새 차수, Chrome에서 앞에 있는 탭, 지금 보고 있는 탭",
-      "계약 상세 R26TA0000010201, 검토 대기",
+      "물품·일반용역 계약서 R26TA0000010101, 새 차수, Chrome에서 앞에 있는 탭, 지금 보고 있는 탭",
+      "물품·일반용역 계약서 R26TA0000010201, 검토 대기",
       "개찰 결과, 수집 안 함",
     ]);
     expect(tabs.map((b) => b.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
@@ -174,14 +199,16 @@ describe("탭과 따라가기", () => {
   });
 
   it("따라가면 Chrome 의 앞 탭을 비추고, 사람이 기둥 안에 있는 동안은 멈췄다가 떠나면 따라잡는다", async () => {
+    가상시간();
     await 열기();
     지금화면.앞 = "4242:2";
-    await waitFor(() => expect(비추는번호()).toBe("R26TA0000010201"), 길게);
+    await 시간이흐르면(1000);
+    expect(비추는번호()).toBe("R26TA0000010201");
 
     fireEvent.mouseEnter(기둥());
     지금화면.앞 = "4242:3";
     await waitFor(() => expect(상태줄()).toBe("살펴보는 동안은 Chrome에서 탭을 옮겨도 따라가지 않습니다"), 길게);
-    await new Promise((r) => setTimeout(r, 1200));
+    await 시간이흐르면(1000);
     expect(비추는번호()).toBe("R26TA0000010201");
 
     fireEvent.mouseLeave(기둥());
@@ -190,15 +217,18 @@ describe("탭과 따라가기", () => {
   });
 
   it("Chrome 의 앞 탭이 나라장터가 아니면 마지막 탭에 머물고 그 까닭을 말한다", async () => {
+    가상시간();
     await 열기();
     지금화면.앞 = null;
-    await waitFor(() => expect(상태줄()).toBe("Chrome 앞 탭이 나라장터가 아니어서 마지막으로 본 나라장터 탭에 머뭅니다"), 길게);
+    await 시간이흐르면(1000);
+    expect(상태줄()).toBe("Chrome 앞 탭이 나라장터가 아니어서 마지막으로 본 나라장터 탭에 머뭅니다");
     expect(비추는번호()).toBe("R26TA0000010101");
   });
 
   it("탭을 누르면 그 탭에 고정하고, 따라가기를 다시 켜면 앞 탭으로 돌아간다", async () => {
+    가상시간();
     const user = await 열기();
-    await user.click(within(기둥()).getByRole("button", { name: /^계약 상세 R26TA0000010201/ }));
+    await user.click(within(기둥()).getByRole("button", { name: /^물품·일반용역 계약서 R26TA0000010201/ }));
     expect(비추는번호()).toBe("R26TA0000010201");
     const follow = within(기둥()).getByRole("button", { name: "Chrome 따라가기" });
     expect(follow.getAttribute("aria-pressed")).toBe("false");
@@ -206,7 +236,7 @@ describe("탭과 따라가기", () => {
     (document.activeElement as HTMLElement).blur();
     await waitFor(() => expect(상태줄()).toBe("이 탭에 고정 · Chrome에서는 다른 탭을 보는 중"));
     지금화면.앞 = "4242:3";
-    await new Promise((r) => setTimeout(r, 1300));
+    await 시간이흐르면(1000);
     expect(비추는번호()).toBe("R26TA0000010201"); // 고정한 탭은 앞 탭을 따라가지 않는다.
 
     await user.click(follow);
@@ -222,14 +252,15 @@ describe("탭과 따라가기", () => {
     // 메뉴 번호를 알면 곁에 보인다(ADR-037).
     expect(section.querySelector(".dock-menu")!.textContent).toBe("화면 번호 01175");
     expect([...section.querySelectorAll(".dock-rules dt, .dock-rules dd")].map((e) => e.textContent)).toEqual(
-      ["접수", "조달요구 접수(목록형)", "접수", "조달요구 접수 상세(일반용역)", "공고", "입찰공고 상세", "공고", "입찰공고 상세(일반용역)",
-       "공고", "입찰공고상세조회(통합)", "계약", "계약 상세", "계약", "물품·일반용역 변경계약서 작성"]);
+      ["접수", "계약요청접수상세조회-국방부", "접수", "계약요청접수상세조회-일반용역", "접수", "계약요청접수상세조회-물품", "공고", "입찰공고작성[물품]", "공고", "입찰공고작성[일반용역]",
+       "공고", "입찰공고상세", "계약", "물품·일반용역 계약서", "계약", "물품·일반용역 변경계약서 작성"]);
     await user.click(within(section).getByRole("button", { name: "현재 화면 엑셀로 내보내기" }));
     await waitFor(() => expect(지금화면.명령).toContainEqual({ tabId: 3, command: "export" }));
     expect(기둥().querySelector(".dock-foot")).toBeNull(); // 가져올 것이 없다.
   });
 
   it("앱이 부른 내보내기는 요청했다고만 말하고, 확장이 돌려준 결과가 와야 성공·실패를 말한다", async () => {
+    가상시간();
     const user = await 열기();
     await user.click(within(기둥()).getByRole("button", { name: /^개찰 결과/ }));
     const section = within(기둥()).getByRole("region", { name: "수집하지 않는 화면" });
@@ -241,14 +272,16 @@ describe("탭과 따라가기", () => {
     expect(await screen.findByText("Chrome에 내보내기를 요청했습니다")).toBeTruthy();
     expect(screen.queryByText(/내려받/)).toBeNull();
     결과({ at: 1000, ok: false, message: "표를 찾지 못했습니다." });
-    expect(await screen.findByText("표를 찾지 못했습니다.", undefined, 길게)).toBeTruthy();
+    await 시간이흐르면(1000);
+    expect(screen.getByText("표를 찾지 못했습니다.")).toBeTruthy();
     expect(screen.queryByText(/내려받기를 시작했습니다/)).toBeNull();
 
     // 성공 — 요청할 때 알던 결과보다 늦은 것만 이 요청의 답이다.
     await user.click(within(section).getByRole("button", { name: "현재 화면 엑셀로 내보내기" }));
     expect(await screen.findByText("Chrome에 내보내기를 요청했습니다")).toBeTruthy();
     결과({ at: 2000, ok: true, message: "" });
-    expect(await screen.findByText("Chrome에서 내려받기를 시작했습니다", undefined, 길게)).toBeTruthy();
+    await 시간이흐르면(1000);
+    expect(screen.getByText("Chrome에서 내려받기를 시작했습니다")).toBeTruthy();
   });
 
   it("수집 화면의 안내는 창에 적어 두지 않고 앱이 매핑에서 읽어 준 목록을 그대로 그린다", async () => {
@@ -257,7 +290,7 @@ describe("탭과 따라가기", () => {
     await user.click(within(기둥()).getByRole("button", { name: /^개찰 결과/ }));
     const section = within(기둥()).getByRole("region", { name: "수집하지 않는 화면" });
     expect([...section.querySelectorAll(".dock-rules dt, .dock-rules dd")].map((e) => e.textContent)).toEqual(["공고", "지어낸 공고 화면"]);
-    expect(section.textContent).not.toContain("계약 상세");
+    expect(section.textContent).not.toContain("물품·일반용역 계약서");
   });
 });
 
@@ -298,11 +331,10 @@ describe("비춘 것", () => {
     expect(place.textContent).toContain("접수아직 수집되지 않음");
     expect(place.textContent).toContain("공고참조 R26BK00000101 · 아직 수집되지 않음");
     expect(place.textContent).toContain("차수 0030,400,00009/16 저장");
-    expect(place.textContent).toContain("차수 0134,400,000가져오면 여기에 추가됩니다");
+    expect(place.textContent).toContain("차수 0134,400,000");
 
     const foot = 기둥().querySelector(".dock-foot")!;
     expect(foot.textContent).toContain("가져오면 차수 01이 새로 추가됩니다");
-    expect(foot.textContent).toContain("차수 00은 그대로 남습니다.");
     // 가져오는 길은 이 단추 하나다 — 다른 길을 안내하지 않는다.
     expect(foot.textContent).not.toMatch(/단축키|수집기/);
     expect(within(foot as HTMLElement).getByRole("button", { name: "R26TA0000010101 가져오기" })).toBeTruthy();
@@ -339,10 +371,9 @@ describe("비춘 것", () => {
     await user.click(within(foot()).getByRole("button", { name: "1곳을 지우고 R26TA0000010201 가져오기" }));
     await waitFor(() => expect(foot().textContent).toMatch(/저장했습니다 · \d\d:\d\d/));
     expect(지금화면.가져옴).toEqual([{ tabId: 2, baseToken: "mock-검토", picks: ["override/납품장소"], captureId: expect.stringMatching(/^[0-9a-f-]{36}$/) }]);
-    expect(foot().textContent).toContain("「들어온 자료」와 계약 목록에서 볼 수 있습니다.");
     expect(within(기둥()).getByRole("status").textContent).toMatch(/^계약 R26TA0000010201 · 저장했습니다 · \d\d:\d\d$/);
     await waitFor(() => expect(within(기둥()).getByRole("region", { name: "이 화면의 자료" }).textContent)
-      .toContain("고친 값 1개를 지우고 나머지 1개는 그대로 두고 저장했습니다. 수집 원값은 따로 남아 있습니다."), 길게);
+      .toContain("고친 값 1개를 지우고 나머지 1개는 그대로 두고 저장했습니다."), 길게);
     // 들어온 자료로 가는 길.
     await user.click(within(foot()).getByRole("button", { name: "들어온 자료에서 보기" }));
     expect(await screen.findByRole("heading", { name: "나라장터", level: 1 })).toBeTruthy();
@@ -487,8 +518,8 @@ describe("확장 상태 보드", () => {
     const table = await screen.findByRole("table", { name: "열린 나라장터 탭" });
     const rows = within(table).getAllByRole("row");
     expect(rows.map((r) => [...r.querySelectorAll("[role=cell]")].slice(0, 3).map((c) => c.textContent))).toEqual([
-      ["계약 상세", "R26TA0000010101", "새 차수 · 아직 가져오지 않음"],
-      ["계약 상세", "R26TA0000010201", "고친 칸 2개가 화면과 다름"],
+      ["물품·일반용역 계약서", "R26TA0000010101", "새 차수 · 아직 가져오지 않음"],
+      ["물품·일반용역 계약서", "R26TA0000010201", "고친 칸 2개가 화면과 다름"],
       ["개찰 결과", "", "수집하지 않는 화면"],
     ]);
     await user.click(within(rows[1]).getByRole("button", { name: "지금 보는 화면에서 보기" }));
@@ -537,14 +568,13 @@ describe("펼침", () => {
     expect(within(기둥()).getByRole("button", { name: "좁히기" })).toBeTruthy();
     // 왼쪽: 화면의 주소 줄·구역·이름표·보이는 글. 견줄 차수와 다른 줄에 파란 점.
     const figure = 기둥().querySelector("figure")!;
-    expect(figure.querySelector(".wide-url")!.textContent).toBe("www.g2b.go.kr › 계약 상세");
+    expect(figure.querySelector(".wide-url")!.textContent).toBe("www.g2b.go.kr › 물품·일반용역 계약서");
     expect(within(figure).getByRole("table", { name: "계약 기본정보" })).toBeTruthy();
     expect(왼줄("계약일자").textContent).toBe("계약일자2026-10-02");
     expect(within(왼줄("계약일자")).getByRole("img", { name: "차수 00과 다름" })).toBeTruthy();
     expect(within(왼줄("2 무선마이크 세트")).getByRole("img", { name: "차수 00과 다름" })).toBeTruthy();
     expect(within(왼줄("계약명")).queryByRole("img")).toBeNull();
-    expect(figure.querySelector("figcaption")!.textContent).toBe("Chrome에서 보고 있는 화면을 줄인 것입니다. 칸에 마우스를 올리거나 " +
-      "Tab·화살표로 옮기면 오른쪽에 그 값이 저장될 칸이 강조됩니다. 가리키는 칸이 없으면 계약일자를 강조합니다. 파란 점은 차수 00과 다른 칸입니다.");
+    expect(figure.querySelector("figcaption")!.textContent).toBe("Chrome에서 보고 있는 화면을 줄인 것입니다.");
     // 오른쪽: 칸마다 화면의 이름표와 화면 표기, 견준 차수와의 비교. 계약면 몇 열 중 몇 열을 읽는지.
     const fields = screen.getByRole("region", { name: "저장될 칸" });
     expect(fields.textContent).toContain("v_계약 30열 중 이 화면에서 읽는 11열");
@@ -681,10 +711,11 @@ describe("펼침", () => {
 
 describe("사이드바의 눈", () => {
   it("Chrome 의 앞 탭이 수집할 수 있는 화면이면 그 갈래 옆에 서고, 누르면 따라가기를 켜고 앞 탭을 비춘다", async () => {
+    가상시간();
     const user = await 열기();
     const eye = screen.getByRole("button", { name: "Chrome에서 보고 있는 계약 R26TA0000010101 — 지금 보는 화면에서 보기" });
     expect(eye.closest(".source-branch")!.querySelector("[role=tab]")!.id).toBe("tab-계약");
-    await user.click(within(기둥()).getByRole("button", { name: /^계약 상세 R26TA0000010201/ }));
+    await user.click(within(기둥()).getByRole("button", { name: /^물품·일반용역 계약서 R26TA0000010201/ }));
     await waitFor(() => expect(비추는번호()).toBe("R26TA0000010201"));
     expect(within(기둥()).getByRole("button", { name: "Chrome 따라가기" }).getAttribute("aria-pressed")).toBe("false");
     await user.click(eye);
@@ -699,7 +730,8 @@ describe("사이드바의 눈", () => {
 
     // 앞 탭이 수집하지 않는 화면이면 눈은 없다.
     지금화면.앞 = "4242:3";
-    await waitFor(() => expect(screen.queryByRole("button", { name: /지금 보는 화면에서 보기$/ })).toBeNull(), 길게);
+    await 시간이흐르면(1000);
+    expect(screen.queryByRole("button", { name: /지금 보는 화면에서 보기$/ })).toBeNull();
   });
 });
 
@@ -718,7 +750,7 @@ describe("확장 상태 보드의 사이트 접근", () => {
     expect(screen.queryByRole("region", { name: "오류와 재시도" })).toBeNull();
     expect(screen.queryByRole("button", { name: /항상 띄우기|툴바 버튼으로만|단축키/ })).toBeNull();
     const summary = screen.getByRole("region", { name: "연결 요약" });
-    expect(within(summary).getAllByRole("term").map((d) => d.textContent)).toEqual(["확장 판", "오늘 저장", "검토 대기"]);
+    expect(within(summary).getAllByRole("term").map((d) => d.textContent)).toEqual(["연결된 확장 판", "오늘 저장", "검토 대기"]);
     expect(document.body.textContent).not.toMatch(/수집기|단축키|Alt\+Shift/);
     expect(지금화면.명령).toEqual([]);
   });

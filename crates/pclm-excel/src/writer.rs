@@ -1,11 +1,11 @@
-//! xlsx 쓰기 — ClosedXML 0.105.1 이 [`crate::exporter`] 의 두 길에서 짓는 것과 **같은 칸·같은 꼴**의 통합 문서.
+//! xlsx 쓰기 — 옛 판이 [`crate::exporter`] 의 두 길에서 짓던 것과 **같은 칸·같은 꼴**의 통합 문서.
 //!
-//! 라이브러리(rust_xlsxwriter 따위)를 쓰지 않는 까닭: ClosedXML 은 빈 글(`""`)을 **빈 공유 문자열 칸**으로 적는데, 쓰기
-//! 라이브러리들은 그것을 꼴만 있는 빈 칸으로 바꾼다 — 엑셀에서 `COUNTA` 가 달라진다. 열 너비도 ClosedXML 이 적는 값
-//! (`픽셀 → 글자 폭 + 0.710625`)을 그대로 적으려면 직접 쓰는 편이 짧다. 부분(part)의 내용은 ClosedXML 이 적는 것을
+//! 라이브러리(rust_xlsxwriter 따위)를 쓰지 않는 까닭: 옛 판은 빈 글(`""`)을 **빈 공유 문자열 칸**으로 적는데, 쓰기
+//! 라이브러리들은 그것을 꼴만 있는 빈 칸으로 바꾼다 — 엑셀에서 `COUNTA` 가 달라진다. 열 너비도 옛 판이 적던 값
+//! (`픽셀 → 글자 폭 + 0.710625`)을 그대로 적으려면 직접 쓰는 편이 짧다. 부분(part)의 내용은 옛 판이 적던 것을
 //! 본떴다(쓰인 꼴만 적는 styles.xml — 기본 · 머리글(굵게, `#EEF1F4` 채움) · 글(`@`) · 줄바꿈 · 따옴표 머리, 이웃한 같은 너비를
 //! 접은 `<col>`, 첫 줄 고정, 자동 거르개, 공유 문자열). 테마(`theme1.xml`)·문서 속성(`docProps`)은 적지 않는다 — 칸에
-//! 닿지 않고, ClosedXML 의 것에는 지을 때마다 바뀌는 이름과 시각이 박힌다.
+//! 닿지 않고, 옛 판의 것에는 지을 때마다 바뀌는 이름과 시각이 박힌다.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -13,16 +13,16 @@ use std::io::{Seek, Write};
 
 use zip::write::SimpleFileOptions;
 
-/// 칸의 꼴 — ClosedXML 이 칸마다 쥐는 꼴 값 가운데 이 판이 쓰는 넷. 같은 꼴은 `cellXfs` 의 한 자리를 나눠 쓴다.
+/// 칸의 꼴 — 칸마다 쥐는 꼴 값 가운데 이 판이 쓰는 넷. 같은 꼴은 `cellXfs` 의 한 자리를 나눠 쓴다.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Style {
     /// 머리글 — 굵게, `#EEF1F4` 로 채움.
     pub header: bool,
     /// 글로 못박은 칸(`@`).
     pub text: bool,
-    /// 줄바꿈(`wrapText`). ClosedXML 은 `\r\n` 이 든 글을 넣을 때 켠다 — 홀로 선 `\n` 에는 켜지 않는다.
+    /// 줄바꿈(`wrapText`). `\r\n` 이 든 글을 넣을 때 켠다 — 홀로 선 `\n` 에는 켜지 않는다.
     pub wrap: bool,
-    /// 따옴표 머리(`quotePrefix`). ClosedXML 은 `'` 로 시작하는 글을 넣을 때 켜고 그 `'` 하나를 떼어 담는다.
+    /// 따옴표 머리(`quotePrefix`). `'` 로 시작하는 글을 넣을 때 켜고 그 `'` 하나를 떼어 담는다.
     pub quote: bool,
 }
 
@@ -58,18 +58,10 @@ impl Style {
     }
 }
 
-/// 칸의 값.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Value {
-    Text(String),
-    /// 수. 내보내기는 쓰지 않는다 — 시험이 수가 든 계획 엑셀을 지을 때만 쓴다.
-    Number(f64),
-}
-
 /// 칸 하나.
 #[derive(Clone, Debug)]
 pub struct Cell {
-    pub value: Value,
+    pub value: String,
     pub style: Style,
 }
 
@@ -160,7 +152,7 @@ fn workbook(sheets: &[Sheet]) -> String {
         .enumerate()
         .filter_map(|(i, sheet)| {
             let (row, col) = sheet.autofilter?;
-            // ClosedXML 은 이름을 꼭 따옴표로 싸야 할 때만 싼다. 엑셀은 늘 싼 것도 같게 읽으므로 늘 싼다.
+            // 옛 판은 이름을 꼭 따옴표로 싸야 할 때만 쌌다. 엑셀은 늘 싼 것도 같게 읽으므로 늘 싼다.
             let quoted = format!("'{}'", sheet.name.replace('\'', "''"));
             Some(format!(
                 r#"<definedName name="_xlnm._FilterDatabase" localSheetId="{i}" hidden="1">{}!$A$1:${}${row}</definedName>"#,
@@ -195,7 +187,7 @@ fn workbook_rels(sheets: usize) -> String {
     out
 }
 
-/// 쓰인 꼴의 목록 — `cellXfs` 의 차례. ClosedXML `WorkbookStylesPartWriter` 처럼 기본 꼴을 맨 앞에 두고, 시트마다 칸을
+/// 쓰인 꼴의 목록 — `cellXfs` 의 차례. 옛 판처럼 기본 꼴을 맨 앞에 두고, 시트마다 칸을
 /// 줄 차례로 돌며 처음 보는 꼴을 잇는다(열·줄에 매단 꼴은 이 판에 없다). 번호의 차례는 칸의 꼴을 바꾸지 않는다.
 fn used_styles(sheets: &[Sheet]) -> Vec<Style> {
     let mut list = vec![Style::DEFAULT];
@@ -207,9 +199,9 @@ fn used_styles(sheets: &[Sheet]) -> Vec<Style> {
     list
 }
 
-/// ClosedXML 이 이 꼴들에 적는 styles.xml — 수 꼴 0(빈 글)은 늘 적고 `@` 는 쓰일 때만 164 로, 굵은 글꼴과 채움도
+/// 이 꼴들에 적는 styles.xml — 수 꼴 0(빈 글)은 늘 적고 `@` 는 쓰일 때만 164 로, 굵은 글꼴과 채움도
 /// 쓰일 때만 더한다. `cellStyleXfs` 는 정렬(줄바꿈)을 빼고 같은 꼴을 하나로 접는다. 채운 꼴의 `applyFill` 이 `0` 인
-/// 것까지 ClosedXML 이 적는 그대로다.
+/// 것까지 옛 판이 적던 그대로다.
 fn styles_xml(styles: &[Style]) -> String {
     let text = styles.iter().any(|s| s.text);
     let header = styles.iter().any(|s| s.header);
@@ -311,7 +303,7 @@ fn worksheet(sheet: &Sheet, styles: &[Style], strings: &mut SharedStrings) -> St
     out.push_str(r#"</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15" />"#);
     if !sheet.widths.is_empty() {
         out.push_str("<cols>");
-        // ClosedXML `CollapseColumns` — 이웃한 열의 너비가 같으면 `<col>` 하나로 접는다.
+        // 이웃한 열의 너비가 같으면 `<col>` 하나로 접는다.
         let mut min = 1;
         for (i, width) in sheet.widths.iter().enumerate() {
             if sheet.widths.get(i + 1) == Some(width) {
@@ -335,18 +327,11 @@ fn worksheet(sheet: &Sheet, styles: &[Style], strings: &mut SharedStrings) -> St
         for (c, cell) in row.iter().enumerate() {
             let reference = format!("{}{}", column_name(c + 1), r + 1);
             let style = styles.iter().position(|s| *s == cell.style).unwrap_or(0);
-            match &cell.value {
-                Value::Text(t) => {
-                    let id = strings.id(t);
-                    let _ = write!(
-                        out,
-                        r#"<c r="{reference}" s="{style}" t="s"><v>{id}</v></c>"#
-                    );
-                }
-                Value::Number(n) => {
-                    let _ = write!(out, r#"<c r="{reference}" s="{style}"><v>{n:?}</v></c>"#);
-                }
-            }
+            let id = strings.id(&cell.value);
+            let _ = write!(
+                out,
+                r#"<c r="{reference}" s="{style}" t="s"><v>{id}</v></c>"#
+            );
         }
         out.push_str("</row>");
     }
@@ -379,7 +364,7 @@ impl SharedStrings {
     fn xml(&self) -> String {
         let mut out = format!(r#"<?xml version="1.0" encoding="utf-8"?><sst xmlns="{MAIN}">"#);
         for item in &self.items {
-            // ClosedXML: Trim() 한 것이 같지 않으면 xml:space="preserve".
+            // 앞뒤 공백을 걷은 것이 같지 않으면 xml:space="preserve".
             if item.trim() != item {
                 out.push_str(r#"<si><t xml:space="preserve">"#);
             } else {
@@ -393,7 +378,7 @@ impl SharedStrings {
     }
 }
 
-/// ClosedXML `XmlEncoder.EncodeString` — `_xHHHH_` 꼴의 글을 `_x005F_xHHHH_` 로 막고, XML 에 쓸 수 없는 글자(제어 글자
+/// 글을 XML 칸에 맞게 — `_xHHHH_` 꼴의 글을 `_x005F_xHHHH_` 로 막고, XML 에 쓸 수 없는 글자(제어 글자
 /// 따위)를 `_xHHHH_` 로 바꾼다.
 pub fn encode_string(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();
@@ -420,14 +405,14 @@ pub fn encode_string(value: &str) -> String {
         if is_xml_char(c) {
             out.push(c);
         } else {
-            // XmlConvert.EncodeName(한 글자) — `_xHHHH_`(대문자 16진).
+            // 한 글자를 `_xHHHH_`(대문자 16진)로.
             let _ = write!(out, "_x{:04X}_", c as u32);
         }
     }
     out
 }
 
-/// `XmlConvert.IsXmlChar` — 0x9 · 0xA · 0xD · 0x20~0xD7FF · 0xE000~0xFFFD(보조 평면 글자는 짝을 이룬 대리쌍으로 받는다).
+/// XML 에 쓸 수 있는 글자인가 — 0x9 · 0xA · 0xD · 0x20~0xD7FF · 0xE000~0xFFFD(보조 평면 글자는 짝을 이룬 대리쌍으로 받는다).
 fn is_xml_char(c: char) -> bool {
     matches!(c as u32, 0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..)
 }
@@ -469,7 +454,7 @@ mod tests {
 
     #[test]
     fn encodes_like_closedxml() {
-        // ClosedXML 0.105.1 이 시험 엑셀에 적은 것.
+        // 옛 판이 시험 엑셀에 적은 것.
         assert_eq!(
             encode_string("_x0041_ <&> \u{1} 끝 "),
             "_x005F_x0041_ <&> _x0001_ 끝 "

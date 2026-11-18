@@ -1,7 +1,7 @@
-//! 지우기 시험 — C# `DeletionTests` 전부.
+//! 지우기 시험.
 //!
-//! C# 레코드는 `Fixture` 의 SQL 픽스처로 세우고, 계약상대자·첨부는 C# `UpsertContract` 가 넣는 문 그대로 따로 심는다.
-//! 명시 참조는 C# `ReferenceFixture` 를 옮긴 [`reference_contract`]·[`reference_request`] 로 넣는다. 값은 모두
+//! 레코드는 `Fixture` 의 SQL 픽스처로 세우고, 계약상대자·첨부는 계약 업서트가 넣는 문 그대로 따로 심는다.
+//! 명시 참조는 [`reference_contract`]·[`reference_request`] 로 넣는다. 값은 모두
 //! 지어낸 것이다(CLAUDE.md).
 
 mod common;
@@ -29,7 +29,7 @@ fn request_ref() -> EntityRef {
     EntityRef::new("request", REQUEST_BASE, "000")
 }
 
-/// C# `Contract(seq)` — 건명과 금액만 있는 계약. `extra` 는 `with { … }` 로 더한 열, `items` 는 품목.
+/// 건명과 금액만 있는 계약. `extra` 는 `with { … }` 로 더한 열, `items` 는 품목.
 fn contract_with(f: &Fixture, seq: &str, extra: &[(&str, &str)], items: &[&[(&str, &str)]]) {
     let mut fields = vec![("title", "수질측정기 구매"), ("amount", "164872340.0")];
     fields.extend_from_slice(extra);
@@ -40,7 +40,6 @@ fn contract(f: &Fixture, seq: &str) {
     contract_with(f, seq, &[], &[]);
 }
 
-/// C# `Notice("000")`.
 fn notice(f: &Fixture) {
     f.notice(
         NOTICE_BASE,
@@ -51,7 +50,7 @@ fn notice(f: &Fixture) {
     );
 }
 
-/// C# `NoticeWithItem()` — 접수와 (수량, 단가)가 맞는 공고. 그래야 품목 짝이 선다.
+/// 접수와 (수량, 단가)가 맞는 공고. 그래야 품목 짝이 선다.
 fn notice_with_item(f: &Fixture) {
     f.notice(
         NOTICE_BASE,
@@ -67,7 +66,6 @@ fn notice_with_item(f: &Fixture) {
     );
 }
 
-/// C# `Request(seq)`.
 fn request(f: &Fixture, seq: &str) {
     f.request(
         REQUEST_BASE,
@@ -83,7 +81,7 @@ fn request(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `ReferenceFixture.Contract` — 계약이 공고를 명시로 가리키게 하고 연결을 다시 짓는다.
+/// 계약이 공고를 명시로 가리키게 하고 연결을 다시 짓는다.
 fn reference_contract(f: &Fixture, contract: &EntityRef, notice: &EntityRef) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -96,7 +94,7 @@ fn reference_contract(f: &Fixture, contract: &EntityRef, notice: &EntityRef) {
     tx.commit().unwrap();
 }
 
-/// C# `ReferenceFixture.Request` — 접수 품목과 공고 품목이 서로를 명시로 가리키게 한다.
+/// 접수 품목과 공고 품목이 서로를 명시로 가리키게 한다.
 fn reference_request(f: &Fixture, request: &EntityRef, notice: &EntityRef) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -123,13 +121,12 @@ fn reference_request(f: &Fixture, request: &EntityRef, notice: &EntityRef) {
     tx.commit().unwrap();
 }
 
-/// C# `Count(sql)`.
 fn count(f: &Fixture, sql: &str) -> i64 {
     let c = f.database().open_read_only().unwrap();
     c.query_row(sql, [], |r| r.get(0)).unwrap()
 }
 
-/// C# `Text(sql)` — NULL 은 빈 글.
+/// NULL 은 빈 글.
 fn text(f: &Fixture, sql: &str) -> String {
     let c = f.database().open_read_only().unwrap();
     let v: Value = c
@@ -144,7 +141,7 @@ fn text(f: &Fixture, sql: &str) -> String {
     }
 }
 
-/// `Assert.Throws<InvalidOperationException>` — 글을 낸다.
+/// 글을 낸다.
 fn invalid<T>(r: Result<T>) -> String {
     match r {
         Err(Error::InvalidOperation(m)) => m,
@@ -412,6 +409,26 @@ fn plan_counts_what_goes_first() {
     assert_eq!(1, plan.user_fields);
     assert_eq!(1, plan.overrides);
     assert!(plan.linked);
+}
+
+/// 공동수급 업체 줄과 ERP 공고 첨부는 외래키 연쇄로 함께 지워지므로 지우기 전에 보이는 수에도 든다.
+#[test]
+fn plan_counts_cascaded_erp_rows() {
+    let f = Fixture::new("delete-plan-cascade");
+    let store = f.store();
+    notice(&f);
+    contract(&f, "00");
+    f.sql(&format!(
+        "INSERT INTO erp_partner (contract_base, seq, line_no, name) VALUES
+             ('{CONTRACT_BASE}', '00', 1, '가나상사'), ('{CONTRACT_BASE}', '00', 2, '다라상사');
+         INSERT INTO erp_notice_attachment (notice_base, seq, line_no, file_name) VALUES
+             ('{NOTICE_BASE}', '000', 1, '규격서.hwp');"
+    ));
+
+    assert_eq!(2, store.plan_deletion(&contract_ref(), true).unwrap().child_rows);
+    assert_eq!(1, store.plan_deletion(&notice_ref(), true).unwrap().child_rows);
+    let list = vec![contract_ref().display(), notice_ref().display()];
+    assert_eq!(3, store.plan_batch_deletion(&list, true).unwrap().child_rows);
 }
 
 /// `차수_하나만_지울_때는_계열의_것을_세지_않는다`

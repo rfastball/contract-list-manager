@@ -1,4 +1,4 @@
-//! C# `ExtensionPresenceTests` 와 `ErpCaptureTests` 의 확장 상태 몫을 옮긴 것, 그리고 중계(탭 보고·명령 폴더)의 시험.
+//! 상시 연결과 확장 상태, 그리고 중계(탭 보고·명령 폴더)의 시험.
 //! 브라우저 없이 길이 머리 stdio 를 직접 흘려 넣는다. 값은 모두 지어낸 것이다.
 
 use std::io::Write as _;
@@ -66,8 +66,17 @@ fn presence_frame_with(browser: &str, version: &str, protocol: Value, request_id
     )
 }
 
-fn event_frame(args: Value) -> Vec<u8> {
-    frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "event", "params": args }))
+fn revision() -> String {
+    "a".repeat(64)
+}
+
+fn revision_marker(directory: &Path, value: &str) {
+    std::fs::create_dir_all(directory).unwrap();
+    std::fs::write(
+        directory.join("extension-revision.json"),
+        format!(r#"{{"revision":"{value}"}}"#),
+    )
+    .unwrap();
 }
 
 fn replies(bytes: &[u8]) -> Vec<Value> {
@@ -256,6 +265,53 @@ fn 상시_연결은_모양이_틀린_인사를_적지_않는다() {
 }
 
 #[test]
+fn 묶음_판_인사는_기대_판과_실행_판을_남기고_갱신_상태와_확인을_받는다() {
+    let root = Root::new();
+    let directory = root.join("묶음 판");
+    let expected = revision();
+    revision_marker(&directory, &expected);
+    let running = "b".repeat(64);
+    let presence = frame(
+        &json!({ "protocolVersion": 2, "requestId": guid(), "method": "presence",
+        "params": { "extensionVersion": "1.0.0", "browser": "Edge", "extensionRevision": running } }),
+    );
+    let status = frame(
+        &json!({ "protocolVersion": 2, "requestId": guid(), "method": "extensionUpdateStatus", "params": { "state": "waiting-panel" } }),
+    );
+    let check = frame(
+        &json!({ "protocolVersion": 2, "requestId": guid(), "method": "extensionUpdateCheck" }),
+    );
+    let replies = serve_bytes(
+        [presence, status, check].concat(),
+        &directory,
+        never(),
+        Options::default(),
+    );
+    assert_eq!(replies[0]["result"]["expectedRevision"], expected);
+    assert_eq!(replies[1]["result"]["status"], "received");
+    assert_eq!(replies[2]["result"]["expectedRevision"], expected);
+    // 포트가 끝난 뒤 live 파일은 걷히므로, status reader 자체는 올바른 marker를 읽는다.
+    assert_eq!(
+        status::disk_revision(&directory).as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
+fn 묶음_판_표시는_깨졌거나_불완전하면_없고_잘못된_실행_판은_인사를_거절한다() {
+    let root = Root::new();
+    let directory = root.join("깨진 묶음 판");
+    revision_marker(&directory, "A");
+    assert_eq!(status::disk_revision(&directory), None);
+    let bad = frame(
+        &json!({ "protocolVersion": 2, "requestId": guid(), "method": "presence",
+        "params": { "extensionVersion": "1.0.0", "browser": "Edge", "extensionRevision": "A" } }),
+    );
+    let replies = serve_bytes(bad, &directory, never(), Options::default());
+    assert_eq!(replies[0]["ok"], false);
+}
+
+#[test]
 fn 겹친_키가_든_쪽지는_읽지_못한_쪽지와_같다() {
     let root = Root::new();
     let directory = root.join("겹친 쪽지");
@@ -433,7 +489,7 @@ fn 연결_기록은_이레와_500줄을_넘으면_스스로_줄이고_깨진_줄
             add_minutes(now.add_days(-2), i).second_text()
         ));
     }
-    // File.WriteAllLines — 줄마다 CR LF.
+    // 줄마다 CR LF.
     let text: String = lines.iter().map(|l| format!("{l}\r\n")).collect();
     std::fs::write(log::log_path(&directory), text).unwrap();
 
@@ -497,19 +553,24 @@ fn 여러_호스트가_함께_써도_줄이_섞이지_않는다() {
     assert_eq!(log::read(&directory, now.date()).len(), 200);
 }
 
+type SpawnedHost = (
+    std::io::PipeWriter,
+    Arc<AtomicBool>,
+    Arc<Mutex<Vec<u8>>>,
+    std::thread::JoinHandle<()>,
+);
+
 /// 지켜보는 호스트를 실마리에 띄운다 — 포트(쓰는 쪽)는 열린 채, 떠나면 `left` 가 선다.
 fn spawn_host(
     directory: PathBuf,
     watch: Vec<ExecutableIdentity>,
     registered: Option<Arc<dyn Fn() -> std::io::Result<bool> + Send + Sync>>,
-) -> (
-    std::io::PipeWriter,
-    Arc<AtomicBool>,
-    std::thread::JoinHandle<()>,
-) {
+) -> SpawnedHost {
     let (reader, writer) = std::io::pipe().unwrap();
     let left = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&left);
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let written = Arc::clone(&output);
     let host = std::thread::spawn(move || {
         let options = Options {
             watch,
@@ -519,14 +580,37 @@ fn spawn_host(
         };
         presence::serve(
             reader,
-            Arc::new(Mutex::new(Vec::new())),
+            written,
             &directory,
             never(),
             options,
         )
         .unwrap();
     });
-    (writer, left, host)
+    (writer, left, output, host)
+}
+
+#[test]
+fn 묶음_판_지킴이는_포트가_열린_동안_바뀜과_없어짐을_확장에_알린다() {
+    let root = Root::new();
+    let directory = root.join("묶음 판 지킴이");
+    let first = "a".repeat(64);
+    let next = "b".repeat(64);
+    revision_marker(&directory, &first);
+    let (mut browser, left, output, host) = spawn_host(directory.clone(), Vec::new(), None);
+    let hello = frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "presence",
+        "params": { "extensionVersion": "1.0.0", "browser": "Edge", "extensionRevision": first } }));
+    browser.write_all(&hello).unwrap();
+    assert!(wait_until(Duration::from_secs(2), || !output.lock().unwrap().is_empty()));
+    revision_marker(&directory, &next);
+    assert!(wait_until(Duration::from_secs(2), || replies(&output.lock().unwrap()).iter()
+        .any(|message| message["command"] == "extensionUpdate" && message["revision"] == next)));
+    std::fs::remove_file(directory.join("extension-revision.json")).unwrap();
+    assert!(wait_until(Duration::from_secs(2), || replies(&output.lock().unwrap()).iter()
+        .any(|message| message["command"] == "extensionUpdate" && message["revision"].is_null())));
+    assert!(!left.load(Ordering::SeqCst));
+    drop(browser);
+    host.join().unwrap();
 }
 
 #[test]
@@ -563,7 +647,7 @@ fn 상시_연결_호스트는_제_실행_파일이_비켜지면_끊김을_적고
     assert!(!log::log_path(&directory).exists());
 
     // 상시 연결 호스트: 포트는 열린 채. exe 를 비키면 떠난다.
-    let (mut browser, left, host) = spawn_host(directory.clone(), watch, None);
+    let (mut browser, left, _, host) = spawn_host(directory.clone(), watch, None);
     browser.write_all(&presence_frame("Edge", "0.8.0")).unwrap();
     assert!(wait_until(Duration::from_secs(5), || live.exists()));
     std::thread::sleep(Duration::from_millis(100));
@@ -587,7 +671,7 @@ fn 상시_연결_호스트는_브라우저_등록이_다른_exe_로_옮겨_가�
     let directory = root.join("등록 옮김");
     let ours = Arc::new(AtomicBool::new(true));
     let probe = Arc::clone(&ours);
-    let (mut browser, left, host) = spawn_host(
+    let (mut browser, left, _, host) = spawn_host(
         directory.clone(),
         Vec::new(),
         Some(Arc::new(move || Ok(probe.load(Ordering::SeqCst)))),
@@ -615,7 +699,7 @@ fn 상시_연결_호스트는_브라우저_등록이_다른_exe_로_옮겨_가�
 fn 등록을_읽다_실패하면_떠나지_않는다() {
     let root = Root::new();
     let directory = root.join("등록 못 읽음");
-    let (mut browser, left, host) = spawn_host(
+    let (mut browser, left, _, host) = spawn_host(
         directory.clone(),
         Vec::new(),
         Some(Arc::new(|| {
@@ -632,37 +716,7 @@ fn 등록을_읽다_실패하면_떠나지_않는다() {
 }
 
 #[test]
-fn 확장의_오류와_풀림은_인사_뒤에만_코드만_연결_기록에_남는다() {
-    let root = Root::new();
-    let directory = root.join("홈");
-    let input = [
-        event_frame(json!({ "kind": "error", "code": "unconfirmed" })),
-        presence_frame("Chrome", "0.8.0"),
-        event_frame(json!({ "kind": "error", "code": "unconfirmed", "title": "시험 계약 건명", "number": "R26TA00000001-00" })),
-        event_frame(json!({ "kind": "error", "code": "모르는 코드" })),
-        event_frame(json!({ "kind": "nonsense" })),
-        event_frame(json!({ "kind": "recovered" })),
-    ]
-    .concat();
-    let replies = serve_bytes(input, &directory, never(), Options::default());
-    let oks: Vec<_> = replies.iter().map(|r| r["ok"] == true).collect();
-    assert_eq!(oks, [false, true, true, false, false, true]);
-    assert_eq!(
-        events(&directory),
-        [
-            row(log::CONNECTED, "Chrome", "0.8.0", ""),
-            row(log::ERROR, "Chrome", "0.8.0", "unconfirmed"),
-            row(log::RECOVERED, "Chrome", "0.8.0", ""),
-            row(log::DISCONNECTED, "Chrome", "0.8.0", ""),
-        ]
-    );
-    let text = std::fs::read_to_string(log::log_path(&directory)).unwrap();
-    assert!(!text.contains("시험 계약"));
-    assert!(!text.contains("R26TA"));
-}
-
-#[test]
-fn 오늘의_오류와_오늘_전의_마지막_오류를_가르고_연결_기록에는_붙음_끊김_판_바뀜만_낸다() {
+fn 연결_기록은_오늘의_붙음_끊김_판_바뀜만_내고_모르는_사건은_건너뛴다() {
     let root = Root::new();
     let directory = root.join("홈");
     let today = LocalDateTime {
@@ -674,52 +728,7 @@ fn 오늘의_오류와_오늘_전의_마지막_오류를_가르고_연결_기록
         ..today.add_days(-1)
     };
     log::record_connected(&directory, "Chrome", "0.8.0", yesterday).unwrap();
-    let event = |browser: &str, kind: &str, code: Option<&str>, t: LocalDateTime| {
-        log::record_event(&directory, browser, "0.8.0", kind, code, t).unwrap()
-    };
-    assert!(event(
-        "Chrome",
-        log::ERROR,
-        Some("unconfirmed"),
-        add_minutes(yesterday, 1)
-    ));
-    assert!(event(
-        "Edge",
-        log::ERROR,
-        Some("connection"),
-        add_minutes(yesterday, 2)
-    ));
-    assert!(event(
-        "Chrome",
-        log::RECOVERED,
-        None,
-        add_minutes(yesterday, 3)
-    ));
     log::record_connected(&directory, "Chrome", "0.8.0", today).unwrap();
-    assert!(event(
-        "Chrome",
-        log::ERROR,
-        Some("setup"),
-        add_minutes(today, 5)
-    ));
-    assert!(event(
-        "Chrome",
-        log::ERROR,
-        Some("rejected"),
-        add_minutes(today, 9)
-    ));
-    assert!(!event(
-        "Chrome",
-        log::ERROR,
-        Some("Bad Code!"),
-        add_minutes(today, 10)
-    ));
-    assert!(!event(
-        "Chrome",
-        log::CONNECTED,
-        None,
-        add_minutes(today, 10)
-    ));
     // 앞으로 더할 사건도 읽는 쪽은 건너뛴다.
     let mut file = std::fs::OpenOptions::new()
         .append(true)
@@ -727,59 +736,18 @@ fn 오늘의_오류와_오늘_전의_마지막_오류를_가르고_연결_기록
         .unwrap();
     writeln!(
         file,
-        "{}\tfuture\tChrome\t0.8.0\t",
+        "{}	future	Chrome	0.8.0	",
         add_minutes(today, 11).second_text()
     )
     .unwrap();
     drop(file);
 
-    let later = add_minutes(today, 60);
-    let (errors, earlier) = log::problems(&directory, later);
-    let got: Vec<_> = errors
-        .iter()
-        .map(|e| (e.code.as_str(), e.recovered))
-        .collect();
-    assert_eq!(got, [("setup", false), ("rejected", false)]);
-    let earlier = earlier.unwrap();
-    assert_eq!(
-        (
-            earlier.browser.as_str(),
-            earlier.code.as_str(),
-            earlier.recovered
-        ),
-        ("Edge", "connection", false)
-    );
-    let state = status::read(&directory, "0.8.0", later);
+    let state = status::read(&directory, "0.8.0", add_minutes(today, 60));
     let got: Vec<_> = state.log.iter().map(|e| e.event.as_str()).collect();
     assert_eq!(got, [log::CONNECTED]);
-    assert_eq!(state.errors.len(), 2);
-    assert_eq!(state.past_error.unwrap().code, "connection");
-
-    let other = root.join("다른 홈");
-    log::record_event(
-        &other,
-        "Chrome",
-        "0.8.0",
-        log::ERROR,
-        Some("unconfirmed"),
-        yesterday,
-    )
-    .unwrap();
-    log::record_event(
-        &other,
-        "Chrome",
-        "0.8.0",
-        log::RECOVERED,
-        None,
-        add_minutes(yesterday, 1),
-    )
-    .unwrap();
-    let (today_errors, earlier) = log::problems(&other, today);
-    assert!(earlier.unwrap().recovered);
-    assert!(today_errors.is_empty());
 }
 
-// ── 확장 상태(C# ErpCaptureTests) ──────────────────────────────
+// ── 확장 상태 ──────────────────────────────
 
 #[test]
 fn 확장_상태는_풀어_둔_판과_브라우저별_마지막_연결을_보인다() {
@@ -848,6 +816,7 @@ fn 탭_보고는_인사_뒤에만_받고_모양만_보며_씨샵과_같은_꼴�
             "screenRows": [{ "group": "기본", "label": "공고명", "text": "시험 공고", "source": "dom" }],
             "snapshot": serde_json::from_str::<Value>(r#"{"n":1.50}"#).unwrap() }], // 수는 원문 그대로.
         "front": 7, "frontAt": 1_700_000_000_000_i64, "settings": { "siteAccess": true, "launcher": "x" },
+        "me": { "name": "홍길동", "phone": "000-0000-0000" },
     });
     let tabs = |params: Value| {
         frame(
@@ -862,11 +831,13 @@ fn 탭_보고는_인사_뒤에만_받고_모양만_보며_씨샵과_같은_꼴�
         tabs(report.clone()),
         presence_frame("Edge", "0.9.0"),
         tabs(report.clone()),
-        tabs(json!({ "tabs": [{ "tabId": 1.5, "state": "supported" }] })),
-        tabs(json!({ "tabs": [{ "tabId": 1, "state": "모름" }] })),
+        tabs(json!({ "tabs": [{ "tabId": 1.5, "state": "supported", "menu": "" }] })),
+        tabs(json!({ "tabs": [{ "tabId": 1, "state": "모름", "menu": "" }] })),
         tabs(json!({ "tabs": [{ "tabId": 1, "state": "error", "menu": "1179" }] })),
-        tabs(json!({ "tabs": [{ "tabId": 1, "state": "error", "screenRows": [{ "group": "", "label": "", "text": "" }] }] })),
-        tabs(json!({ "tabs": [], "settings": { "siteAccess": "yes" } })),
+        tabs(json!({ "tabs": [{ "tabId": 1, "state": "error", "menu": "", "screenRows": [{ "group": "", "label": "", "text": "" }] }] })),
+        tabs(json!({ "tabs": [], "settings": { "siteAccess": "yes" }, "me": { "name": "" } })),
+        tabs(json!({ "tabs": [], "settings": { "siteAccess": true } })),
+        tabs(json!({ "tabs": [], "settings": { "siteAccess": true }, "me": { "name": 1 } })),
         tabs(json!({ "nottabs": [] })),
         frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "tabs" })),
         frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "check" })),
@@ -886,7 +857,7 @@ fn 탭_보고는_인사_뒤에만_받고_모양만_보며_씨샵과_같은_꼴�
     assert_eq!(
         oks,
         [
-            false, true, true, false, false, false, false, false, false, false, true
+            false, true, true, false, false, false, false, false, false, false, false, false, true
         ]
     );
     assert_eq!(
@@ -894,14 +865,14 @@ fn 탭_보고는_인사_뒤에만_받고_모양만_보며_씨샵과_같은_꼴�
         "인사 전에는 탭 보고를 받지 않습니다."
     );
     assert_eq!(replies[2]["result"]["status"], "received");
-    assert_eq!(replies[9]["error"]["message"], "탭 보고가 비었습니다.");
+    assert_eq!(replies[11]["error"]["message"], "탭 보고가 비었습니다.");
     let written = seen
         .lock()
         .unwrap()
         .clone()
         .expect("포트가 열린 동안 보고가 있다");
     let expected = format!(
-        r#"{{"pid":{pid},"receivedAt":"{{AT}}","front":7,"frontAt":1700000000000,"tabs":[{{"tabId":7,"state":"supported","menu":"01179","title":"@uC9C0@uC5B4@uB0B8 @uD654@uBA74","screenRows":[{{"group":"@uAE30@uBCF8","label":"@uACF5@uACE0@uBA85","text":"@uC2DC@uD5D8 @uACF5@uACE0","source":"dom"}}],"snapshot":{{"n":1.50}}}}],"settings":{{"siteAccess":true}}}}"#
+        r#"{{"pid":{pid},"receivedAt":"{{AT}}","front":7,"frontAt":1700000000000,"tabs":[{{"tabId":7,"state":"supported","menu":"01179","title":"@uC9C0@uC5B4@uB0B8 @uD654@uBA74","screenRows":[{{"group":"@uAE30@uBCF8","label":"@uACF5@uACE0@uBA85","text":"@uC2DC@uD5D8 @uACF5@uACE0","source":"dom"}}],"snapshot":{{"n":1.50}}}}],"settings":{{"siteAccess":true}},"me":{{"name":"@uD64D@uAE38@uB3D9"}}}}"#
     )
     .replace('@', "\\");
     let at = &written[written.find("receivedAt\":\"").unwrap() + 13..][..19];
@@ -972,12 +943,14 @@ fn 명령_폴더의_명령은_차례대로_넘기고_틀린_것은_지우기만_
     left.sort();
     assert_eq!(left, ["0009.JSON", "0010.json.tmp"]);
 
-    // 나중에 놓인 명령은 변화 알림이나 다시 보기로 줍는다.
+    // 나중에 놓인 명령은 변화 알림이나 다시 보기로 줍는다. `relay::send` 처럼 다 쓴 뒤 이름을 바꿔 놓는다 —
+    // 바로 쓰면 지키는 쪽이 아직 빈 파일을 집어 틀린 것으로 지운다.
     std::fs::write(
-        folder.join("0011.json"),
+        folder.join("0011.json.new"),
         r#"{"command":"export","tabId":2}"#,
     )
     .unwrap();
+    std::fs::rename(folder.join("0011.json.new"), folder.join("0011.json")).unwrap();
     assert!(wait_until(Duration::from_secs(5), || delivered
         .lock()
         .unwrap()
@@ -1017,7 +990,11 @@ fn 인사를_받은_호스트는_창이_놓은_명령을_포트로_밀어_보낸
         .write_all(&presence_frame("Chrome", "0.9.0"))
         .unwrap();
     assert!(wait_until(Duration::from_secs(5), || {
-        relay::read_tabs(&directory).is_empty() && !presence::read_live(&directory).is_empty()
+        relay::read_tabs(&directory).is_empty()
+            && !presence::read_live(&directory).is_empty()
+            && replies(&output.lock().unwrap())
+                .first()
+                .is_some_and(|reply| reply["result"]["status"] == "present")
     }));
     assert!(relay::send(&directory, process_id(), "focusTab", Some(5)).unwrap());
     assert!(relay::send(&directory, process_id(), "openExtensions", None).unwrap());
@@ -1043,7 +1020,7 @@ fn 인사를_받은_호스트는_창이_놓은_명령을_포트로_밀어_보낸
     host.join().unwrap();
 }
 
-/// C# `MirrorTests.Live` — 이 프로세스의 상시 연결 파일. `hours_ago` 만큼 일찍 시작한 것으로 적으면 같은 번호를 다른 프로세스가
+/// 이 프로세스의 상시 연결 파일. `hours_ago` 만큼 일찍 시작한 것으로 적으면 같은 번호를 다른 프로세스가
 /// 물려받은 것(끝난 호스트)이 된다.
 fn write_live(directory: &Path, hours_ago: i64) {
     let (seconds, ticks) = win::process_start().unwrap();
@@ -1071,7 +1048,7 @@ fn files_in(directory: &Path) -> Vec<String> {
     names
 }
 
-/// C# `MirrorTests.탭_보고는_살아_있는_호스트의_것만_읽히고_끝나면_치워진다` — 상시 연결이 없으면 적은 보고도 산 것으로 세지 않고,
+/// 상시 연결이 없으면 적은 보고도 산 것으로 세지 않고,
 /// 모양이 틀린 보고는 있던 것을 그대로 두며, 같은 번호를 다른 프로세스가 물려받았으면(시작 시각이 다르다) 연결 파일과 함께
 /// 보고·명령 폴더를 거둔다.
 #[test]
@@ -1081,8 +1058,8 @@ fn 탭_보고는_살아_있는_호스트의_것만_읽히고_끝나면_치워진
     let pid = process_id();
     let report = json!({ "front": 7, "frontAt": 1, "tabs": [
         { "tabId": 7, "windowId": 1, "title": "나라장터", "state": "supported", "screen": "계약 상세", "readAt": "09:12",
-          "snapshot": { "profile": "g2b-contract-v1" } },
-        { "tabId": 8, "state": "unsupported", "screen": "개찰 결과" } ] });
+          "menu": "01579", "snapshot": { "profile": "g2b-contract-v1" } },
+        { "tabId": 8, "state": "unsupported", "screen": "개찰 결과", "menu": "" } ], "settings": null, "me": { "name": "" } });
 
     assert_eq!(
         relay::write_tabs(&home, pid, &report, win::local_now()).unwrap(),
@@ -1138,8 +1115,7 @@ fn 탭_보고는_살아_있는_호스트의_것만_읽히고_끝나면_치워진
     assert!(!relay::command_directory(&home, pid).exists());
 }
 
-/// C# `MirrorTests.명령은_차례대로_넘기고_모양이_틀린_것은_버리며_끝난_호스트에는_놓지_않는다` 와
-/// `설정_명령은_탭_없이_가고_모양이_틀리면_놓지_않는다` 의 놓는 쪽 — 아무도 집어 가지 않으면 폴더도 짓지 않고, 모르는 명령·걷은
+/// 명령을 놓는 쪽 — 아무도 집어 가지 않으면 폴더도 짓지 않고, 모르는 명령·걷은
 /// 설정 명령(ADR-042)·탭이 틀린 명령은 놓지 않는다. 넘기는 쪽(차례·버리기·겹친 키)은
 /// `명령_폴더의_명령은_차례대로_넘기고_틀린_것은_지우기만_한다` 가 본다.
 #[test]
@@ -1163,7 +1139,6 @@ fn 살아_있지_않은_호스트에는_명령을_놓지_않고_모르는_명령
     assert_eq!(files_in(&relay::command_directory(&home, pid)).len(), 4);
 }
 
-/// C# `MirrorTests.탭_보고의_화면_줄과_확장_설정은_모양만_보고_받는다`.
 #[test]
 fn 탭_보고의_화면_줄과_확장_설정은_모양만_보고_받는다() {
     let root = Root::new();
@@ -1171,13 +1146,13 @@ fn 탭_보고의_화면_줄과_확장_설정은_모양만_보고_받는다() {
     let pid = process_id();
     write_live(&home, 0);
     let row = |text: Value| json!({ "group": "기본", "label": "계약명", "text": text, "source": "ctrtNm" });
-    let of = |tab: Value, settings: Value| json!({ "front": 1, "frontAt": 1, "tabs": [tab], "settings": settings });
+    let of = |tab: Value, settings: Value| json!({ "front": 1, "frontAt": 1, "tabs": [tab], "settings": settings, "me": { "name": "" } });
     let write = |report: Value| relay::write_tabs(&home, pid, &report, win::local_now()).unwrap();
     let read = || relay::read_tabs(&home)[0].report.clone();
 
     assert_eq!(
         write(of(
-            json!({ "tabId": 1, "state": "supported", "screenRows": [row(json!("시험"))] }),
+            json!({ "tabId": 1, "state": "supported", "menu": "", "screenRows": [row(json!("시험"))] }),
             json!({ "siteAccess": true })
         )),
         None
@@ -1190,20 +1165,24 @@ fn 탭_보고의_화면_줄과_확장_설정은_모양만_보고_받는다() {
         .collect();
     for refused in [
         of(
-            json!({ "tabId": 1, "state": "supported", "screenRows": [row(json!(7))] }),
+            json!({ "tabId": 1, "state": "supported", "menu": "", "screenRows": [row(json!(7))] }),
             Value::Null,
         ),
         of(
-            json!({ "tabId": 1, "state": "supported", "screenRows": "줄" }),
+            json!({ "tabId": 1, "state": "supported", "menu": "", "screenRows": "줄" }),
             Value::Null,
         ),
         of(
-            json!({ "tabId": 1, "state": "supported", "screenRows": too_many }),
+            json!({ "tabId": 1, "state": "supported", "menu": "", "screenRows": too_many }),
             Value::Null,
         ),
         of(
-            json!({ "tabId": 1, "state": "reading" }),
+            json!({ "tabId": 1, "state": "reading", "menu": "" }),
             json!({ "siteAccess": "예" }),
+        ),
+        of(
+            json!({ "tabId": 1, "state": "reading", "menu": "" }),
+            json!({}),
         ),
     ] {
         assert!(write(refused).is_some());
@@ -1238,28 +1217,170 @@ fn 탭_보고의_화면_줄과_확장_설정은_모양만_보고_받는다() {
         ))
         .is_some()
     );
-    // 옛 확장(0.9 까지)이 함께 싣던 수집기 띄우는 방식·단축키는 받되 적지 않는다(ADR-042) — 홈에 임의 글이 남지 않는다.
+    // 메뉴 번호와 설정은 늘 싣는다 — 빠지면 받지 않는다. 확장이 설정을 읽지 못했으면 null 이다.
+    assert!(write(of(json!({ "tabId": 1, "state": "reading" }), Value::Null)).is_some());
+    assert!(
+        write(json!({ "front": 1, "frontAt": 1, "tabs": [{ "tabId": 1, "state": "reading", "menu": "" }] }))
+            .is_some()
+    );
     assert_eq!(
         write(of(
-            json!({ "tabId": 1, "state": "reading" }),
-            json!({ "panelMode": "always", "shortcut": "<script>", "siteAccess": false })
+            json!({ "tabId": 1, "state": "reading", "menu": "" }),
+            Value::Null
         )),
         None
     );
-    let old = read()["settings"].clone();
-    assert_eq!(old["siteAccess"], false);
-    assert!(old.get("panelMode").is_none() && old.get("shortcut").is_none());
-    assert!(
-        write(of(
-            json!({ "tabId": 1, "state": "reading" }),
-            json!({ "shortcut": "" })
-        ))
-        .is_some()
-    );
-    // 설정 없는 보고(옛 확장)도 받는다.
+    assert!(read()["settings"].is_null());
+}
+
+// ── 박동 ──────────────────────────────────────────────────────
+
+fn beat(tab: Value, seq: Value, observed: Value) -> Value {
+    json!({ "tabId": tab, "seq": seq, "readiness": { "stable": true, "observedAt": observed, "documentId": "합성-문서" } })
+}
+
+/// 박동은 같은 탭·같은 읽기 번호의 탭에만 readiness 를 덮는다. 번호가 다르거나 박동이 깨졌으면 내용 보고의 것 그대로다.
+#[test]
+fn 박동은_읽기_번호가_같은_탭의_readiness_만_덮고_탭_보고는_건드리지_않는다() {
+    let root = Root::new();
+    let home = root.join("홈");
+    let pid = process_id();
+    write_live(&home, 0);
+    let old = json!({ "stable": true, "observedAt": 1000, "documentId": "합성-문서" });
+    let report = json!({ "front": 7, "frontAt": 1, "settings": null, "me": { "name": "" }, "tabs": [
+        { "tabId": 7, "seq": 3, "state": "supported", "menu": "", "readiness": old },
+        { "tabId": 8, "seq": 4, "state": "supported", "menu": "", "readiness": old } ] });
     assert_eq!(
-        write(json!({ "front": 1, "frontAt": 1, "tabs": [{ "tabId": 1, "state": "reading" }] })),
+        relay::write_tabs(&home, pid, &report, win::local_now()).unwrap(),
         None
     );
-    assert!(read()["settings"].is_null());
+    let tabs_before = std::fs::read(relay::tabs_path(&home, pid)).unwrap();
+    let readiness =
+        |index: usize| relay::read_tabs(&home)[0].report["tabs"][index]["readiness"].clone();
+
+    // 박동이 없으면 그대로.
+    assert_eq!(readiness(0), old);
+    // 같은 탭 · 같은 번호 — 그 탭만 덮는다.
+    assert_eq!(
+        relay::write_beat(&home, pid, &beat(json!(7), json!(3), json!(9000))).unwrap(),
+        None
+    );
+    assert_eq!(readiness(0)["observedAt"], 9000);
+    assert_eq!(readiness(0)["documentId"], "합성-문서");
+    assert_eq!(readiness(1), old);
+    // 박동을 적어도 탭 보고 파일은 바뀌지 않는다.
+    assert_eq!(
+        std::fs::read(relay::tabs_path(&home, pid)).unwrap(),
+        tabs_before
+    );
+    // 번호가 다르면(새 읽기가 아직 보고되지 않았거나 옛 박동) 덮지 않는다. 다른 탭의 번호여도.
+    for (tab, seq) in [(7, 4), (8, 3), (9, 3)] {
+        assert_eq!(
+            relay::write_beat(&home, pid, &beat(json!(tab), json!(seq), json!(9500))).unwrap(),
+            None
+        );
+        assert_eq!(readiness(0), old, "{tab}/{seq}");
+        assert_eq!(readiness(1), old, "{tab}/{seq}");
+    }
+    // 깨진 박동(쓰다 만 것 포함)은 없는 것과 같다.
+    for broken in [
+        r#"{"tabId":7,"seq":3,"readiness":{"stab"#,
+        "",
+        r#"{"tabId":7,"seq":3,"readiness":1}"#,
+    ] {
+        std::fs::write(relay::beat_path(&home, pid), broken).unwrap();
+        assert_eq!(readiness(0), old, "{broken}");
+    }
+    // 끝나면 박동도 치운다.
+    relay::forget(&home, pid);
+    assert!(!relay::beat_path(&home, pid).exists());
+    assert!(!relay::tabs_path(&home, pid).exists());
+}
+
+#[test]
+fn 모양이_틀린_박동은_받지_않고_아는_칸만_옮긴다() {
+    let root = Root::new();
+    let home = root.join("홈");
+    let pid = process_id();
+    let mut extra = beat(json!(1), json!(2), json!(3000));
+    extra["print"] = json!("스냅샷 전체");
+    extra["readiness"]["snapshot"] = json!({ "n": 1 });
+    assert_eq!(relay::write_beat(&home, pid, &extra).unwrap(), None);
+    assert_eq!(
+        std::fs::read_to_string(relay::beat_path(&home, pid)).unwrap(),
+        r#"{"tabId":1,"seq":2,"readiness":{"stable":true,"observedAt":3000,"documentId":"@uD569@uC131-@uBB38@uC11C"}}"#
+            .replace('@', "\\")
+    );
+    let written = std::fs::read(relay::beat_path(&home, pid)).unwrap();
+    let mut long = beat(json!(1), json!(2), json!(3000));
+    long["readiness"]["documentId"] = json!("x".repeat(101));
+    for bad in [
+        beat(json!("1"), json!(2), json!(3000)),
+        beat(json!(1.5), json!(2), json!(3000)),
+        beat(json!(1), json!(2.5), json!(3000)),
+        beat(json!(1), json!("2"), json!(3000)),
+        beat(json!(1), json!(2), json!("3000")),
+        json!({ "tabId": 1, "seq": 2 }),
+        json!({ "tabId": 1, "seq": 2, "readiness": { "stable": "예", "observedAt": 3000, "documentId": "d" } }),
+        json!({ "tabId": 1, "seq": 2, "readiness": { "stable": true, "observedAt": 3000 } }),
+        json!({ "tabId": 1, "seq": 2, "readiness": { "stable": true, "observedAt": 3000, "documentId": 7 } }),
+        long,
+    ] {
+        assert!(
+            relay::write_beat(&home, pid, &bad).unwrap().is_some(),
+            "{bad}"
+        );
+    }
+    // 받지 않은 것은 있던 박동을 그대로 둔다.
+    assert_eq!(
+        std::fs::read(relay::beat_path(&home, pid)).unwrap(),
+        written
+    );
+}
+
+#[test]
+fn 박동은_인사_뒤에만_받고_포트가_닫히면_치워진다() {
+    let root = Root::new();
+    let directory = root.join("박동");
+    let pid = process_id();
+    let beat_frame = |params: Value| {
+        frame(
+            &json!({ "protocolVersion": 2, "requestId": guid(), "method": "beat", "params": params }),
+        )
+    };
+    let seen = Arc::new(Mutex::new(None::<String>));
+    let probe = Arc::clone(&seen);
+    let directory_in = directory.clone();
+    let input = [
+        beat_frame(beat(json!(1), json!(2), json!(3000))),
+        presence_frame("Edge", "0.9.0"),
+        beat_frame(beat(json!(1), json!(2), json!(3000))),
+        beat_frame(json!({ "tabId": 1 })),
+        frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "beat" })),
+        frame(&json!({ "protocolVersion": 2, "requestId": guid(), "method": "check" })),
+    ]
+    .concat();
+    let replies = serve_bytes(
+        input,
+        &directory,
+        move |_| {
+            *probe.lock().unwrap() =
+                std::fs::read_to_string(relay::beat_path(&directory_in, pid)).ok();
+            json!({ "ok": true })
+        },
+        Options::default(),
+    );
+    let oks: Vec<_> = replies.iter().map(|r| r["ok"] == true).collect();
+    assert_eq!(oks, [false, true, true, false, false, true]);
+    assert_eq!(
+        replies[0]["error"]["message"],
+        "인사 전에는 박동을 받지 않습니다."
+    );
+    assert_eq!(replies[2]["result"]["status"], "received");
+    assert_eq!(replies[4]["error"]["message"], "박동이 비었습니다.");
+    assert!(
+        seen.lock().unwrap().is_some(),
+        "포트가 열린 동안 박동이 있다"
+    );
+    assert!(!relay::beat_path(&directory, pid).exists());
 }

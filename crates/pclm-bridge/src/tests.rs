@@ -1,12 +1,13 @@
-//! 다리의 읽기 요청과 문지기. C# 쪽에는 다리 시험이 없다(창 프로젝트에 시험이 없다) — 같은 바이트인지는 동등성
-//! 계기의 `bridge` 가 본다(crates/pclm-parity/README.md). 여기서는 갈래마다 한 번씩 선다. 값은 지어낸 것이다.
+//! 다리의 읽기 요청과 문지기. 갈래마다 한 번씩 선다. 값은 지어낸 것이다.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use pclm_core::storage::pclm_file;
 use pclm_core::{Access, Database, Env};
+use pclm_excel::exporter::display;
 use pclm_home::Home;
+use rusqlite::types::ValueRef;
 use serde_json::Value;
 
 use super::*;
@@ -74,7 +75,7 @@ fn args(values: &[&str]) -> Vec<Option<String>> {
 }
 
 #[test]
-fn 답_글은_csharp_꼴이다() {
+fn 답_글은_비ascii와_html_글자를_이스케이프한다() {
     let result = serde_json::json!({ "이름": "가+<b>" });
     assert_eq!(
         reply_json(3, true, Some(&result), None),
@@ -114,7 +115,7 @@ fn 모르는_요청과_옮기지_않은_요청과_빠진_값을_가려_거절한
     );
 }
 
-/// 문지기의 두 목록은 C# Dispatch 가 아는 요청 안에 들고, 서로 겹치지 않는다. 아는 요청은 모두 「모르는 요청」 이 아니다.
+/// 문지기의 두 목록은 다리가 아는 요청 안에 들고, 서로 겹치지 않는다. 아는 요청은 모두 「모르는 요청」 이 아니다.
 #[test]
 fn 문지기의_목록은_다리가_아는_요청_안에_든다() {
     assert!(WRITES.iter().all(|m| METHODS.contains(m)));
@@ -147,7 +148,6 @@ fn 읽기_요청이_선다() {
         "2026-09-10T09:00:00.0000000+09:00"
     );
     assert!(b.invoke("dataVersion", &[]).unwrap().is_i64());
-    assert!(b.invoke("현황", &[]).unwrap()["groups"].is_array());
     assert_eq!(
         b.invoke("outline", &[]).unwrap()["chains"]
             .as_array()
@@ -215,14 +215,14 @@ fn 덮개는_줄_키로_묶여_온다() {
 }
 
 #[test]
-fn 무한대와_blob_은_csharp_의_글로_적는다() {
-    assert_eq!(cell(ValueRef::Real(f64::INFINITY)), "∞");
-    assert_eq!(cell(ValueRef::Real(f64::NEG_INFINITY)), "-∞");
-    assert_eq!(cell(ValueRef::Real(1e15)), "1000000000000000");
-    assert_eq!(cell(ValueRef::Real(0.5)), "0.5");
-    assert_eq!(cell(ValueRef::Blob(b"x")), "System.Byte[]");
-    assert_eq!(cell(ValueRef::Null), "");
-    assert_eq!(cell(ValueRef::Integer(-3)), "-3");
+fn 무한대와_blob_은_정한_글로_적는다() {
+    assert_eq!(display(ValueRef::Real(f64::INFINITY)), "∞");
+    assert_eq!(display(ValueRef::Real(f64::NEG_INFINITY)), "-∞");
+    assert_eq!(display(ValueRef::Real(1e15)), "1000000000000000");
+    assert_eq!(display(ValueRef::Real(0.5)), "0.5");
+    assert_eq!(display(ValueRef::Blob(b"x")), "(바이너리)");
+    assert_eq!(display(ValueRef::Null), "");
+    assert_eq!(display(ValueRef::Integer(-3)), "-3");
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn 열람_중에는_읽기만_받고_고치는_요청은_사람_말로_거절한
     let b = Bridge::new(database, home, Some(viewed), &ENV, &ZONE).unwrap();
     assert!(b.read_only());
     let refusal =
-        "열람 중인 자료라 고칠 수 없습니다 — 작업자료 「work.pclm」 는 이 창에서 읽기만 합니다.";
+        "열람 중인 자료라 고칠 수 없습니다: 작업자료 「work.pclm」";
     assert_eq!(b.invoke("setField", &[]).unwrap_err(), refusal);
     assert_eq!(b.invoke("nope", &[]).unwrap_err(), refusal);
     // 열람 중이면 모든 표가 읽기 전용이다.
@@ -249,7 +249,7 @@ fn 열람_중에는_읽기만_받고_고치는_요청은_사람_말로_거절한
     assert_eq!(std::fs::read_dir(&view).unwrap().count(), 0);
 }
 
-/// 작업자료 위의 다리를 놓으면 곁파일(-wal·-shm)이 남지 않는다 — C# 은 풀의 쓰기 연결이 마지막에 닫혀 걷는다.
+/// 작업자료 위의 다리를 놓으면 곁파일(-wal·-shm)이 남지 않는다.
 #[test]
 fn 다리를_놓으면_곁파일이_남지_않는다() {
     let temp = Temp::new("sidecars");
@@ -271,27 +271,19 @@ fn 파일_이름은_마지막_구분자_뒤다() {
     assert_eq!(file_name(std::path::Path::new("c.pclm")), "c.pclm");
 }
 
-// ── 설정 · 엑셀(#8 ⑥) ─────────────────────────────────────────────
+// ── 엑셀(#8 ⑥) ────────────────────────────────────────────────────
 
 /// 대본이 고른 자리를 내주고, 건네받은 것을 적어 둔다.
 #[derive(Default)]
 struct Picker {
     save: Mutex<Option<String>>,
-    plan: Mutex<Option<String>>,
     prompts: Mutex<Vec<SavePrompt>>,
-    plan_asked: Mutex<u32>,
 }
 
 impl Host for Picker {
     fn pick_save_path(&self, prompt: &SavePrompt) -> Option<String> {
         self.prompts.lock().unwrap().push(prompt.clone());
         self.save.lock().unwrap().clone()
-    }
-
-    fn pick_plan_excel(&self, prompt: &OpenPrompt) -> Option<String> {
-        assert_eq!(prompt.title, "계획 엑셀 고르기");
-        *self.plan_asked.lock().unwrap() += 1;
-        self.plan.lock().unwrap().clone()
     }
 }
 
@@ -303,30 +295,7 @@ fn snapshot_json() -> String {
     r#"{"columns":["번호","메모"],"rows":[["0002","=1+1"],["0001","둘째"]]}"#.into()
 }
 
-#[test]
-fn 설정을_읽고_이름은_주지_않으면_그대로_둔다() {
-    let temp = Temp::new("settings");
-    let (file, home) = work(&temp);
-    let b = bridge(&file, home);
-    assert_eq!(
-        b.invoke("settings", &[]).unwrap(),
-        serde_json::json!({ "submitterName": "", "planPath": "" })
-    );
-    assert_eq!(
-        b.invoke("saveSettings", &args(&[" 홍길동 "])).unwrap()["submitterName"],
-        "홍길동"
-    );
-    assert_eq!(
-        b.invoke("saveSettings", &[]).unwrap()["submitterName"],
-        "홍길동"
-    );
-    assert_eq!(
-        b.invoke("saveSettings", &[None]).unwrap()["submitterName"],
-        "홍길동"
-    );
-}
-
-/// C# 에서 고르기 창의 속성이 비었을 때처럼 — 그만둔 것으로 보고 null 을 낸다.
+/// 창을 달지 않은 때처럼 — 그만둔 것으로 보고 null 을 낸다.
 #[test]
 fn 고르기_창이_없으면_그만둔다() {
     let temp = Temp::new("nopick");
@@ -341,7 +310,6 @@ fn 고르기_창이_없으면_그만둔다() {
         .unwrap(),
         Value::Null
     );
-    assert_eq!(b.invoke("pickPlanExcel", &[]).unwrap(), Value::Null);
 }
 
 #[test]
@@ -431,10 +399,32 @@ fn 화면_사진은_검사한_뒤에_자리를_묻는다() {
     );
 }
 
-/// 엑셀이 붙든 파일(IOException)은 사람 말로, 폴더인 자리(UnauthorizedAccessException)는 .NET 의 글로.
+/// 내보내기는 작업자료 자리를 덮지 않는다 — 그 자리를 고르면 거절하고 파일은 그대로다.
+#[test]
+fn 내보내기는_작업자료를_덮지_않는다() {
+    let temp = Temp::new("overwork");
+    let (file, home) = work(&temp);
+    let picker = Picker::default();
+    *picker.save.lock().unwrap() = Some(path_text(&file));
+    let mut b = bridge(&file, home);
+    b.set_host(&picker);
+
+    let ids = format!(r#"["{}"]"#, pclm_core::storage::store::DOCUMENT_VIEW_ID);
+    let refusal = b.invoke("exportViewPackage", &args(&[&ids])).unwrap_err();
+    assert!(refusal.contains("덮지 않습니다"), "{refusal}");
+    let refusal = b.invoke("export", &[]).unwrap_err();
+    assert!(refusal.contains("덮지 않습니다"), "{refusal}");
+    assert_eq!(b.invoke("status", &[]).unwrap()["contractRows"], 1);
+    drop(b);
+    let info = pclm_file::inspect(&file);
+    assert!(info.kind == pclm_file::PclmKind::Ok);
+    assert_eq!(info.role.as_deref(), Some("work"));
+}
+
+/// 엑셀이 붙든 파일은 사람 말로, 폴더인 자리는 시스템이 낸 글로.
 #[cfg(windows)]
 #[test]
-fn 쓰지_못하면_csharp_과_같은_글로_거절한다() {
+fn 쓰지_못하면_할_일을_말하며_거절한다() {
     use std::os::windows::fs::OpenOptionsExt as _;
     let temp = Temp::new("writefail");
     let (file, home) = work(&temp);
@@ -469,75 +459,14 @@ fn 쓰지_못하면_csharp_과_같은_글로_거절한다() {
             &[Some("선택 자료".into()), Some(snapshot_json())]
         )
         .unwrap_err(),
-        format!("Access to the path '{}' is denied.", folder.display())
+        format!(
+            "그 자리에 쓸 권한이 없습니다 — 다른 폴더를 골라 다시 해 주세요.  {}",
+            folder.display()
+        )
     );
 }
 
-#[test]
-fn 계획_엑셀을_골라_두고_넣는다() {
-    let temp = Temp::new("plan");
-    let (file, home) = work(&temp);
-    let picker = Picker::default();
-    let mut b = bridge(&file, home);
-    b.set_host(&picker);
-
-    assert_eq!(
-        b.invoke("importPlan", &[]).unwrap_err(),
-        "가져올 계획 엑셀을 고르지 않았습니다."
-    );
-
-    // 열지 못하는 파일은 골라 둔 것으로 남기지 않는다.
-    let missing = temp.0.join("없는.xlsx");
-    *picker.plan.lock().unwrap() = Some(path_text(&missing));
-    assert_eq!(
-        b.invoke("pickPlanExcel", &[]).unwrap_err(),
-        format!("Could not find file '{}'.", missing.display())
-    );
-    assert_eq!(b.invoke("settings", &[]).unwrap()["planPath"], "");
-
-    let plan = temp.0.join("계획.xlsx");
-    let text = |v: &str| pclm_excel::writer::Cell {
-        value: pclm_excel::writer::Value::Text(v.into()),
-        style: pclm_excel::writer::Style::DEFAULT,
-    };
-    let sheet = pclm_excel::writer::Sheet {
-        name: "계획".into(),
-        rows: vec![
-            vec![text("조달요구번호"), text("담당자"), text("지시수량")],
-            vec![text("PLAN-0001"), text("김철수"), text("1,200")],
-        ],
-        ..Default::default()
-    };
-    pclm_excel::writer::write(std::fs::File::create(&plan).unwrap(), &[sheet]).unwrap();
-    *picker.plan.lock().unwrap() = Some(path_text(&plan));
-    assert_eq!(
-        b.invoke("pickPlanExcel", &[]).unwrap(),
-        serde_json::json!({ "name": "계획.xlsx", "path": path_text(&plan) })
-    );
-    assert_eq!(
-        b.invoke("settings", &[]).unwrap()["planPath"],
-        path_text(&plan)
-    );
-
-    let result = b.invoke("importPlan", &[]).unwrap();
-    assert_eq!(
-        // 선언 차례 그대로 — rows · created · updated · skipped · missingRequired · found · errors · ok.
-        bridge_json(&result),
-        bridge_json(&serde_json::json!({
-            "rows": 1, "created": 1, "updated": 0, "skipped": 0, "missingRequired": [],
-            "found": ["조달요구번호", "지시수량", "담당자"], "errors": [], "ok": true
-        }))
-    );
-    assert_eq!(b.invoke("importPlan", &[]).unwrap()["updated"], 1);
-
-    std::fs::remove_file(&plan).unwrap();
-    assert_eq!(
-        b.invoke("importPlan", &[]).unwrap_err(),
-        format!("그런 파일이 없습니다: {}", plan.display())
-    );
-}
-
-/// 열람 중에는 내보내기와 설정 읽기만 받는다 — 계획 고르기 · 넣기 · 설정 저장은 고치는 요청이다.
+/// 열람 중에도 내보내기는 받는다 — 파일은 밖에 떨어지고 자료에는 쓰지 않는다.
 #[test]
 fn 열람_중에도_내보내기는_받는다() {
     let temp = Temp::new("viewexport");
@@ -549,18 +478,10 @@ fn 열람_중에도_내보내기는_받는다() {
     let picker = Picker::default();
     let target = temp.0.join("열람.xlsx");
     *picker.save.lock().unwrap() = Some(path_text(&target));
-    *picker.plan.lock().unwrap() = Some(path_text(&target));
     let mut b = Bridge::new(database, home, Some(viewed), &ENV, &ZONE).unwrap();
     b.set_host(&picker);
 
     assert_eq!(b.invoke("export", &[]).unwrap(), path_text(&target));
-    assert!(b.invoke("settings", &[]).is_ok());
-    let refusal =
-        "열람 중인 자료라 고칠 수 없습니다 — 작업자료 「work.pclm」 는 이 창에서 읽기만 합니다.";
-    for method in ["pickPlanExcel", "importPlan", "saveSettings"] {
-        assert_eq!(b.invoke(method, &[]).unwrap_err(), refusal, "{method}");
-    }
-    assert_eq!(*picker.plan_asked.lock().unwrap(), 0);
 }
 
 // ── 창 · 운영체제 · 깃발(#8 ⑧a) ────────────────────────────────────
@@ -741,7 +662,7 @@ fn 깨진_글은_번호를_읽은_만큼_답한다() {
             0,
             false,
             None,
-            Some("The given key was not present in the dictionary.")
+            Some("요청에 id 칸이 없습니다.")
         )
     );
     assert!(replies[1].starts_with(r#"{"id":7,"ok":false"#));
@@ -793,11 +714,10 @@ fn 업무_홈이_아니면_등록부에_닿지_않는다() {
     };
     let mut b = bridge(&file, home);
     b.set_os(&os);
-    let production = "내장 확장 연결은 업무 홈에서만 준비합니다. --home 이나 --erp-dev 없이 앱을 다시 실행하세요.";
+    let production = "--home 이나 --erp-dev 없이 앱을 다시 실행해 확장을 준비하세요.";
     assert_eq!(b.invoke("prepareExtension", &[]).unwrap_err(), production);
-    assert_eq!(b.invoke("extensionStatus", &[]).unwrap_err(), production);
     let reason =
-        "시험 홈(--home)으로 띄운 창이라 자동 실행을 바꾸지 않습니다. 업무 홈의 창에서 바꾸세요.";
+        "--home 으로 띄운 창에서는 자동 실행을 바꿀 수 없습니다.";
     let prefs = b.invoke("windowPrefs", &[]).unwrap();
     assert_eq!(prefs["autostartAvailable"], false);
     assert_eq!(prefs["autostartReason"], reason);
@@ -853,6 +773,114 @@ fn 업무_홈이_아니면_등록부에_닿지_않는다() {
                 .to_string(),
         ]
     );
+}
+
+/// 압축 안(임시 폴더)에서 켠 exe 는 호스트 쪽지와 등록부에 닿지 않는다 — 창을 켤 때는 말없이 건너뛰고, 「확장 준비」 는
+/// 아무것도 적기 전에 거절한다. 적으면 탐색기가 그 폴더를 치운 뒤 브라우저가 호스트를 띄우지 못한다.
+#[test]
+fn 임시_폴더에서_켠_exe는_확장_연결을_고치지_않는다() {
+    let temp = Temp::new("tempexe");
+    let (file, home) = work(&temp);
+    let default_home = temp.0.join("업무 홈");
+    let exe = default_home.join("TEMP").join("풀린").join("계약목록.exe");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::write(&exe, "fake").unwrap();
+    // 앞서 제자리 exe 로 준비해 둔 확장 · 쪽지 · 등록부.
+    let extension = default_home.join("extension");
+    std::fs::create_dir_all(&extension).unwrap();
+    let manifest = default_home.join("kr.rfastball.pclm.erp.json");
+    std::fs::write(&manifest, "kept").unwrap();
+    let os = FakeOs {
+        exe: Some(exe),
+        default_home: default_home.clone(),
+        ..FakeOs::default()
+    };
+    let key = r"Software\Google\Chrome\NativeMessagingHosts\kr.rfastball.pclm.erp";
+    os.registry
+        .lock()
+        .unwrap()
+        .push((key.into(), String::new(), "kept".into()));
+    let untouched = |os: &FakeOs| {
+        assert_eq!(std::fs::read_to_string(&manifest).unwrap(), "kept");
+        assert!(std::fs::read_dir(&extension).unwrap().next().is_none());
+        assert_eq!(os.registry.lock().unwrap().len(), 1);
+        assert!(os.calls().is_empty(), "{:?}", os.calls());
+    };
+
+    refresh_installation(&os, true);
+    untouched(&os);
+
+    let mut b = bridge(&file, home);
+    b.set_os(&os);
+    b.set_default_home(true);
+    assert_eq!(
+        b.invoke("prepareExtension", &[]).unwrap_err(),
+        "압축 파일 안에서 켠 프로그램이라 확장을 준비할 수 없습니다. 계속 둘 폴더에 풀어 켠 뒤 다시 하세요."
+    );
+    untouched(&os);
+}
+
+/// 시험 홈(가짜 나라장터의 개발 홈)도 확장 상태는 그 홈의 흔적을 그대로 읽는다 — 거절하면 늘 「확장 설치 필요」 로 보였다.
+#[test]
+fn 업무_홈이_아니어도_확장_상태는_그_홈의_파일을_읽는다() {
+    let temp = Temp::new("status");
+    let (file, home) = work(&temp);
+    let directory = home.directory().to_path_buf();
+    let b = bridge(&file, home);
+    let empty = b.invoke("extensionStatus", &[]).unwrap();
+    assert_eq!(empty["prepared"], false);
+    assert_eq!(empty["diskVersion"], Value::Null);
+    assert_eq!(empty["diskRevision"], Value::Null);
+    assert_eq!(empty["embeddedRevision"], Value::Null);
+
+    std::fs::create_dir_all(directory.join("extension")).unwrap();
+    std::fs::write(
+        directory.join("extension").join("manifest.json"),
+        r#"{"name":"pclm","version":"0.0.7"}"#,
+    )
+    .unwrap();
+    // 「오늘」 은 KST 2026-09-10 — 그날 09:00 에 붙었다.
+    let revision = "a".repeat(64);
+    std::fs::write(
+        directory.join("extension-revision.json"),
+        serde_json::json!({"revision": revision}).to_string(),
+    )
+    .unwrap();
+    let at = pclm_core::local_time::parse_to_local(Some(&ENV.now_utc()), &ZONE).unwrap();
+    pclm_host::status::record_contact(&directory, "0.0.7", "Edge", at).unwrap();
+    pclm_host::log::record_connected(&directory, "Edge", "0.0.7", at).unwrap();
+    // 상시 연결은 살아 있는 프로세스만 센다 — 이 시험 프로세스를 호스트로 친다(호스트의 write_live 와 같은 꼴).
+    let (seconds, ticks) = pclm_home::win::process_start().unwrap();
+    let pid = pclm_host::presence::process_id();
+    std::fs::create_dir_all(pclm_host::presence::live_directory(&directory)).unwrap();
+    std::fs::write(
+        pclm_host::presence::live_path(&directory, pid),
+        serde_json::json!({
+            "browser": "Edge",
+            "version": "0.0.7",
+            "pid": pid,
+            "processStartUtc": pclm_home::win::format_round_trip(seconds, ticks),
+            "connectedAt": "2026/09/10 09:00:00",
+            "revision": revision,
+            "updateState": "waiting-panel",
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let status = b.invoke("extensionStatus", &[]).unwrap();
+    assert_eq!(status["prepared"], true);
+    assert_eq!(status["diskVersion"], "0.0.7");
+    assert_eq!(status["diskRevision"], revision);
+    assert_eq!(status["embeddedRevision"], revision, "개발 홈은 준비된 복사본을 목표로 한다");
+    assert_eq!(status["folder"], path_text(&directory.join("extension")));
+    assert_eq!(status["contacts"][0]["browser"], "Edge");
+    assert_eq!(status["contacts"][0]["version"], "0.0.7");
+    assert_eq!(status["live"][0]["browser"], "Edge");
+    assert_eq!(status["live"][0]["connectedAt"], "2026/09/10 09:00:00");
+    assert_eq!(status["live"][0]["revision"], revision);
+    assert_eq!(status["live"][0]["updateState"], "waiting-panel");
+    assert_eq!(status["log"][0]["browser"], "Edge");
 }
 
 #[test]

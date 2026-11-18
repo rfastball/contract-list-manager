@@ -1,0 +1,19 @@
+[package]
+name = "pclm-doc-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "문서 만들기 엔진(ADR-045) — 서식 바이트와 면 뷰의 값을 받아 문서 바이트를 돌려준다. wasm32 로 지어 확장의 사이드 패널이 부른다(파일 시스템 · 시계 없음)."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 문서나르미(hwpx-filler)의 hwpx 엔진과 항목 · 선택 실행기. native-data 를 끄면(엑셀 · SQLite 읽기를 뺀다) wasm32 로 지어진다.
+# 이 rev 는 hwpx-filler 의 태그 v0.16.0 이다.
+hwpx-core = { git = "https://github.com/rfastball/hwpx-filler", rev = "f56e97691054f8b9a72b920ad98ddefd9e64f440" }
+hwpx-filler = { git = "https://github.com/rfastball/hwpx-filler", rev = "f56e97691054f8b9a72b920ad98ddefd9e64f440", default-features = false }
+# pclm-core 와 같은 판·같은 기능 — 작업공간에서 함께 지으면 기능이 합쳐진다.
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }

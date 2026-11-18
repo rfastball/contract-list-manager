@@ -1,11 +1,11 @@
-//! 계약면 뷰(C# `Storage/Views.cs`) — 소비자에게 내보이는 계약면. 이 뷰들이 **다른 프로그램과의 유일한 약속**이다.
+//! 계약면 뷰 — 소비자에게 내보이는 계약면. 이 뷰들이 **다른 프로그램과의 유일한 약속**이다.
 //!
-//! **SQL 글이 C# 과 바이트까지 같아야 한다**(`sqlite_master.sql` — 계약면 박제와 동등성 계기가 견준다). 그래서 C# 의
-//! 원시 문자열을 **고쳐 쓰지 않고 그대로** 둔다: 들여쓰기까지 C# 원본의 것이고, 걷는 것은 [`raw_with`] 가 C# 처럼 한다.
-//! 자리(`{Text("n.title")}`)도 C# 의 글 그대로다 — [`eval`] 이 그 꼴의 부름(이 모듈의 표기 함수와 상수)을 푼다. 손으로
+//! **SQL 글이 옛 판이 지은 뷰 정의와 바이트까지 같아야 한다**(`sqlite_master.sql` — 계약면 박제가 견준다). 그래서
+//! 원시 문자열을 **고쳐 쓰지 않고 그대로** 둔다: 들여쓰기까지 옛 판이 써 둔 글이고, 걷는 것은 [`raw_with`] 가 한다.
+//! 자리(`{Text("n.title")}`)도 옛 판이 써 둔 글 그대로다 — [`eval`] 이 그 꼴의 부름(이 모듈의 표기 함수와 상수)을 푼다. 손으로
 //! 옮겨 적은 글이 한 칸 어긋나면 아무것도 실패하지 않고 박제만 갈리므로, 옮겨 적을 자리를 남기지 않는 쪽을 골랐다.
 //!
-//! 뷰를 짓는 차례(`Database.Refresh`)는 [`crate::storage::database::refresh`] 에 있다.
+//! 뷰를 짓는 차례는 [`crate::storage::database::refresh`] 에 있다.
 
 use std::cell::RefCell;
 use std::sync::OnceLock;
@@ -17,10 +17,10 @@ use crate::storage::user_view_builder::UserViewFrame;
 use crate::storage::{computed_column, notice_groups};
 use crate::text::{cmp_ordinal, raw, raw_with, replace_line_endings};
 
-/// 깨진 가공열 — (종류, 이름) → 까닭. C# `IReadOnlyDictionary<(string Entity, string Name), string>`.
+/// 깨진 가공열 — (종류, 이름) → 까닭.
 pub type BrokenColumns = Dict<(String, String), String>;
 
-/// `Views.Names` — 계약면 전부. 다리가 열어 줄 표를 가리는 허용목록이자 뷰 정의 목록이다. 차례는 먼저 있던 것을
+/// 계약면 전부. 다리가 열어 줄 표를 가리는 허용목록이자 뷰 정의 목록이다. 차례는 먼저 있던 것을
 /// 앞에 둔다(`contract/views.txt` 가 이 차례로 박제되어 있다).
 pub const NAMES: &[&str] = &[
     "v_공고",
@@ -30,7 +30,6 @@ pub const NAMES: &[&str] = &[
     "v_접수",
     "v_접수품목",
     "v_통합",
-    "v_계획",
     // 차수를 펴서 내는 것들(스키마 V15). 끝에 붙인다.
     "v_공고차수",
     "v_통합차수",
@@ -43,10 +42,9 @@ pub const NAMES: &[&str] = &[
     "v_맞춤뷰",
 ];
 
-/// `Views.ReadOnly` — 고칠 수 없는 표. `v_계획` 은 `plan` 이 개체가 아니라서, 차수 뷰 셋은 `Store.FaceView` 가 종류당
-/// 뷰를 하나만 알아 옛 차수의 칸을 고치면 덮개의 `original` 이 빈 문자열로 박히기 때문이다.
+/// 고칠 수 없는 표. 차수 뷰 셋은 `store::face_view` 가 종류당 뷰를 하나만 알아 옛 차수의 칸을
+/// 고치면 덮개의 `original` 이 빈 문자열로 박히기 때문이다.
 pub const READ_ONLY: &[&str] = &[
-    "v_계획",
     "v_통합차수",
     "v_공고차수",
     "v_계약차수",
@@ -57,7 +55,7 @@ pub const READ_ONLY: &[&str] = &[
     "v_맞춤뷰",
 ];
 
-/// `Views.Exported` — 엑셀로 나가는 것. [`NAMES`] 와 일부러 다르다(차수를 편 셋은 같은 건을 여러 줄로 다시 낸다).
+/// 엑셀로 나가는 것. [`NAMES`] 와 일부러 다르다(차수를 편 셋은 같은 건을 여러 줄로 다시 낸다).
 pub const EXPORTED: &[&str] = &[
     "v_통합",
     "v_접수",
@@ -71,18 +69,16 @@ pub const EXPORTED: &[&str] = &[
     "v_ERP접수",
 ];
 
-/// `Views.SheetName` — 시트·화면에 쓸 짧은 이름. `v_접수품목` → `접수품목`.
+/// 시트·화면에 쓸 짧은 이름. `v_접수품목` → `접수품목`.
 pub fn sheet_name(view: &str) -> &str {
     view.strip_prefix("v_").unwrap_or(view)
 }
 
-/// `Views.EntityTypeOf` — 이 뷰의 줄 하나는 무엇인가. 덮개와 사람 열이 어느 표에 담길지가 여기서 갈린다.
-/// `v_통합차수` 는 이름 규칙으로 표현되지 않아 따로 적고, 계획을 맨 앞에, 접수를 공고보다 먼저 본다.
+/// 이 뷰의 줄 하나는 무엇인가. 덮개와 사람 열이 어느 표에 담길지가 여기서 갈린다.
+/// `v_통합차수` 는 이름 규칙으로 표현되지 않아 따로 적고, 접수를 공고보다 먼저 본다.
 pub fn entity_type_of(view: &str) -> &'static str {
     if view == "v_통합차수" {
         "notice"
-    } else if view.contains("계획") {
-        "plan"
     } else if view.contains("접수") {
         "request"
     } else if view.contains("공고") {
@@ -92,7 +88,7 @@ pub fn entity_type_of(view: &str) -> &'static str {
     }
 }
 
-/// `Views.KeyColumns` — 손으로 고칠 수 없는 열. 레코드가 어디에 있는지를 정하는 것들이다.
+/// 손으로 고칠 수 없는 열. 레코드가 어디에 있는지를 정하는 것들이다.
 pub const KEY_COLUMNS: &[&str] = &[
     "입찰공고번호",
     "공고본번호",
@@ -107,7 +103,7 @@ pub const KEY_COLUMNS: &[&str] = &[
     "현행공고",
 ];
 
-/// `Views.UnifiedNoticeColumns` — `v_통합` 이 `v_공고` 에서 붙여 오는 열(통합 시트에서는 잠근다).
+/// `v_통합` 이 `v_공고` 에서 붙여 오는 열(통합 시트에서는 잠근다).
 pub const UNIFIED_NOTICE_COLUMNS: &[&str] = &[
     "입찰공고번호",
     "공고명",
@@ -128,7 +124,7 @@ pub const UNIFIED_NOTICE_COLUMNS: &[&str] = &[
     "사전규격등록번호",
 ];
 
-/// `Views.UnifiedRequestColumns` — `v_통합` 이 `v_접수` 에서 붙여 오는 열.
+/// `v_통합` 이 `v_접수` 에서 붙여 오는 열.
 pub const UNIFIED_REQUEST_COLUMNS: &[&str] = &[
     "접수번호",
     "조달요구번호",
@@ -141,7 +137,7 @@ pub const UNIFIED_REQUEST_COLUMNS: &[&str] = &[
     "기관담당자전화",
 ];
 
-/// `Views.ContractColumns` — `v_계약` 이 내는 열 차례(사람이 세운 열 앞까지). `v_통합` 이 열마다 COALESCE 로 감싸려고
+/// `v_계약` 이 내는 열 차례(사람이 세운 열 앞까지). `v_통합` 이 열마다 COALESCE 로 감싸려고
 /// 이름을 한 벌 더 든다 — 어긋나면 통합에서 그 열만 사라지므로 시험이 실제 뷰와 대조한다.
 pub const CONTRACT_COLUMNS: &[&str] = &[
     "계약번호",
@@ -185,7 +181,7 @@ pub const CONTRACT_COLUMNS: &[&str] = &[
     "공동수급구성방식",
 ];
 
-/// `Views.NoticeColumns` — `v_공고` 가 내는 열 차례(사람이 세운 열 앞까지). 가공열이 있으면 뷰를 한 겹 감싸 바깥에서
+/// `v_공고` 가 내는 열 차례(사람이 세운 열 앞까지). 가공열이 있으면 뷰를 한 겹 감싸 바깥에서
 /// 열을 하나씩 다시 적어야 해서 이름을 한 벌 더 든다.
 pub const NOTICE_COLUMNS: &[&str] = &[
     "입찰공고번호",
@@ -237,7 +233,7 @@ pub const NOTICE_COLUMNS: &[&str] = &[
     "재무관",
 ];
 
-/// `Views.RequestColumns` — `v_접수` 가 내는 열 차례(사람이 세운 열 앞까지).
+/// `v_접수` 가 내는 열 차례(사람이 세운 열 앞까지).
 pub const REQUEST_COLUMNS: &[&str] = &[
     "접수번호",
     "접수본번호",
@@ -299,7 +295,7 @@ const HIDDEN_CONTRACT: &[&str] = &[
     "공동수급구성방식",
 ];
 
-/// `Views.HiddenByDefault` — V28 이후 확정되어 도입한 열(ADR-043). 뷰 이름으로 찾는다. 판올림 보정이 사용자 열과
+/// V28 이후 확정되어 도입한 열(ADR-043). 뷰 이름으로 찾는다. 판올림 보정이 사용자 열과
 /// 겹치는 새 열을 가리는 데 쓴다.
 pub fn hidden_by_default(view: &str) -> Option<&'static [&'static str]> {
     Some(match view {
@@ -327,7 +323,7 @@ pub fn hidden_by_default(view: &str) -> Option<&'static [&'static str]> {
     })
 }
 
-/// `Views.BaseColumns` — 이 자료 종류의 기본 열(사람이 세운 열을 뺀 면 뷰의 열). 가공열의 원천으로 쓸 수 있는 것이
+/// 이 자료 종류의 기본 열(사람이 세운 열을 뺀 면 뷰의 열). 가공열의 원천으로 쓸 수 있는 것이
 /// 이것뿐이라 뷰 사이 순환이 구조적으로 막힌다(§4.1).
 pub fn base_columns(entity_type: &str) -> Result<&'static [&'static str]> {
     match entity_type {
@@ -338,7 +334,7 @@ pub fn base_columns(entity_type: &str) -> Result<&'static [&'static str]> {
     }
 }
 
-/// `Views.Face(string)` — 이 자료 종류의 덮개 열 한 벌(사람 열 없이). 가공열이 연결 문서의 필드를 읽을 때 상대 뷰를
+/// 이 자료 종류의 덮개 열 한 벌(사람 열 없이). 가공열이 연결 문서의 필드를 읽을 때 상대 뷰를
 /// 읽지 않고 이것을 그 개체의 행 별칭(`n`·`c`·`r`)으로 다시 부른다 — 뷰 사이 순환이 생기지 않는다(§11.1-3).
 pub(crate) fn face(entity_type: &str) -> Result<String> {
     match entity_type {
@@ -349,9 +345,11 @@ pub(crate) fn face(entity_type: &str) -> Result<String> {
     }
 }
 
-/// `Views.LegacyNames` — 판을 붙여 부르던 옛 이름(ADR-034 전). [`definitions`] 가 맨 앞에서 모두 치운다. 차례는 얹힌
+/// 판을 붙여 부르던 옛 이름(ADR-034 전). [`definitions`] 가 맨 앞에서 모두 치운다. 차례는 얹힌
 /// 것부터다.
 pub const LEGACY_NAMES: &[&str] = &[
+    // 계획 표는 걷었다(ADR-047, 스키마 33). 접수·공고·계약 셋 위에 얹혀 있었다.
+    "v_계획",
     "v_통합_v3",
     "v_계획_v1",
     "v_통합_v2",
@@ -371,10 +369,10 @@ pub const LEGACY_NAMES: &[&str] = &[
     "v_사용자뷰",
 ];
 
-/// `Views.UserViewPrefix` — 맞춤 뷰가 SQLite 에 서는 이름의 머리.
+/// 맞춤 뷰가 SQLite 에 서는 이름의 머리.
 pub const USER_VIEW_PREFIX: &str = "u_";
 
-/// C# `UserColumnDefinition` — 사람이 채우는 열 하나의 정의. `kind` 는 text · choice · date · number · computed,
+/// 사람이 채우는 열 하나의 정의. `kind` 는 text · choice · date · number · computed,
 /// `options` 는 choice 면 세로줄로 나눈 후보, computed 면 가공식 v2 JSON.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserColumnDefinition {
@@ -386,7 +384,7 @@ pub struct UserColumnDefinition {
 }
 
 impl UserColumnDefinition {
-    /// `UserColumnDefinition.Choices` — `Split('|', RemoveEmptyEntries | TrimEntries)`.
+    /// `Split('|', RemoveEmptyEntries | TrimEntries)`.
     pub fn choices(&self) -> Vec<String> {
         match (&*self.kind, &self.options) {
             ("choice", Some(options)) => options
@@ -402,26 +400,25 @@ impl UserColumnDefinition {
 
 // ── 표기 조각 ─────────────────────────────────────────────
 //
-// C# 의 private 조각을 같은 이름 자리에서 옮긴다. 원시 문자열 몸은 C# 원본 그대로다(위 모듈 설명).
+// 모듈 안쪽 조각들. 원시 문자열 몸은 옛 판이 써 둔 글 그대로다(위 모듈 설명).
 
-/// `Views.Text` — 빈 값은 NULL 이 아니라 빈 문자열로 낸다.
+/// 빈 값은 NULL 이 아니라 빈 문자열로 낸다.
 fn text(column: &str) -> String {
     format!("COALESCE({column}, '')")
 }
 
-/// `Views.YesNo`.
 fn yes_no(column: &str) -> String {
     format!("CASE {column} WHEN 1 THEN '가능' WHEN 0 THEN '불가' ELSE '' END")
 }
 
-/// `Views.YesNoWord` — 양식이 `예`·`아니오` 로 적는 칸.
+/// 양식이 `예`·`아니오` 로 적는 칸.
 fn yes_no_word(column: &str) -> String {
     format!("CASE {column} WHEN 1 THEN '예' WHEN 0 THEN '아니오' ELSE '' END")
 }
 
-/// `Views.Number` — 뜻 없는 소수부를 턴다.
+/// 뜻 없는 소수부를 턴다.
 fn number(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         CASE
             WHEN {column} IS NULL OR {column} = '' THEN ''
@@ -434,9 +431,9 @@ fn number(column: &str) -> String {
     )
 }
 
-/// `Views.DateText` — 날짜를 양식이 쓰는 표기로 되돌린다(`2026-09-20 00:00:00` → `2026/09/20`).
+/// 날짜를 양식이 쓰는 표기로 되돌린다(`2026-09-20 00:00:00` → `2026/09/20`).
 fn date_text(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         CASE
             WHEN {column} IS NULL OR {column} = '' THEN ''
@@ -449,28 +446,35 @@ fn date_text(column: &str) -> String {
     )
 }
 
-/// `Views.Money` — 금액에 세 자리마다 자릿점을 넣는다. 소수부는 건드리지 않는다.
+/// 금액에 세 자리마다 자릿점을 넣는다. 소수부는 건드리지 않는다.
 pub(crate) fn money(column: &str) -> String {
     // 뜻 없는 .0 을 먼저 턴 값 위에서 자릿점을 찍는다.
     let trimmed = number(column);
     let whole = "CASE WHEN instr(t,'.')>0 THEN substr(t,1,instr(t,'.')-1) ELSE t END";
     let fraction = "CASE WHEN instr(t,'.')>0 THEN substr(t,instr(t,'.')) ELSE '' END";
+    // 부호(s)는 자릿수가 아니다 — 떼어 두고 숫자(d)만 묶는다.
     let grouped = raw(
         r#"
             CASE
-                WHEN length(w) <= 3  THEN w
-                WHEN length(w) <= 6  THEN substr(w,1,length(w)-3) || ',' || substr(w,-3)
-                WHEN length(w) <= 9  THEN substr(w,1,length(w)-6) || ',' || substr(w,-6,3) || ',' || substr(w,-3)
-                WHEN length(w) <= 12 THEN substr(w,1,length(w)-9) || ',' || substr(w,-9,3) || ',' || substr(w,-6,3) || ',' || substr(w,-3)
-                ELSE w
+                WHEN length(d) <= 3  THEN d
+                WHEN length(d) <= 6  THEN substr(d,1,length(d)-3) || ',' || substr(d,-3)
+                WHEN length(d) <= 9  THEN substr(d,1,length(d)-6) || ',' || substr(d,-6,3) || ',' || substr(d,-3)
+                WHEN length(d) <= 12 THEN substr(d,1,length(d)-9) || ',' || substr(d,-9,3) || ',' || substr(d,-6,3) || ',' || substr(d,-3)
+                WHEN length(d) <= 15 THEN substr(d,1,length(d)-12) || ',' || substr(d,-12,3) || ',' || substr(d,-9,3) || ',' || substr(d,-6,3) || ',' || substr(d,-3)
+                ELSE d
             END
             "#,
         &[],
     );
-    csharp(
+    fill_template(
         r#"
             COALESCE((
-                SELECT (SELECT {grouped} FROM (SELECT {whole} AS w)) || ({fraction})
+                SELECT (
+                    SELECT s || {grouped}
+                    FROM (SELECT CASE WHEN substr(w,1,1) = '-' THEN '-' ELSE '' END AS s,
+                                 CASE WHEN substr(w,1,1) = '-' THEN substr(w,2) ELSE w END AS d
+                          FROM (SELECT {whole} AS w))
+                ) || ({fraction})
                 FROM (SELECT {trimmed} AS t)
                 WHERE t <> ''
             ), '')
@@ -484,9 +488,9 @@ pub(crate) fn money(column: &str) -> String {
     )
 }
 
-/// `Views.UniformItem` — 이 공고의 모든 품목 줄이 같은 값일 때 그 값(빈 줄도 한 값으로 센다).
+/// 이 공고의 모든 품목 줄이 같은 값일 때 그 값(빈 줄도 한 값으로 센다).
 fn uniform_item(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM notice_item i
@@ -496,7 +500,7 @@ fn uniform_item(column: &str) -> String {
     )
 }
 
-/// `Views.UniformQuantity` — 단위가 모두 같고 수량이 빈 줄이 없을 때만 수량을 더한다.
+/// 단위가 모두 같고 수량이 빈 줄이 없을 때만 수량을 더한다.
 fn uniform_quantity() -> String {
     raw(
         r#"
@@ -510,9 +514,9 @@ fn uniform_quantity() -> String {
     )
 }
 
-/// `Views.UniformRequestItem` — [`uniform_item`] 의 접수판(몸통을 함께 쓰지 않는다).
+/// [`uniform_item`] 의 접수판(몸통을 함께 쓰지 않는다).
 fn uniform_request_item(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM request_item i
@@ -522,7 +526,6 @@ fn uniform_request_item(column: &str) -> String {
     )
 }
 
-/// `Views.UniformRequestQuantity`.
 fn uniform_request_quantity() -> String {
     raw(
         r#"
@@ -536,9 +539,9 @@ fn uniform_request_quantity() -> String {
     )
 }
 
-/// `Views.RequestDeadline` — 접수의 납품기한. 날짜가 있으면 그 날, 없으면 적힌 문장 그대로(ADR-016).
+/// 접수의 납품기한. 날짜가 있으면 그 날, 없으면 적힌 문장 그대로(ADR-016).
 fn request_deadline(due_column: &str, days_column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         CASE
             WHEN {dueColumn} IS NOT NULL AND {dueColumn} <> '' THEN {DateText(dueColumn)}
@@ -549,7 +552,7 @@ fn request_deadline(due_column: &str, days_column: &str) -> String {
     )
 }
 
-/// `Views.RequestNumbers` — 이 접수서가 묶은 조달요구번호를 번호마다 한 번, 처음 나온 순번 차례로 잇는다.
+/// 이 접수서가 묶은 조달요구번호를 번호마다 한 번, 처음 나온 순번 차례로 잇는다.
 /// 하위 질의의 차례는 SQLite 가 바깥 집계에 보장하지 않아 집계 안에서 차례를 정한다.
 fn request_numbers() -> String {
     raw(
@@ -564,9 +567,9 @@ fn request_numbers() -> String {
     )
 }
 
-/// `Views.SoleContact` — 담당자가 한 사람일 때만 그 칸.
+/// 담당자가 한 사람일 때만 그 칸.
 fn sole_contact(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT CASE WHEN COUNT(DISTINCT COALESCE({column}, '')) = 1 THEN MIN(COALESCE({column}, '')) END
          FROM notice_officer_contact t
@@ -576,7 +579,7 @@ fn sole_contact(column: &str) -> String {
     )
 }
 
-/// `Views.RelatedNotices` — 관련공고를 적힌 차례대로 `,` 로 잇는다(문서가 그렇게 찍는다). 차례는 집계 안에서 정한다.
+/// 관련공고를 적힌 차례대로 `,` 로 잇는다(문서가 그렇게 찍는다). 차례는 집계 안에서 정한다.
 fn related_notices() -> String {
     raw(
         r#"
@@ -587,7 +590,7 @@ fn related_notices() -> String {
     )
 }
 
-/// `Views.RestrictedIndustries` — 입찰참가 제한 업종명을 줄 차례대로 `", "` 로 잇는다. 차례는 집계 안에서 정한다.
+/// 입찰참가 제한 업종명을 줄 차례대로 `", "` 로 잇는다. 차례는 집계 안에서 정한다.
 fn restricted_industries() -> String {
     raw(
         r#"
@@ -599,9 +602,9 @@ fn restricted_industries() -> String {
     )
 }
 
-/// `Views.DeliveryDeadline` — 납품기한을 한 칸으로(날짜가 먼저, 없으면 `계약 후 N일 이내`).
+/// 납품기한을 한 칸으로(날짜가 먼저, 없으면 `계약 후 N일 이내`).
 fn delivery_deadline(due_column: &str, days_column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         CASE
             WHEN {dueColumn} IS NOT NULL AND {dueColumn} <> '' THEN {DateText(dueColumn)}
@@ -614,9 +617,9 @@ fn delivery_deadline(due_column: &str, days_column: &str) -> String {
     )
 }
 
-/// `Views.WarrantyText` — 하자담보기간을 한 가지 모양으로(총 개월 수 → `3년`·`1년 6개월`·`6개월`).
+/// 하자담보기간을 한 가지 모양으로(총 개월 수 → `3년`·`1년 6개월`·`6개월`).
 fn warranty_text(total_months: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT CASE WHEN t IS NULL OR t <= 0 THEN ''
                      WHEN t % 12 = 0 THEN (t / 12) || '년'
@@ -628,9 +631,9 @@ fn warranty_text(total_months: &str) -> String {
     )
 }
 
-/// `Views.WarrantyPhrase` — 화면이 문장으로 적어 보낸 하자담보기간을 [`warranty_text`] 의 모양으로 다듬는다.
+/// 화면이 문장으로 적어 보낸 하자담보기간을 [`warranty_text`] 의 모양으로 다듬는다.
 fn warranty_phrase(column: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT CASE WHEN c GLOB '*년[0-9]*개월'
                      THEN substr(c, 1, instr(c, '년')) || ' ' || substr(c, instr(c, '년') + 1)
@@ -643,9 +646,9 @@ fn warranty_phrase(column: &str) -> String {
     )
 }
 
-/// `Views.WarrantyYears` — 공고의 하자담보기간.
+/// 공고의 하자담보기간.
 fn warranty_years() -> String {
-    csharp(
+    fill_template(
         r#"
         CASE WHEN n.warranty_text IS NOT NULL THEN {WarrantyPhrase("n.warranty_text")}
              WHEN n.warranty_years IS NOT NULL
@@ -657,14 +660,14 @@ fn warranty_years() -> String {
     )
 }
 
-/// `Views.Step` — 공고 일정에서 한 단계의 시각을 꺼낸다.
+/// 공고 일정에서 한 단계의 시각을 꺼낸다.
 fn step(column: &str, keyword: &str) -> String {
     format!(
         "(SELECT {column} FROM notice_schedule s WHERE s.notice_base = n.notice_base AND s.seq = n.seq AND s.name LIKE '%{keyword}%')"
     )
 }
 
-/// `Views.LatestNotice` — 최신 차수만 고른다(차수는 TEXT 라 수로 비교한다).
+/// 최신 차수만 고른다(차수는 TEXT 라 수로 비교한다).
 fn latest_notice() -> String {
     raw(
         r#"
@@ -683,7 +686,7 @@ fn notice_group(notice_base_expr: &str) -> String {
 /// `Views.건현행` — 그 건의 대체되지 않은 공고 하나. 규칙의 정본은 [`notice_groups::current_notice`] 하나이고 이것은
 /// 한 건의 것만 집어 낸다. `pick` 은 `현행.notice_base` 또는 `현행.notice_base || '-' || 현행.seq`.
 pub(crate) fn group_current(group_expr: &str, pick: &str) -> String {
-    csharp(
+    fill_template(
         r#"
         (SELECT {낼것}
          FROM ({NoticeGroups.현행공고}) 현행
@@ -703,7 +706,7 @@ pub(crate) fn chain() -> String {
             -- 그것을 요구한다(ADR-022). 계약이 없으면 계약 자리가 NULL 인 채로 한 줄이 남는다.
             --
             -- 건 표를 그대로 훑지 않고 <b>공고가 실제로 서 있는 건</b>만 세우는 것은, 계열만
-            -- 남고 문서가 없는 자리(취합본에서 생길 수 있다)가 빈 줄로 서지 않게 하려는 것이다.
+            -- 남고 문서가 없는 자리가 빈 줄로 서지 않게 하려는 것이다.
             SELECT rl.request_base, 건.group_base, pl.contract_base
             FROM (SELECT DISTINCT s.group_base
                   FROM notice_series s
@@ -736,7 +739,6 @@ pub(crate) fn chain() -> String {
     )
 }
 
-/// `Views.LatestContract`.
 fn latest_contract() -> String {
     raw(
         r#"
@@ -747,7 +749,6 @@ fn latest_contract() -> String {
     )
 }
 
-/// `Views.LatestRequest`.
 fn latest_request() -> String {
     raw(
         r#"
@@ -758,50 +759,8 @@ fn latest_request() -> String {
     )
 }
 
-/// `Views.PlanFolds` — `v_계획` 이 쓰는 미리 접은 표들. 줄이 갈라지지 않게 하는 것이 전부다.
-fn plan_folds() -> String {
-    raw(
-        r#"
-        최신접수 AS (
-            SELECT r.* FROM request r
-            JOIN (SELECT request_base AS b, MAX(CAST(seq AS INTEGER)) AS s FROM request GROUP BY request_base) t
-              ON r.request_base = t.b AND CAST(r.seq AS INTEGER) = t.s
-        ),
-        최신공고 AS (
-            SELECT n.* FROM notice n
-            JOIN (SELECT notice_base AS b, MAX(CAST(seq AS INTEGER)) AS s FROM notice GROUP BY notice_base) t
-              ON n.notice_base = t.b AND CAST(n.seq AS INTEGER) = t.s
-        ),
-        최신계약 AS (
-            SELECT c.* FROM contract c
-            JOIN (SELECT contract_base AS b, MAX(CAST(seq AS INTEGER)) AS s FROM contract GROUP BY contract_base) t
-              ON c.contract_base = t.b AND CAST(c.seq AS INTEGER) = t.s
-        ),
-        접수짝 AS (
-            SELECT i.request_number AS 번호, MIN(i.request_base) AS 본번호
-            FROM request_item i
-            JOIN 최신접수 r ON r.request_base = i.request_base AND r.seq = i.seq
-            WHERE i.request_number IS NOT NULL AND i.request_number <> ''
-            GROUP BY i.request_number
-        ),
-        계약묶음 AS (
-            SELECT l.notice_group AS 공고건,
-                   COUNT(DISTINCT l.contract_base) AS 건수,
-                   MIN(l.contract_base) AS 본번호
-            FROM project_link l
-            GROUP BY l.notice_group
-        )
-        "#,
-        &[],
-    )
-}
-
-/// `Views.SoleContract` — 계약이 하나일 때만 그 칸.
-fn sole_contract(expression: &str) -> String {
-    format!("CASE WHEN m.건수 = 1 THEN {expression} ELSE '' END")
-}
-
-/// `Views.UserColumn` — 사람이 채우는 열 하나(값은 `*_user_field`, 계열에 붙는다). 열 이름을 거르지 않는다(C# 그대로).
+/// 사람이 채우는 열 하나(값은 `*_user_field`, 계열에 붙는다). 열 이름을 거르지 않는다 — 손으로 고친 파일의
+/// 따옴표 섞인 이름도 뷰를 깨지 않게 글자·식별자로 감싼다.
 fn user_column(entity_type: &str, key_expression: &str, field_name: &str) -> String {
     let (table, base_column) = match entity_type {
         "contract" => ("contract_user_field", "contract_base"),
@@ -809,18 +768,20 @@ fn user_column(entity_type: &str, key_expression: &str, field_name: &str) -> Str
         _ => ("notice_user_field", "notice_base"),
     };
     format!(
-        "COALESCE((SELECT value FROM {table} u WHERE u.{base_column} = {key_expression} AND u.field_name = '{field_name}'), '') AS \"{field_name}\""
+        "COALESCE((SELECT value FROM {table} u WHERE u.{base_column} = {key_expression} AND u.field_name = {}), '') AS {}",
+        flow_compiler::lit(field_name),
+        flow_compiler::ident(field_name)
     )
 }
 
-/// (종류, 바깥 키 열, 열 이름, 표기식) — [`face_references`] 가 뷰를 지어 보는 동안만 모은다(C# `[ThreadStatic] _faces`).
+/// (종류, 바깥 키 열, 열 이름, 표기식) — [`face_references`] 가 뷰를 지어 보는 동안만 모은다(스레드마다 따로 둔다).
 type FaceRecord = (String, String, String, String);
 
 thread_local! {
     static FACES: RefCell<Option<Vec<FaceRecord>>> = const { RefCell::new(None) };
 }
 
-/// `Views.Face(entity, base, seq, name, expression)` — 사람이 고친 값이 있으면 그것을, 없으면 파서가 읽은 것을 낸다.
+/// 사람이 고친 값이 있으면 그것을, 없으면 파서가 읽은 것을 낸다.
 /// 씌우는 자리는 표기식의 바깥이고, 덮개는 차수에 매달린다.
 fn face_column(
     entity_type: &str,
@@ -845,7 +806,7 @@ fn face_column(
     )
 }
 
-/// `Views.Faced` — [`face_column`] 의 값만(이름을 붙이지 않는다).
+/// [`face_column`] 의 값만(이름을 붙이지 않는다).
 fn faced(
     entity_type: &str,
     base_column: &str,
@@ -858,7 +819,7 @@ fn faced(
     )
 }
 
-/// `Views.UserColumns` — 사람이 채우는 열(가공열 빼고). 가공열은 감싼 바깥([`wrap`])에서 덮개를 마친 값을 읽는다.
+/// 사람이 채우는 열(가공열 빼고). 가공열은 감싼 바깥([`wrap`])에서 덮개를 마친 값을 읽는다.
 fn user_columns(columns: &[UserColumnDefinition], entity_type: &str, key: &str) -> String {
     let wanted: Vec<String> = columns
         .iter()
@@ -872,7 +833,7 @@ fn user_columns(columns: &[UserColumnDefinition], entity_type: &str, key: &str) 
     format!("{SEPARATOR}{}", wanted.join(SEPARATOR))
 }
 
-/// `Views.Wrap` — 가공열이 하나라도 있으면 뷰를 한 겹 감싼다(§11.1-3). 바깥 목록은 지금 열 순서를 그대로 하나씩
+/// 가공열이 하나라도 있으면 뷰를 한 겹 감싼다(§11.1-3). 바깥 목록은 지금 열 순서를 그대로 하나씩
 /// 적는다. 가공열이 없으면 감싸지 않는다.
 fn wrap(
     body: &str,
@@ -911,7 +872,7 @@ fn wrap(
     ))
 }
 
-/// `Views.BrokenMarker` — 깨진 가공열의 자리(빈 글). 까닭은 뷰 정의 안 주석으로 남겨 [`broken_in`] 이 읽는다.
+/// 깨진 가공열의 자리(빈 글). 까닭은 뷰 정의 안 주석으로 남겨 [`broken_in`] 이 읽는다.
 pub(crate) fn broken_marker(why: &str) -> String {
     format!(
         "'' /* 깨진 가공식: {} */",
@@ -919,8 +880,8 @@ pub(crate) fn broken_marker(why: &str) -> String {
     )
 }
 
-/// `Views.BrokenIn` — 면 뷰의 정의 글에서 깨진 가공열(이름 → 까닭)을 읽는다. C# 정규식
-/// `'' /\* 깨진 가공식: (.*?) \*/ AS "((?:[^"]|"")+)"`(Singleline)을 손으로 훑는다. 같은 이름이 또 나오면 값만 바꾼다.
+/// 면 뷰의 정의 글에서 깨진 가공열(이름 → 까닭)을 읽는다. 정규식
+/// `'' /\* 깨진 가공식: (.*?) \*/ AS "((?:[^"]|"")+)"`(줄바꿈도 `.` 이 받는다) 꼴을 손으로 훑는다. 같은 이름이 또 나오면 값만 바꾼다.
 pub fn broken_in(view_sql: Option<&str>) -> Vec<(String, String)> {
     const HEAD: &str = "'' /* 깨진 가공식: ";
     const TAIL: &str = " */ AS \"";
@@ -979,24 +940,24 @@ fn quoted_name_end(sql: &str, from: usize) -> Option<usize> {
     last_pair.and_then(|(i, before)| (before > 0).then_some(i))
 }
 
-/// `Views.N` — 공고의 덮개.
+/// 공고의 덮개.
 fn n(name: &str, expression: &str) -> String {
     face_column("notice", "n.notice_base", "n.seq", name, expression)
 }
 
-/// `Views.C` — 계약의 덮개.
+/// 계약의 덮개.
 fn c(name: &str, expression: &str) -> String {
     face_column("contract", "c.contract_base", "c.seq", name, expression)
 }
 
-/// `Views.R` — 접수의 덮개.
+/// 접수의 덮개.
 fn r(name: &str, expression: &str) -> String {
     face_column("request", "r.request_base", "r.seq", name, expression)
 }
 
 /// `Views.공고열` — 공고 뷰가 내는 열 한 벌. `v_공고` 와 `v_공고차수` 가 같이 쓴다(두 벌로 적지 않는다).
 fn notice_columns_sql(notice_columns: &str) -> String {
-    csharp(
+    fill_template(
         r#"
             -- 키 열은 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다.
             n.notice_base || '-' || n.seq AS 입찰공고번호,
@@ -1071,7 +1032,7 @@ fn notice_columns_sql(notice_columns: &str) -> String {
 
 /// `Views.계약열` — 계약 뷰가 내는 열 한 벌. `v_계약` 과 `v_계약차수` 가 같이 쓴다.
 fn contract_columns_sql(contract_columns: &str) -> String {
-    csharp(
+    fill_template(
         r#"
             c.contract_base || c.seq AS 계약번호,
             c.contract_base          AS 계약본번호,
@@ -1125,7 +1086,7 @@ fn contract_columns_sql(contract_columns: &str) -> String {
 
 /// `Views.접수열` — 접수 뷰가 내는 열 한 벌. 가공열이 연결 접수의 필드를 읽을 때 같은 덮개 식을 다시 부른다.
 fn request_columns_sql(request_columns: &str) -> String {
-    csharp(
+    fill_template(
         r#"
             -- 키 열은 감싸지 않는다. 고치면 값이 바뀌는 것이 아니라 레코드가 옮겨간다.
             -- 이 두 이름은 대표조달요구번호·대표조달요구본번호에서 제자리로 바꿨다(ADR-027,
@@ -1188,21 +1149,21 @@ fn request_columns_sql(request_columns: &str) -> String {
     )
 }
 
-/// `Views.PartnerOnly` — 수집한 업체 줄에만 있는 칸. 업체 줄이 하나일 때만 그 값이다.
+/// 수집한 업체 줄에만 있는 칸. 업체 줄이 하나일 때만 그 값이다.
 fn partner_only(column: &str) -> String {
     format!(
         "CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) WHEN 1 THEN (SELECT e.{column} FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) ELSE '' END"
     )
 }
 
-/// `Views.PartyField` — 상대자 칸. 업체 줄이 없으면 상대자 표, 하나면 그 줄, 여럿이면 빈 값.
+/// 상대자 칸. 업체 줄이 없으면 상대자 표, 하나면 그 줄, 여럿이면 빈 값.
 fn party_field(column: &str) -> String {
     format!(
         "CASE (SELECT count(*) FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) WHEN 0 THEN p.{column} WHEN 1 THEN (SELECT e.{column} FROM erp_partner e WHERE e.contract_base=c.contract_base AND e.seq=c.seq) ELSE '' END"
     )
 }
 
-/// `Views.Definitions` — 계약면을 짓는 문장들(차례대로 돌린다). `broken` 은 빈 글로 세울 가공열(종류·이름 → 까닭).
+/// 계약면을 짓는 문장들(차례대로 돌린다). `broken` 은 빈 글로 세울 가공열(종류·이름 → 까닭).
 /// `v_맞춤뷰` 는 여기 없다 — 결과타입이 맞춤 뷰를 지어 본 뒤에야 정해져 맨 끝에 짓는다([`user_view_meta`]).
 pub fn definitions(
     user_columns_in: &[UserColumnDefinition],
@@ -1223,7 +1184,10 @@ pub fn definitions(
                 .filter(|c| c.entity_type == "contract")
                 .map(|c| c.field_name.clone()),
         )
-        .map(|name| format!("COALESCE(k.\"{name}\", '') AS \"{name}\""))
+        .map(|name| {
+            let name = flow_compiler::ident(&name);
+            format!("COALESCE(k.{name}, '') AS {name}")
+        })
         .collect::<Vec<_>>()
         .join(",\n            ");
 
@@ -1248,11 +1212,10 @@ pub fn definitions(
         .iter()
         .map(|name| format!("DROP VIEW IF EXISTS {name};"))
         .collect();
-    // 통합차수가 맨 앞 — 이 뭉치에서 가장 위에 얹혀 있다. 계획은 접수·공고·계약 셋을 가리키므로 그 셋보다 앞선다.
+    // 통합차수가 맨 앞 — 이 뭉치에서 가장 위에 얹혀 있다.
     list.extend(
         [
             "DROP VIEW IF EXISTS v_통합차수;",
-            "DROP VIEW IF EXISTS v_계획;",
             "DROP VIEW IF EXISTS v_통합;",
             // 짓다 만 중간 뷰의 잔재.
             "DROP VIEW IF EXISTS v_계약_기본;",
@@ -1261,7 +1224,7 @@ pub fn definitions(
         .map(str::to_string),
     );
 
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_공고;
         CREATE VIEW v_공고 AS
@@ -1279,7 +1242,7 @@ pub fn definitions(
     ));
 
     // 공고 차수 — 줄 하나가 공고 문서 한 장(같은 공고열, LatestNotice 만 없다). 읽기 전용이다.
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_공고차수;
         CREATE VIEW v_공고차수 AS
@@ -1289,13 +1252,13 @@ pub fn definitions(
     ));
 
     // 공고 품목 — 줄 하나가 품목 한 줄.
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_공고품목;
         CREATE VIEW v_공고품목 AS
         SELECT
             n.notice_base || '-' || n.seq         AS 입찰공고번호,
-            {Text("n.title")}                     AS 공고명,
+            {NV("공고명", Text("n.title"))}        AS 공고명,
             i.line_no                             AS 순번,
             {Text("i.demand_agency")}             AS 수요기관,
             {Text("i.item_name")}                 AS 세부품명,
@@ -1328,7 +1291,7 @@ pub fn definitions(
         &[],
     ));
 
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS _계약_기본;
         DROP VIEW IF EXISTS v_계약;
@@ -1347,7 +1310,7 @@ pub fn definitions(
     ));
 
     // 계약 차수 — 줄 하나가 계약 문서 한 장. 읽기 전용이다.
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_계약차수;
         CREATE VIEW v_계약차수 AS
@@ -1364,13 +1327,13 @@ pub fn definitions(
         )],
     ));
 
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_계약품목;
         CREATE VIEW v_계약품목 AS
         SELECT
             c.contract_base || c.seq              AS 계약번호,
-            {Text("c.title")}                     AS 계약건명,
+            {CV("계약건명", Text("c.title"))}      AS 계약건명,
             i.line_no                             AS 순번,
             {Text("i.item_name")}                 AS 품명,
             {Text("i.specification")}             AS 규격,
@@ -1400,7 +1363,7 @@ pub fn definitions(
     ));
 
     // 접수 — 줄 하나가 접수서 하나(최신 차수).
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_접수;
         CREATE VIEW v_접수 AS
@@ -1410,13 +1373,13 @@ pub fn definitions(
     ));
 
     // 접수 품목 — 줄 하나가 조달요구 하나.
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_접수품목;
         CREATE VIEW v_접수품목 AS
         SELECT
             r.request_base || '-' || r.seq        AS 접수번호,
-            {Text("r.title")}                     AS 요청명,
+            {RV("요청명", Text("r.title"))}        AS 요청명,
             i.line_no                             AS 순번,
             {Text("i.request_number")}            AS 조달요구번호,
             {Text("i.plan_year")}                 AS 국방조달계획년도,
@@ -1455,7 +1418,7 @@ pub fn definitions(
     ));
 
     // 조인 시트 — 줄 하나는 계약이 아니라 조달 건이다(사슬).
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_통합;
         CREATE VIEW v_통합 AS
@@ -1499,7 +1462,7 @@ pub fn definitions(
     ));
 
     // 통합 차수 — 줄 하나가 공고건 × 공고 레코드. 읽기 전용이다.
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_통합차수;
         CREATE VIEW v_통합차수 AS
@@ -1574,68 +1537,7 @@ pub fn definitions(
         &[("unifiedContract", &unified_contract)],
     ));
 
-    // 계획 — 줄기는 plan. 이어 오는 것은 모두 본번호마다 한 줄인 표로 미리 접어 둔다.
-    list.push(csharp(
-        r#"
-        DROP VIEW IF EXISTS v_계획;
-        CREATE VIEW v_계획 AS
-        WITH {PlanFolds}
-        SELECT
-            -- 계획 자신의 열은 표본(「조달계획 (양식 표본).xlsx」)의 머리글 그대로,
-            -- 표본의 차례 그대로 낸다(ADR-023 개정, 스키마 V13).
-            {Text("p.request_number")}          AS 조달요구번호,
-            {Text("p.stock_number")}            AS 재고번호,
-            {Text("p.item_name")}               AS 품명,
-            {Text("p.currency")}                AS 화폐구분,
-            {Text("p.unit")}                    AS 단위,
-            {Text("CAST(p.quantity AS TEXT)")}  AS 지시수량,
-            {Text("p.requesting_unit")}         AS 요청부대부서명,
-            {Text("p.requesting_officer")}      AS 요청부대담당자,
-            {Text("p.requesting_phone")}        AS 요청부대사용자전화번호,
-            {Text("p.contract_department")}     AS 계약부서,
-            {Text("p.officer")}                 AS 담당자,
-            {Text("p.contact")}                 AS 연락처,
-
-            -- 어디까지 왔는가. <b>있는 것을 적는 것이지 판정이 아니다</b>(ADR-016) —
-            -- 늦었다·빠졌다를 기계가 가리지 않는다. 계약이 달렸으면 「계약」, 공고까지
-            -- 이어졌으면 「공고」, 접수가 잡혔으면 「접수」, 계획에만 있으면 「미착수」다.
-            --
-            -- 공고는 링크가 아니라 <b>그 공고가 실제로 서 있는지</b>를 본다(g 는 v_공고).
-            -- 링크만 남고 공고 줄이 없으면 「공고」라고 적을 것이 없다.
-            CASE
-                WHEN COALESCE(m.건수, 0) > 0         THEN '계약'
-                WHEN g.공고본번호 IS NOT NULL        THEN '공고'
-                WHEN r.접수본번호 IS NOT NULL THEN '접수'
-                ELSE '미착수'
-            END                                 AS 단계,
-
-            COALESCE(r.접수번호, '')    AS 접수번호,
-            COALESCE(r.접수일자, '')            AS 접수일자,
-            COALESCE(g.입찰공고번호, '')        AS 입찰공고번호,
-            COALESCE(g.게시일시, '')            AS 게시일시,
-            COALESCE(g.개찰일시, '')            AS 개찰일시,
-
-            -- 언제나 채운다. v_접수 의 「품목수」와 같은 꼴이라 없으면 0 이다.
-            {Text("CAST(COALESCE(m.건수, 0) AS TEXT)")} AS 계약건수,
-
-            -- 계약이 하나일 때만. 여럿이면 비우고 계약건수가 몇인지만 알린다.
-            {SoleContract("COALESCE(k.계약번호, '')")}  AS 계약번호,
-            {SoleContract("COALESCE(k.계약일자, '')")}  AS 계약일자,
-            {SoleContract("COALESCE(k.계약금액, '')")}  AS 계약금액
-        FROM plan p
-        LEFT JOIN 접수짝 q         ON q.번호 = p.request_number
-        LEFT JOIN v_접수 r      ON r.접수본번호 = q.본번호
-        LEFT JOIN request_link rl  ON rl.request_base = q.본번호
-        -- 건마다 공고가 여럿일 수 있다(취소·재공고). <b>현행 하나로 좁히지 않으면</b> 여기서
-        -- 줄이 갈라져 계획 건수가 부풀어 세어지고, 분모로 쓰려고 세운 뷰가 분모 노릇을 못 한다.
-        LEFT JOIN v_공고 g      ON g.공고본번호 = {건현행("rl.notice_group", "현행.notice_base")}
-        LEFT JOIN 계약묶음 m       ON m.공고건 = rl.notice_group
-        LEFT JOIN v_계약 k      ON k.계약본번호 = m.본번호;
-        "#,
-        &[],
-    ));
-
-    list.push(csharp(
+    list.push(fill_template(
         r#"
         DROP VIEW IF EXISTS v_ERP원천;
         CREATE VIEW v_ERP원천 AS
@@ -1676,10 +1578,10 @@ pub fn definitions(
     Ok(list)
 }
 
-/// `Views.UserViewMeta` — `v_맞춤뷰`(docs/user-views.md §6). `types` 는 (뷰 식별자, 필드 식별자) → 끝 꼴. 없는 필드(깨진
+/// `v_맞춤뷰`(docs/user-views.md §6). `types` 는 (뷰 식별자, 필드 식별자) → 끝 꼴. 없는 필드(깨진
 /// 식 포함)는 글이다. 갈래 차례는 사전의 차례 그대로다([`Dict`]).
 pub(crate) fn user_view_meta(types: &Dict<(String, String), String>) -> String {
-    /// 객체인 필드만 — 글·수 원소는 빈 칸이다(C# `Field`).
+    /// 객체인 필드만 — 글·수 원소는 빈 칸이다.
     const FIELD: &str = "CASE WHEN c.type = 'object' THEN c.value END";
     let cases: Vec<String> = types
         .iter()
@@ -1697,7 +1599,7 @@ pub(crate) fn user_view_meta(types: &Dict<(String, String), String>) -> String {
     } else {
         format!("CASE {} ELSE 'text' END", cases.join(" "))
     };
-    csharp(
+    fill_template(
         r#"
             DROP VIEW IF EXISTS v_맞춤뷰;
             CREATE VIEW v_맞춤뷰 AS
@@ -1716,7 +1618,7 @@ pub(crate) fn user_view_meta(types: &Dict<(String, String), String>) -> String {
     )
 }
 
-/// `Views.UserView` — 맞춤 뷰 하나(docs/user-views.md §5). 깨진 필드(`broken`, 필드 식별자 → 까닭)나 식이 없는 필드는
+/// 맞춤 뷰 하나(docs/user-views.md §5). 깨진 필드(`broken`, 필드 식별자 → 까닭)나 식이 없는 필드는
 /// 가공열처럼 빈 글 + 까닭 주석으로 선다.
 pub(crate) fn user_view(
     name: &str,
@@ -1746,7 +1648,7 @@ pub(crate) fn user_view(
     )
 }
 
-/// `Views.ResultTypes` — `v_가공열.결과타입`. 꼴은 꼴 검사가 정하므로 뷰를 지을 때 열마다 적어 둔다. 깨진 열은 글이다.
+/// `v_가공열.결과타입`. 꼴은 꼴 검사가 정하므로 뷰를 지을 때 열마다 적어 둔다. 깨진 열은 글이다.
 fn result_types(columns: &[UserColumnDefinition], broken: &BrokenColumns) -> Result<String> {
     let mut cases = Vec::new();
     for c in columns.iter().filter(|c| {
@@ -1774,27 +1676,151 @@ fn result_types(columns: &[UserColumnDefinition], broken: &BrokenColumns) -> Res
 
 // ── 덮개의 재료(FaceReferences) ─────────────────────────────
 
-/// `Views.FaceReferences` — 면 열이 본 표의 어느 열에서 오는가(`계약금액 → [contract.amount]`). 열 정의에서 끌어낸다:
+/// 면 열이 본 표의 어느 열에서 오는가(`계약금액 → [contract.amount]`). 열 정의에서 끌어낸다:
 /// 덮개로 감싼 열마다 그 표기식이 가리키는 `별칭.열` 을 모으고, 별칭은 바깥 표와 식 안의 `FROM`·`JOIN` 으로 푼다.
 /// 잇는 조건과 덮개 표는 재료가 아니라 걷는다. 차례는 열이 처음 지어진 차례, 재료는 서수 차례다.
 pub fn face_references(entity_type: &str) -> Vec<(String, Vec<String>)> {
-    static SOURCES: OnceLock<FaceSources> = OnceLock::new();
-    SOURCES
-        .get_or_init(read_face_sources)
+    columns_of(&sources().faces, entity_type)
         .iter()
-        .find(|(e, _)| e == entity_type)
-        .map(|(_, columns)| columns.clone())
-        .unwrap_or_default()
+        .map(|c| (c.name.clone(), c.references.clone()))
+        .collect()
 }
 
-/// 종류마다 (면 열 → 재료 `표.열`들).
-type FaceSources = Vec<(String, Vec<(String, Vec<String>)>)>;
+/// 면에서 그 칸(`표.열`)을 보이는 열 — 이름과, 그 열이 그 칸 하나에 씌우는 표기([`FaceCell::notation`]).
+///
+/// - 머리 표의 칸은 그 칸을 재료로 쓰는 면 열에서 고른다(덮개로 감싼 열 — [`face_references`] 와 한 벌).
+/// - 그 종류의 품목 표(`{종류}_item`)의 칸은 품목 뷰(`v_접수품목`·`v_공고품목`·`v_계약품목`)의 열에서 고른다.
+/// - 그 밖의 딸린 표(일정·담당자·제한 업종·업체 줄 …)나 품목 뷰가 쓰지 않는 품목 칸은 머리 면 열이 **하나만** 그 칸을
+///   쓸 때 그 열이다 — 둘 이상이면(개찰일시·입찰개시일시가 함께 쓰는 일정 칸처럼) 어느 줄이 어느 열인지 칸만으로는
+///   모르므로 고르지 않는다.
+///
+/// 고르는 차례는 표기가 선 열(그 칸 하나만 쓴다), 그 칸 하나만 쓰는 열, 처음 지어진 열이다. 없으면 `None`.
+pub fn face_cell(entity_type: &str, table: &str, field: &str) -> Option<FaceCell> {
+    let reference = format!("{table}.{field}");
+    let using = |columns: &[FaceSource]| -> Vec<FaceSource> {
+        columns
+            .iter()
+            .filter(|c| c.references.contains(&reference))
+            .cloned()
+            .collect()
+    };
+    let pick = |found: Vec<FaceSource>| {
+        found
+            .iter()
+            .find(|c| c.notation.is_some())
+            .or_else(|| found.iter().find(|c| c.references.len() == 1))
+            .or(found.first())
+            .cloned()
+    };
+    let sources = sources();
+    let head = using(columns_of(&sources.faces, entity_type));
+    let chosen = if table == entity_type {
+        pick(head)
+    } else {
+        let items = if table == format!("{entity_type}_item") {
+            using(columns_of(&sources.items, entity_type))
+        } else {
+            Vec::new()
+        };
+        if !items.is_empty() {
+            pick(items)
+        } else if head.len() == 1 {
+            pick(head)
+        } else {
+            None
+        }
+    };
+    chosen.map(|c| FaceCell {
+        column: c.name,
+        notation: c.notation,
+    })
+}
 
-fn read_face_sources() -> FaceSources {
+/// [`face_cell`] 이 고른 면 열.
+#[derive(Clone, Debug)]
+pub struct FaceCell {
+    /// 면 열 이름(`계약금액`, 품목 뷰의 `수량` …).
+    pub column: String,
+    notation: Option<Notation>,
+}
+
+impl FaceCell {
+    /// 그 칸의 값이 든 열 `column` 을 이 면 열과 **같은 식으로** 적는 SQL 식. 면 열의 식이 표기 함수 하나를 그 칸 하나에
+    /// 부른 글과 바이트까지 같을 때만 서고, 아니면(여러 칸을 엮거나 다른 줄을 모으는 열) `None` 이다.
+    pub fn notation(&self, column: &str) -> Option<String> {
+        self.notation.map(|n| n.sql(column))
+    }
+}
+
+/// 면 열이 재료 칸 하나에 씌우는 표기 — 표기 함수 하나와, 그 칸을 `CAST(… AS TEXT)` 로 감싸 넘기는가.
+#[derive(Clone, Copy, Debug)]
+struct Notation {
+    format: fn(&str) -> String,
+    cast: bool,
+}
+
+impl Notation {
+    fn sql(self, column: &str) -> String {
+        if self.cast {
+            (self.format)(&format!("CAST({column} AS TEXT)"))
+        } else {
+            (self.format)(column)
+        }
+    }
+
+    /// 식이 `reference`(`별칭.열`) 하나에 표기 함수 하나를 부른 글과 같은가 — 같으면 그 표기. 값의 모양을 짐작하지 않고
+    /// 표기 함수가 내는 글과 견준다.
+    fn of(expression: &str, reference: &str) -> Option<Notation> {
+        const FORMATS: [fn(&str) -> String; 6] =
+            [text, money, date_text, number, yes_no, yes_no_word];
+        FORMATS
+            .iter()
+            .flat_map(|&format| [false, true].map(|cast| Notation { format, cast }))
+            .find(|n| n.sql(reference) == expression)
+    }
+}
+
+/// 면 열 하나 — 이름, 재료 `표.열`들(서수 차례), 그 칸 하나에 씌우는 표기(재료가 하나이고 식이 표기 함수 하나일 때만).
+#[derive(Clone, Debug)]
+struct FaceSource {
+    name: String,
+    references: Vec<String>,
+    notation: Option<Notation>,
+}
+
+/// 종류마다 면 열들.
+type FaceSources = Vec<(String, Vec<FaceSource>)>;
+
+/// 머리 면 뷰의 덮개 열(`faces`)과 품목 뷰의 열(`items`), 종류마다.
+struct Sources {
+    faces: FaceSources,
+    items: FaceSources,
+}
+
+fn sources() -> &'static Sources {
+    static SOURCES: OnceLock<Sources> = OnceLock::new();
+    SOURCES.get_or_init(read_face_sources)
+}
+
+fn columns_of<'a>(sources: &'a FaceSources, entity_type: &str) -> &'a [FaceSource] {
+    sources
+        .iter()
+        .find(|(e, _)| e == entity_type)
+        .map_or(&[][..], |(_, columns)| columns.as_slice())
+}
+
+/// 품목 뷰 — 종류와 뷰 이름.
+const ITEM_VIEWS: [(&str, &str); 3] = [
+    ("request", "v_접수품목"),
+    ("notice", "v_공고품목"),
+    ("contract", "v_계약품목"),
+];
+
+fn read_face_sources() -> Sources {
     FACES.with(|f| *f.borrow_mut() = Some(Vec::new()));
     let built = definitions(&[], &BrokenColumns::new());
     let faces = FACES.with(|f| f.borrow_mut().take()).unwrap_or_default();
-    built.expect("빈 사람 열로는 뷰가 언제나 선다");
+    let built = built.expect("빈 사람 열로는 뷰가 언제나 선다");
 
     let mut result: FaceSources = Vec::new();
     for (entity, base_column, name, expression) in faces {
@@ -1806,7 +1832,7 @@ fn read_face_sources() -> FaceSources {
             }
         };
         let columns = &mut result[index].1;
-        if columns.iter().any(|(n, _)| *n == name) {
+        if columns.iter().any(|c| c.name == name) {
             continue; // 차수 뷰가 같은 열 한 벌을 다시 짓는다.
         }
         let mut aliases: Vec<(String, String)> = vec![(
@@ -1819,32 +1845,146 @@ fn read_face_sources() -> FaceSources {
                 None => aliases.push((alias, table)),
             }
         }
-        let body = regex::strip_joins(&expression);
-        let mut references: Vec<String> = regex::references(&body)
-            .into_iter()
-            .filter_map(|(alias, column)| {
-                aliases
-                    .iter()
-                    .find(|(a, _)| *a == alias)
-                    .map(|(_, table)| format!("{table}.{column}"))
-            })
-            .chain(
-                regex::bare(&body)
-                    .into_iter()
-                    .map(|(column, table)| format!("{table}.{column}")),
-            )
-            .filter(|r| !r.starts_with("field_override."))
-            .collect();
-        let mut seen = std::collections::HashSet::new();
-        references.retain(|r| seen.insert(r.clone()));
-        references.sort_by(|a, b| cmp_ordinal(a, b));
-        columns.push((name, references));
+        columns.push(face_source(name, &expression, &aliases));
     }
-    result
+
+    // 품목 뷰는 덮개 열로 세지 않으므로 지은 글의 SELECT 목록에서 열을 읽는다. 별칭은 그 뷰의 `FROM`·`JOIN` 이 푼다.
+    let mut items: FaceSources = Vec::new();
+    for (entity, view) in ITEM_VIEWS {
+        let head = format!("CREATE VIEW {view} AS");
+        let statement = built
+            .iter()
+            .find(|s| s.contains(&head))
+            .expect("품목 뷰는 언제나 선다");
+        let mut aliases: Vec<(String, String)> = Vec::new();
+        for (table, alias) in regex::declared(statement) {
+            if !aliases.iter().any(|(a, _)| *a == alias) {
+                aliases.push((alias, table));
+            }
+        }
+        let columns = select_list(statement)
+            .into_iter()
+            .map(|(name, expression)| face_source(name, &expression, &aliases))
+            .collect();
+        items.push((entity.to_string(), columns));
+    }
+    Sources {
+        faces: result,
+        items,
+    }
+}
+
+/// 열 하나의 재료와 표기. `aliases` 는 (별칭, 표).
+fn face_source(name: String, expression: &str, aliases: &[(String, String)]) -> FaceSource {
+    let body = regex::strip_joins(expression);
+    let resolve = |alias: &str| aliases.iter().find(|(a, _)| a == alias).map(|(_, t)| t);
+    let pairs = regex::references(&body);
+    let bare = regex::bare(&body);
+    let mut references: Vec<String> = pairs
+        .iter()
+        .filter_map(|(alias, column)| resolve(alias).map(|table| format!("{table}.{column}")))
+        .chain(
+            bare.iter()
+                .map(|(column, table)| format!("{table}.{column}")),
+        )
+        .filter(|r| !r.starts_with("field_override."))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    references.retain(|r| seen.insert(r.clone()));
+    references.sort_by(|a, b| cmp_ordinal(a, b));
+    let notation = match references.as_slice() {
+        [only] if bare.is_empty() => pairs
+            .iter()
+            .filter(|(alias, column)| {
+                resolve(alias).is_some_and(|table| format!("{table}.{column}") == *only)
+            })
+            .find_map(|(alias, column)| Notation::of(expression, &format!("{alias}.{column}"))),
+        _ => None,
+    };
+    FaceSource {
+        name,
+        references,
+        notation,
+    }
+}
+
+/// 지은 뷰 글의 SELECT 목록 — (열 이름, 식), 차례대로. 최상위(괄호 · 따옴표 밖)의 쉼표로 가르고 최상위 `FROM` 에서
+/// 그친다. `--` 주석은 걷는다. 열마다 끝의 `AS 이름` 이 이름이다(없는 열은 건너뛴다).
+fn select_list(statement: &str) -> Vec<(String, String)> {
+    let Some(start) = statement.find("SELECT") else {
+        return Vec::new();
+    };
+    let chars: Vec<char> = statement[start + "SELECT".len()..].chars().collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut pieces: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '-' && chars.get(i + 1) == Some(&'-') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '\'' || c == '"' {
+            // 따옴표 안은 그대로 옮긴다. 겹친 따옴표는 글자 하나다.
+            current.push(c);
+            i += 1;
+            while i < chars.len() {
+                current.push(chars[i]);
+                i += 1;
+                if chars[i - 1] == c {
+                    if chars.get(i) == Some(&c) {
+                        current.push(c);
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            continue;
+        }
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                pieces.push(std::mem::take(&mut current));
+                i += 1;
+                continue;
+            }
+            'F' if depth == 0
+                && chars[i..].starts_with(&['F', 'R', 'O', 'M'])
+                && (i == 0 || !word(chars[i - 1]))
+                && !chars.get(i + 4).is_some_and(|&n| word(n)) =>
+            {
+                break;
+            }
+            _ => {}
+        }
+        current.push(c);
+        i += 1;
+    }
+    pieces.push(current);
+    pieces
+        .iter()
+        .filter_map(|piece| {
+            let (rest, name) = piece.trim().rsplit_once(char::is_whitespace)?;
+            let expression = rest.trim_end().strip_suffix("AS")?;
+            if !expression.ends_with(char::is_whitespace) {
+                return None;
+            }
+            Some((
+                name.trim_matches('"').to_string(),
+                expression.trim().to_string(),
+            ))
+        })
+        .collect()
 }
 
 /// [`read_face_sources`] 의 정규식 넷을 손으로 훑는 것. 모두 탐욕 조각이 되짚어도 달라지지 않는 꼴이라 왼쪽부터 한 번
-/// 훑어 같은 짝을 얻는다. `\w` 는 .NET 처럼 유니코드 글자·숫자·`_`, `\s` 는 유니코드 공백이다.
+/// 훑어 같은 짝을 얻는다. `\w` 는 유니코드 글자·숫자·`_`, `\s` 는 유니코드 공백이다.
 mod regex {
     fn word(c: char) -> bool {
         c.is_alphanumeric() || c == '_'
@@ -2083,14 +2223,14 @@ mod regex {
     }
 }
 
-// ── C# 자리 글 풀기 ─────────────────────────────────────────
+// ── 자리 글 풀기 ─────────────────────────────────────────
 
-/// C# 원시 문자열 몸을 걷고 채운다 — `args` 에 없는 자리는 [`eval`] 이 C# 의 부름으로 푼다.
-fn csharp(template: &str, args: &[(&str, &str)]) -> String {
+/// 뷰 틀 몸을 걷고 채운다 — `args` 에 없는 자리는 [`eval`] 이 이 모듈의 표기 함수 부름으로 푼다.
+fn fill_template(template: &str, args: &[(&str, &str)]) -> String {
     raw_with(template, args, &|key| eval(key, args))
 }
 
-/// C# 자리 글 하나를 푼다 — 이 모듈의 표기 함수 부름(`Text("n.title")`), 글자(`"…"`), 보간 글(`$"…{…}…"`), 이름(인자나
+/// 자리 글 하나를 푼다 — 이 모듈의 표기 함수 부름(`Text("n.title")`), 글자(`"…"`), 보간 글(`$"…{…}…"`), 이름(인자나
 /// 상수)뿐이다. 풀 수 없으면 `None`(짓는 쪽의 잘못이라 [`raw_with`] 가 멈춘다).
 fn eval(expr: &str, args: &[(&str, &str)]) -> Option<String> {
     let mut parser = Parser {
@@ -2214,7 +2354,6 @@ impl Parser<'_> {
             "LatestNotice" => latest_notice(),
             "LatestContract" => latest_contract(),
             "LatestRequest" => latest_request(),
-            "PlanFolds" => plan_folds(),
             "사슬" => chain(),
             "RequestNumbers" => request_numbers(),
             "RelatedNotices" => related_notices(),
@@ -2227,7 +2366,7 @@ impl Parser<'_> {
     }
 }
 
-/// C# 표기 함수 부름 하나.
+/// 표기 함수 부름 하나.
 fn call(name: &str, a: &[String]) -> Option<String> {
     Some(match (name, a) {
         ("Text", [x]) => text(x),
@@ -2248,13 +2387,16 @@ fn call(name: &str, a: &[String]) -> Option<String> {
         ("Step", [column, keyword]) => step(column, keyword),
         ("공고건", [x]) => notice_group(x),
         ("건현행", [group, pick]) => group_current(group, pick),
-        ("SoleContract", [x]) => sole_contract(x),
         ("PartyField", [x]) => party_field(x),
         ("PartnerOnly", [x]) => partner_only(x),
         ("NoticeGroups.Kind", [kind, status]) => notice_groups::kind(kind, status),
         ("N", [name, x]) => n(name, x),
         ("C", [name, x]) => c(name, x),
         ("R", [name, x]) => r(name, x),
+        // 머리 열을 옮겨 적는 품목 뷰 — 값만 덮개를 따르고 고칠 자리로 세지 않는다.
+        ("NV", [name, x]) => faced("notice", "n.notice_base", "n.seq", name, x),
+        ("CV", [name, x]) => faced("contract", "c.contract_base", "c.seq", name, x),
+        ("RV", [name, x]) => faced("request", "r.request_base", "r.seq", name, x),
         _ => return None,
     })
 }
@@ -2264,7 +2406,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn eval_reads_csharp_holes() {
+    fn eval_reads_template_holes() {
         assert_eq!(
             eval("Text(\"n.title\")", &[]).as_deref(),
             Some("COALESCE(n.title, '')")
@@ -2273,11 +2415,28 @@ mod tests {
             eval("Text($\"a {Text(\"b\")} c\")", &[]).as_deref(),
             Some("COALESCE(a COALESCE(b, '') c, '')")
         );
-        assert_eq!(
-            eval("SoleContract(\"COALESCE(k.x, '')\")", &[]).as_deref(),
-            Some("CASE WHEN m.건수 = 1 THEN COALESCE(k.x, '') ELSE '' END")
-        );
         assert_eq!(eval("Nope(\"x\")", &[]), None);
+    }
+
+    #[test]
+    fn money_groups_digits_apart_from_the_sign() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        let sql = format!("SELECT {} FROM (SELECT ?1 AS x)", money("x"));
+        for (raw, want) in [
+            ("-123456", "-123,456"),
+            ("-123", "-123"),
+            ("-1234", "-1,234"),
+            ("-1234.50", "-1,234.5"),
+            ("164872340", "164,872,340"),
+            ("164872340.0", "164,872,340"),
+            ("1000000000000", "1,000,000,000,000"),
+            ("123456789012345", "123,456,789,012,345"),
+            ("1234567890123456", "1234567890123456"),
+            ("", ""),
+        ] {
+            let got: String = c.query_row(&sql, [raw], |r| r.get(0)).unwrap();
+            assert_eq!(want, got, "{raw}");
+        }
     }
 
     #[test]
@@ -2307,5 +2466,51 @@ mod tests {
             sort_order: 0,
         };
         assert_eq!(c.choices(), ["가", "나"]);
+    }
+
+    #[test]
+    fn face_cell_finds_the_column_and_its_notation() {
+        let cell = |ty: &str, table: &str, field: &str| {
+            face_cell(ty, table, field).map(|c| (c.column.clone(), c.notation("x")))
+        };
+        // 머리 칸 — 면 뷰의 열과 그 열의 표기 함수.
+        assert_eq!(
+            cell("contract", "contract", "amount"),
+            Some(("계약금액".into(), Some(money("x"))))
+        );
+        assert_eq!(
+            cell("notice", "notice", "posted_at"),
+            Some(("게시일시".into(), Some(date_text("x"))))
+        );
+        assert_eq!(
+            cell("contract", "contract", "partial_delivery_allowed"),
+            Some(("분할납품".into(), Some(yes_no("x"))))
+        );
+        // 품목 칸 — 품목 뷰의 열. `CAST(… AS TEXT)` 로 감싼 열도 같은 식이다.
+        assert_eq!(
+            cell("contract", "contract_item", "quantity"),
+            Some(("수량".into(), Some(text("CAST(x AS TEXT)"))))
+        );
+        assert_eq!(
+            cell("notice", "notice_item", "unit_price"),
+            Some(("추정단가".into(), Some(money("x"))))
+        );
+        assert_eq!(
+            cell("request", "request_item", "cancelled"),
+            Some(("취소여부".into(), Some(yes_no_word("x"))))
+        );
+        // 두 칸을 엮는 열은 이름만 — 표기는 세우지 않는다.
+        assert_eq!(
+            cell("notice", "notice_item", "delivery_due"),
+            Some(("납품기한".into(), None))
+        );
+        // 다른 딸린 표는 머리 면 열이 하나만 쓸 때만. 일정 칸은 개찰 · 입찰개시가 함께 쓴다.
+        assert_eq!(
+            cell("contract", "erp_partner", "joint_method"),
+            Some(("공동수급구성방식".into(), None))
+        );
+        assert_eq!(cell("notice", "notice_schedule", "starts_at"), None);
+        // 이어지는 면 열이 없는 칸.
+        assert_eq!(cell("contract", "contract", "ref_notice_base"), None);
     }
 }

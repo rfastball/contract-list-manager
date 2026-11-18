@@ -1,4 +1,4 @@
-//! 맞춤 뷰(docs/user-views.md) — C# `UserViewTests` 를 옮긴 것. 조달 건마다 한 줄, 접수·공고·계약의 필드를 늘어놓은
+//! 맞춤 뷰(docs/user-views.md) — 조달 건마다 한 줄, 접수·공고·계약의 필드를 늘어놓은
 //! `u_*` 뷰의 저장 왕복, 줄이 서는 꼴(사슬·거르기·모으기), 깨진 필드, 사람 열과의 맞물림, 미리보기·표본·보표,
 //! 판올림, 메타 뷰, 보기 구성(내보내기·미리보기·가져오기)을 본다.
 //!
@@ -10,8 +10,8 @@ use common::store_fixture::Fixture;
 use common::{Temp, TestEnv, legacy_at, raw, raw_read};
 use pclm_core::erp::explicit_links;
 use pclm_core::storage::store::{
-    EntityRef, Store, UserViewInfo, builtin_view_package, example_view_package_v26,
-    read_view_package, stored_definition,
+    DOCUMENT_VIEW_ID, EntityRef, Store, UserViewInfo, builtin_view_package,
+    example_view_package_v26, example_view_package_v33, read_view_package, stored_definition,
 };
 use pclm_core::storage::{computed_column, pclm_file, sql_column, user_view_builder, views};
 use pclm_core::{Access, Database, Error, Result};
@@ -23,13 +23,13 @@ const N2: &str = "TESTN2-000";
 
 // ── 자리 ─────────────────────────────────────────────────
 
-/// C# 생성자 — 빈 작업자료는 서식용 예시 보기를 들고 선다. 여기 시험들은 빈 보기 목록에서 시작한다.
+/// 빈 작업자료는 「문서 서식」 을 들고 선다. 여기 시험들은 빈 보기 목록에서 시작한다 — 그 줄은 앱의 것이라 지우기가
+/// 거절되므로 표에서 걷는다(다시 열면 돌아온다).
 fn fresh(name: &str) -> Fixture {
     let f = Fixture::new(name);
-    let s = f.store();
-    for view in s.user_views().unwrap() {
-        s.delete_user_view(&view.id).unwrap();
-    }
+    f.conn()
+        .execute_batch("DELETE FROM user_view; DROP VIEW IF EXISTS \"u_문서 서식\";")
+        .unwrap();
     f
 }
 
@@ -205,6 +205,16 @@ fn rows(f: &Fixture, sql: &str) -> Vec<String> {
     rows_at(&f.path, sql)
 }
 
+/// 앱 연결로 읽는다 — 표기 함수(ADR-051)를 부르는 `u_문서 서식` 은 앱 밖의 연결로 읽지 못한다.
+fn app_rows(f: &Fixture, sql: &str) -> Vec<String> {
+    let c = f.database().open_read_only().unwrap();
+    let mut s = c.prepare(sql).unwrap();
+    s.query_map([], |r| r.get::<_, SqlValue>(0))
+        .unwrap()
+        .map(|v| text(v.unwrap()))
+        .collect()
+}
+
 fn count(f: &Fixture, view: &str) -> i64 {
     read(f, &format!("SELECT CAST(count(*) AS TEXT) FROM \"{view}\""))
         .parse()
@@ -258,7 +268,7 @@ fn strs(values: &[Value], key: &str) -> Vec<String> {
         .collect()
 }
 
-/// `Assert.Throws<InvalidOperationException>` — 글을 낸다.
+/// 글을 낸다.
 #[track_caller]
 fn invalid<T: std::fmt::Debug>(result: Result<T>) -> String {
     match result {
@@ -272,6 +282,12 @@ fn single<T: std::fmt::Debug>(mut items: Vec<T>) -> T {
     items.pop().unwrap()
 }
 
+/// 사람의 보기 — 앱의 「문서 서식」 을 뺀 것.
+fn own_views(s: &Store<'_>) -> Vec<UserViewInfo> {
+    let views = s.user_views().unwrap();
+    views.into_iter().filter(|v| v.id != DOCUMENT_VIEW_ID).collect()
+}
+
 fn builtin_field_names(package: Option<&str>) -> Vec<String> {
     let package: Value = serde_json::from_str(package.unwrap_or(builtin_view_package())).unwrap();
     package["views"][0]["definition"]["columns"]
@@ -282,16 +298,13 @@ fn builtin_field_names(package: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-// ── 서식용 예시·보기 구성 ─────────────────────────────────
+// ── 문서 서식·보기 구성 ─────────────────────────────────
 
-/// `서식용_예시는_취소와_재공고가_연결되면_현행_공고명을_낸다`
+/// `문서_서식은_취소와_재공고가_연결되면_현행_공고명을_낸다`
 #[test]
 fn builtin_example_reads_current_notice_title_across_cancel_and_renotice() {
-    let f = fresh("uv-current");
+    let f = Fixture::new("uv-current");
     let s = f.store();
-    let package = builtin_view_package();
-    s.import_view_package(package, &s.preview_view_package(package).unwrap().token)
-        .unwrap();
     f.notice("TESTN1", "000", &[("title", "시험 원공고")], &[], &[]);
     f.notice(
         "TESTN1",
@@ -316,10 +329,10 @@ fn builtin_example_reads_current_notice_title_across_cancel_and_renotice() {
     }
 
     let titles = || {
-        rows(
+        app_rows(
             &f,
             "SELECT 건명 || '|' || 입찰공고번호 || '|' || 공고명 || '|' || 계약번호
-             FROM \"u_서식용 예시\" ORDER BY 계약번호",
+             FROM \"u_문서 서식\" ORDER BY 계약번호",
         )
     };
     let current = [
@@ -616,15 +629,34 @@ fn view_package_conflicts_and_stale_previews_do_not_overwrite() {
     invalid(reader.import_view_package(&json, &valid_preview.token));
 }
 
-/// `빈_작업자료는_서식용_예시_보기를_들고_선다` — 서식용 예시 보기(docs/user-views.md §13)는 빈 작업자료가 처음부터
+/// `빈_작업자료는_문서_서식_보기를_들고_선다` — 문서 서식 보기(docs/user-views.md §13)는 빈 작업자료가 처음부터
 /// 들고 서고, 깨진 필드 없이 서식 자리 이름 그대로의 열을 낸다. 계약마다 한 줄이고, 계약 값이 이기고 비면 공고 값이다.
-/// 취합본·제출본으로 짓는 빈 파일에는 들지 않는다.
+/// 백업처럼 다른 역할로 짓는 빈 파일에는 들지 않는다.
 #[test]
 fn fresh_work_file_carries_builtin_example_view() {
     let json = builtin_view_package();
     let package: Value = serde_json::from_str(json).unwrap();
     assert!(package["columns"].as_array().unwrap().is_empty());
-    assert!(!json.contains("\"sql\""));
+    // SQL 필드는 흐름식으로 적을 수 없는 여섯뿐이다 — 금액 · 일시 · 한글 금액 · 오늘의 꼴은 흐름식 「서식」 이 짓는다(ADR-053,
+    // docs/user-views.md §13).
+    let sql: Vec<&str> = package["views"][0]["definition"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["formula"]["source"] == "sql")
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        sql,
+        [
+            "세부품명",
+            "세부품명_목록",
+            "세부품명_번호목록",
+            "세부품명_수량목록",
+            "입찰방법",
+            "납품기한"
+        ]
+    );
     let fields = builtin_field_names(None);
     // 단계는 「경우」 한 단계다 — 계약번호가 있으면 계약, 없고 입찰공고번호가 있으면 공고, 둘 다 없으면 접수.
     let stage = package["views"][0]["definition"]["columns"]
@@ -642,10 +674,11 @@ fn fresh_work_file_carries_builtin_example_view() {
     .unwrap();
     assert_eq!(expected, stage["formula"]["flow"]);
 
-    let f = Fixture::new("uv-example");
+    let f = Fixture::empty("uv-example");
+    pclm_file::create(&f.path, "work", f.env).unwrap();
     let s = f.store();
     let view = single(s.user_views().unwrap());
-    assert_eq!(view.name, "서식용 예시");
+    assert_eq!((view.id.as_str(), view.name.as_str()), (DOCUMENT_VIEW_ID, "문서 서식"));
     assert!(view.broken.is_empty(), "{:?}", view.broken);
     assert_eq!(view.definition["contracts"], "split");
 
@@ -655,8 +688,10 @@ fn fresh_work_file_carries_builtin_example_view() {
         &[
             ("title", "시험 공고 다섯"),
             ("notice_officer", "홍길동 ( ☎ 000-0000-0000 )"),
-            // C# `DateTime` 매개변수가 SQLite 에 서는 꼴.
+            // `DateTime` 이 SQLite 에 서는 꼴.
             ("posted_at", "2000-01-02 10:30:00"),
+            ("contract_method", "일반경쟁"),
+            ("contract_kind", "총액계약"),
         ],
         &[&[("line_no", "1"), ("item_name", "책상"), ("unit", "개")]],
         &[],
@@ -699,28 +734,39 @@ fn fresh_work_file_carries_builtin_example_view() {
 
     assert_eq!(
         fields,
-        rows(&f, "SELECT name FROM pragma_table_info('u_서식용 예시')")
+        app_rows(&f, "SELECT name FROM pragma_table_info('u_문서 서식')")
     );
-    let row = |sql: &str| rows(&f, sql).join("\n");
+    // 앱 밖의 연결(표기 함수가 없다)로는 읽지 못한다 — 바깥에서 이 보기를 읽는 소비자는 없다(ADR-051).
+    assert!(raw_read(&f.path).prepare("SELECT * FROM \"u_문서 서식\"").is_err());
+    let row = |sql: &str| app_rows(&f, sql).join("\n");
     // 계약이 둘인 건은 계약마다 한 줄 — 계약 값이 이기고, 계약 값이 비면 공고 값이다.
     assert_eq!(
         row(
-            "SELECT 계약금액 || '|' || 세부품명 || '|' || 단위 FROM \"u_서식용 예시\" WHERE 입찰공고번호 = 'TESTN5-000' ORDER BY 1"
+            "SELECT 계약금액 || '|' || 세부품명 || '|' || 단위 FROM \"u_문서 서식\" WHERE 입찰공고번호 = 'TESTN5-000' ORDER BY 1"
         ),
-        "1,000|서랍|대\n2,000|책상|개"
+        "1,000원|서랍|대\n2,000원|책상|개"
     );
     // 계약이 없는 공고는 공고 값이다. 빈 칸은 NULL 이 아니라 빈 글이다.
     assert_eq!(
         row(
-            "SELECT 세부품명 || '|' || 단위 || '|' || 대표계약업체 || '|' || 계약담당자 FROM \"u_서식용 예시\" WHERE 입찰공고번호 = 'TESTN6-000'"
+            "SELECT 세부품명 || '|' || 단위 || '|' || 대표계약업체 || '|' || 공고담당자 FROM \"u_문서 서식\" WHERE 입찰공고번호 = 'TESTN6-000'"
         ),
         "의자|식||"
     );
     assert_eq!(
         row(
-            "SELECT DISTINCT 계약담당자 || '|' || \"계약담당 전화번호\" || '|' || 게시일 FROM \"u_서식용 예시\" WHERE 입찰공고번호 = 'TESTN5-000'"
+            "SELECT DISTINCT 공고담당자 || '|' || \"공고담당 전화번호\" || '|' || 게시일 FROM \"u_문서 서식\" WHERE 입찰공고번호 = 'TESTN5-000'"
         ),
-        "홍길동|000-0000-0000|2000/01/02"
+        "홍길동|000-0000-0000|2000. 1. 2."
+    );
+    // 입찰방법은 문서용 표기 — 계약방법 앞 두 글자 + (계약구분에서 「계약」 을 뺀 것). 계약방법이 비면 빈 글이다.
+    assert_eq!(
+        row("SELECT DISTINCT 입찰방법 FROM \"u_문서 서식\" WHERE 입찰공고번호 = 'TESTN5-000'"),
+        "일반(총액)"
+    );
+    assert_eq!(
+        row("SELECT 입찰방법 FROM \"u_문서 서식\" WHERE 입찰공고번호 = 'TESTN6-000'"),
+        ""
     );
 
     // 앞의 일곱 필드 — 사람이 알아보는 건명·단계가 먼저다. 건명은 공고명 → 요청명 → 계약건명으로 물러서 비지 않고,
@@ -739,7 +785,7 @@ fn fresh_work_file_carries_builtin_example_view() {
     );
     assert_eq!(
         row(
-            "SELECT 건명 || '|' || 단계 || '|' || 공고명 || '|' || 계약번호 FROM \"u_서식용 예시\" ORDER BY 1"
+            "SELECT 건명 || '|' || 단계 || '|' || 공고명 || '|' || 계약번호 FROM \"u_문서 서식\" ORDER BY 1"
         ),
         [
             "시험 계약 여덟|계약||TESTK800",
@@ -753,47 +799,87 @@ fn fresh_work_file_carries_builtin_example_view() {
         .join("\n")
     );
 
-    // 취합본처럼 다른 역할로 짓는 빈 파일에는 들지 않는다.
-    let merged = pclm_file::create(&f.temp.path("merged.pclm"), "merged", f.env).unwrap();
-    assert!(Store::new(merged, f.env).user_views().unwrap().is_empty());
+    // 백업처럼 다른 역할로 짓는 빈 파일에는 들지 않는다.
+    let backup = pclm_file::create(&f.temp.path("backup.pclm"), "backup", f.env).unwrap();
+    assert!(Store::new(backup, f.env).user_views().unwrap().is_empty());
 }
 
-/// `예시_보기는_구성_가져오기로_다시_들고_겹치면_복사본이다` — 지운 예시 보기는 「보기 구성」 에서 다시 들인다.
+/// `문서_서식은_사람이_고치고_처음_상태로_되돌린다` — 지우기는 거절한다. 손대지 않았으면 표를 직접 고쳐 놓아도 다시 열 때
+/// exe 의 정의로 돌아오고, 그 이름을 쓰던 사람의 보기는 복사본 이름으로 비킨다. 사람이 고쳐 저장하면(이름 바꾸기 포함) 다시
+/// 열어도 그대로다. `reset_document_view` 가 이름 · 정의를 되돌리고, 그 뒤로는 다시 exe 를 따라온다(ADR-052). 내보낸 구성은
+/// 보통 보기처럼 들고, 겹치는 이름은 복사본이 된다.
 #[test]
-fn builtin_example_reimports_and_copies_on_name_clash() {
-    let f = fresh("uv-example-again");
+fn document_view_is_editable_and_resettable() {
+    let f = Fixture::new("uv-document");
     let s = f.store();
-    let json = builtin_view_package();
-    let preview = s.preview_view_package(json).unwrap();
-    assert!(preview.errors.is_empty(), "{:?}", preview.errors);
-    assert!(preview.columns.is_empty());
-    assert_eq!(
-        preview
-            .views
-            .iter()
-            .map(|v| v.import_name.as_str())
-            .collect::<Vec<_>>(),
-        ["서식용 예시"]
-    );
-    assert!(user_view_names(&f).is_empty()); // 미리보기는 되돌린다
+    let view = single(s.user_views().unwrap());
+    assert_eq!(view.to_json()["managed"], true);
+    let builtin = read_view_package(builtin_view_package()).unwrap().views.remove(0);
+    let exact = stored_definition(&builtin).unwrap();
+    let stored = || read(&f, "SELECT definition FROM user_view WHERE id = 'pclm-document-view'");
+    assert_eq!(stored(), exact);
 
-    let imported = single(s.import_view_package(json, &preview.token).unwrap());
-    assert!(imported.broken.is_empty(), "{:?}", imported.broken);
-    assert_eq!(user_view_names(&f), ["u_서식용 예시"]);
+    let input = json!({ "name": "문서 서식", "definition": view.definition }).to_string();
+    invalid(s.delete_user_view(DOCUMENT_VIEW_ID));
+    invalid(s.save_user_view(&input, None)); // 같은 이름의 새 보기도 지금처럼 거절된다
 
-    let again = s.preview_view_package(json).unwrap();
-    assert!(again.errors.is_empty(), "{:?}", again.errors);
-    assert_eq!(
-        again
-            .views
-            .iter()
-            .map(|v| v.import_name.as_str())
-            .collect::<Vec<_>>(),
-        ["서식용 예시 (복사본)"]
-    );
+    let exported = s.export_view_package(&[DOCUMENT_VIEW_ID.to_string()]).unwrap();
+    let preview = s.preview_view_package(&exported).unwrap();
+    let copies = s.import_view_package(&exported, &preview.token).unwrap();
+    let copy = copies.iter().find(|v| v.id != DOCUMENT_VIEW_ID).unwrap();
+    assert_eq!((copy.name.as_str(), &copy.to_json()["managed"]), ("문서 서식 (복사본)", &json!(false)));
+
+    // 표를 직접 고쳐 앱의 줄을 비키고, 비운 이름을 사람의 보기가 차지한다.
+    f.conn()
+        .execute_batch(
+            "UPDATE user_view SET name = '고친 이름', definition = '{\"version\":2,\"contracts\":\"fold\",\"columns\":[]}'
+              WHERE id = 'pclm-document-view';
+             UPDATE user_view SET id = 'v-mine', name = '문서 서식' WHERE name = '문서 서식 (복사본)';",
+        )
+        .unwrap();
+    Database::new(&f.path, Access::Write).migrate(f.env).unwrap();
+    let names: Vec<(String, String)> = s.user_views().unwrap().into_iter().map(|v| (v.id, v.name)).collect();
+    assert!(names.contains(&(DOCUMENT_VIEW_ID.into(), "문서 서식".into())), "{names:?}");
+    assert!(names.contains(&("v-mine".into(), "문서 서식 (복사본)".into())), "{names:?}");
+    assert_eq!(stored(), exact);
+    assert_eq!(user_view_names(&f), ["u_문서 서식", "u_문서 서식 (복사본)"]);
+
+    // 이미 같으면 그 줄에 아무것도 쓰지 않는다.
+    f.conn()
+        .execute_batch(
+            "CREATE TABLE touched (n INTEGER);
+             CREATE TRIGGER touch AFTER UPDATE ON user_view BEGIN INSERT INTO touched VALUES (1); END;",
+        )
+        .unwrap();
+    Database::new(&f.path, Access::Write).migrate(f.env).unwrap();
+    assert_eq!(read(&f, "SELECT count(*) FROM touched"), "0");
+
+    // 사람이 고쳐 저장한다 — 열을 셋만 남기고 이름도 바꾼다. 다시 열어도 그대로다.
+    let mut edited = view.definition.clone();
+    edited["columns"].as_array_mut().unwrap().truncate(3);
+    let renamed = json!({ "name": "내 서식", "definition": edited }).to_string();
+    let after = s.save_user_view(&renamed, Some(DOCUMENT_VIEW_ID)).unwrap();
+    let mine = after.iter().find(|v| v.id == DOCUMENT_VIEW_ID).unwrap();
+    assert_eq!((mine.name.as_str(), &mine.to_json()["managed"]), ("내 서식", &json!(true)));
+    let saved = stored();
+    assert_ne!(saved, exact);
+    Database::new(&f.path, Access::Write).migrate(f.env).unwrap();
+    assert_eq!(stored(), saved);
+    assert_eq!(user_view_names(&f), ["u_내 서식", "u_문서 서식 (복사본)"]);
+
+    // 처음 상태로 — 이름 · 정의가 돌아오고 u_* 가 다시 선다. 그 뒤로는 다시 exe 를 따라온다.
+    let reset = s.reset_document_view().unwrap();
+    assert!(reset.iter().any(|v| v.id == DOCUMENT_VIEW_ID && v.name == "문서 서식"));
+    assert_eq!(stored(), exact);
+    assert_eq!(user_view_names(&f), ["u_문서 서식", "u_문서 서식 (복사본)"]);
+    f.conn()
+        .execute("UPDATE user_view SET name = '고친 이름' WHERE id = ?1", [DOCUMENT_VIEW_ID])
+        .unwrap();
+    Database::new(&f.path, Access::Write).migrate(f.env).unwrap();
+    assert_eq!(read(&f, "SELECT name FROM user_view WHERE id = 'pclm-document-view'"), "문서 서식");
 }
 
-/// `보기_구성의_잘못된_SQL은_추가열까지_전부_취소한다` (Theory 의 두 경우).
+/// 잘못된 SQL 두 경우가 같은 몸을 쓴다.
 fn bad_sql_cancels_everything(sql_text: &str) {
     let f = fresh("uv-package-bad-sql");
     let s = f.store();
@@ -1078,7 +1164,7 @@ fn rows_follow_the_same_chain_as_unified_view() {
         count(&f, "u_접수공고")
     );
 
-    // 사슬은 한 벌이다 — 두 뷰가 같은 글을 부른다. C# 은 `Views.사슬` 을 견주지만 Rust 의 `views::chain` 은 크레이트
+    // 사슬은 한 벌이다 — 두 뷰가 같은 글을 부른다. `views::chain` 은 크레이트
     // 밖에 없어, `v_통합` 의 정의에서 사슬 CTE 를 떠 `u_셋` 의 정의에 그대로 있는지 본다.
     let unified = read(&f, "SELECT sql FROM sqlite_master WHERE name = 'v_통합'");
     let chain = chain_cte(&unified);
@@ -1645,8 +1731,8 @@ fn duplicate_key_definition(place: &str) -> String {
 }
 
 /// `겹친_키가_든_맞춤_뷰_정의는_읽을_수_없는_정의다` — 같은 키가 두 번 든 맞춤 뷰 정의는 읽을 수 없는 정의와 같다. 필드가
-/// 없고, 모으지 않고, 사람 열을 읽는 뷰로 세지 않고, 열 이름이 바뀌어도 그 글을 고쳐 쓰지 않는다. 뒤의 값을 골라 읽으면
-/// C#(읽을 수 없는 정의)과 갈린다.
+/// 없고, 모으지 않고, 사람 열을 읽는 뷰로 세지 않고, 열 이름이 바뀌어도 그 글을 고쳐 쓰지 않는다. 뒤의 값을 골라 읽지 않는다 —
+/// 겹친 정의는 읽을 수 없는 정의다.
 #[test]
 fn duplicate_keys_make_a_user_view_definition_unreadable() {
     for place in ["root", "column", "formula"] {
@@ -1693,7 +1779,7 @@ fn duplicate_keys_make_a_user_view_definition_unreadable() {
 }
 
 /// `판올림은_겹친_키가_든_예시_이름의_보기를_그대로_두고_연다` — 예시 보기와 이름이 같고 정의에 같은 키가 두 번 든
-/// 보기도 판올림이 멈추지 않는다. 스키마 27 은 손댄 것으로 보아 갈아 끼우지 않고, 뷰를 지을 때는 필드 없는 보기로 선다.
+/// 보기도 판올림이 멈추지 않는다. 스키마 27 · 34 는 손댄 것으로 보아 갈아 끼우거나 걷지 않고, 뷰를 지을 때는 필드 없는 보기로 선다.
 #[test]
 fn migration_leaves_example_named_view_with_duplicate_keys_alone() {
     let temp = Temp::new("uv-v25dup");
@@ -1709,7 +1795,7 @@ fn migration_leaves_example_named_view_with_duplicate_keys_alone() {
         .unwrap();
     let database = Database::new(&path, Access::Write);
     database.migrate(&env).unwrap();
-    let kept = single(Store::new(database, &env).user_views().unwrap());
+    let kept = single(own_views(&Store::new(database, &env)));
     assert_eq!(kept.id, "v-own");
     assert_eq!(
         read_at(&path, "SELECT definition FROM user_view WHERE id = 'v-own'"),
@@ -1719,7 +1805,7 @@ fn migration_leaves_example_named_view_with_duplicate_keys_alone() {
     assert!(
         rows_at(
             &path,
-            "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'u\\_%' ESCAPE '\\'"
+            "SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'u_서식용 예시'"
         )
         .is_empty()
     );
@@ -1727,7 +1813,7 @@ fn migration_leaves_example_named_view_with_duplicate_keys_alone() {
 
 /// `객체가_아닌_맞춤_뷰_정의는_읽을_수_없는_정의다` — 객체가 아닌 맞춤 뷰 정의(배열·글·수 — 손으로 고친 파일)는 읽을
 /// 수 없는 정의와 같다. 필드가 없고, 모으지 않고, 뷰 짓기·열 이름 바꾸기·지우기 확인 문구가 멈추지 않는다. 예전에는
-/// C# 의 `InvalidOperationException` 을 일부러 흉내 내 이 자리들이 멈췄다.
+/// 이 자리들이 멈췄다.
 #[test]
 fn non_object_user_view_definition_is_unreadable() {
     for definition in ["[1]", "[]", "5", "\"x\""] {
@@ -1764,8 +1850,8 @@ fn non_object_user_view_definition_is_unreadable() {
     }
 }
 
-/// `식이_null_인_필드는_빈_식이다` — 필드의 식이 JSON null 이면 식이 없는 필드다(빈 글). `"null"` 이라는 글을 내면 C# 과
-/// 거절 문구가 갈릴 수 있었다.
+/// `식이_null_인_필드는_빈_식이다` — 필드의 식이 JSON null 이면 식이 없는 필드다(빈 글). `"null"` 이라는 글을 내면
+/// 거절 문구가 달라질 수 있었다.
 #[test]
 fn null_formula_is_an_empty_formula() {
     let column = single(
@@ -1778,7 +1864,7 @@ fn null_formula_is_an_empty_formula() {
 }
 
 /// `겹친_키가_든_맞춤_뷰_입력은_형식_오류다` — 화면이 보낸 뷰에 같은 키가 두 번 들었으면(최상위·정의·필드·식 어디든)
-/// 「맞춤 뷰 형식이 올바르지 않습니다.」 다. 뒤의 값을 골라 받아들이면 C# 과 갈린다.
+/// 「맞춤 뷰 형식이 올바르지 않습니다.」 다. 뒤의 값을 골라 받아들이지 않는다.
 #[test]
 fn duplicate_keys_in_user_view_input_are_a_format_error() {
     for place in ["view", "root", "column", "formula", "array"] {
@@ -1820,7 +1906,7 @@ fn duplicate_keys_in_user_view_input_are_a_format_error() {
 
 /// `읽을_수_없는_정의는_빈_정의로_보이고_내보낼_수_없다` — 저장된 정의가 읽을 수 없는 글이면(깨진 글·같은 키가 두 번 든
 /// 글) 목록에는 빈 정의로 보이고, 내보내기는 「맞춤 뷰 형식이 올바르지 않습니다.」 다. 겹친 키를 뒤의 값으로 접어 내보내면
-/// C#(겹친 채)과 글이 갈렸다.
+/// 겹친 채의 글과 달라졌다.
 #[test]
 fn unreadable_definition_lists_as_empty_and_does_not_export() {
     let f = fresh("uv-unreadable");
@@ -1856,8 +1942,8 @@ fn unreadable_definition_lists_as_empty_and_does_not_export() {
 }
 
 /// `겹친_키가_든_보기_구성은_읽을_수_없는_글이다` — 같은 키가 두 번 든 보기 구성 파일(손으로 고친 파일)은 읽을 수 없는
-/// 글이다. 맨 위·보기 정의·맞춤 열의 식 어디에 들었든 「보기 구성 JSON 형식이 올바르지 않습니다」 다. 뒤의 값으로 접어
-/// 읽으면 안쪽의 겹침이 지워져 C# 과 갈렸다.
+/// 글이다. 맨 위·보기 정의·맞춤 열의 식 어디에 들었든 「뷰 구성 JSON 형식이 올바르지 않습니다」 다. 뒤의 값으로 접어
+/// 읽으면 안쪽의 겹침이 지워져 글이 달라졌다.
 #[test]
 fn duplicate_keys_make_a_view_package_unreadable() {
     for place in ["root", "definition", "formula"] {
@@ -1903,7 +1989,7 @@ fn duplicate_keys_make_a_view_package_unreadable() {
         let json = exported.replace(once, twice);
         assert_eq!(
             invalid(s.preview_view_package(&json)),
-            "보기 구성 JSON 형식이 올바르지 않습니다. 자료가 아닌 구성 파일을 골라 주세요.",
+            "뷰 구성 JSON 형식이 올바르지 않습니다. 자료가 아닌 구성 파일을 골라 주세요.",
             "{place}"
         );
     }
@@ -2443,6 +2529,46 @@ fn sql_fields_cannot_read_user_views() {
     ));
 }
 
+/// 표기 함수(ADR-051)는 맞춤 뷰의 SQL 필드에서만 받는다 — 가공열은 면 뷰에 박혀 앱 밖의 소비자가 읽는다. 「문서 서식」 을
+/// 제자리에서 저장하면(exe 의 정의 그대로) 미리 보고 저장되고, 앱 연결로 읽힌다.
+#[test]
+fn text_functions_only_in_user_views_and_the_document_view_saves() {
+    let f = Fixture::new("uv-text-functions");
+    seed(&f);
+    let s = f.store();
+    let refused = s
+        .validate_computed_sql("notice", "SELECT 원표기(현재.추정가격)")
+        .unwrap();
+    assert_eq!(refused["ok"], false);
+    assert!(
+        refused["error"].as_str().unwrap().contains("뷰에서만 쓸 수 있습니다: 원표기"),
+        "{refused}"
+    );
+
+    let package: Value = serde_json::from_str(builtin_view_package()).unwrap();
+    let same = json!({ "name": "문서 서식", "definition": package["views"][0]["definition"] })
+        .to_string();
+    let preview = s.preview_user_view(&same, None).unwrap();
+    let broken: Vec<&Value> = preview["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c.get("error").is_some())
+        .collect();
+    assert!(broken.is_empty(), "{broken:?}");
+    s.save_user_view(&same, Some(DOCUMENT_VIEW_ID)).unwrap();
+    f.sql("UPDATE contract SET amount = '114500' WHERE contract_base = 'TESTK1'");
+    let c = f.database().open_read_only().unwrap();
+    let (amount, han): (String, String) = c
+        .query_row(
+            "SELECT 계약금액, 계약금액_한글 FROM \"u_문서 서식\" WHERE 계약번호 = 'TESTK100'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((amount.as_str(), han.as_str()), ("114,500원", "일십일만사천오백"));
+}
+
 // ── 판올림 ─────────────────────────────────────────────
 
 /// 옛 파일을 픽스처로 감싼다 — 판올림 뒤 같은 자료 세우기 도구를 쓴다.
@@ -2598,21 +2724,24 @@ fn migration_drops_base_and_moves_definition_to_v2() {
     assert!(!rows(&f, "SELECT name FROM pragma_table_info('user_view')").contains(&"base".into()));
 }
 
-/// `판올림은_작업자료에만_예시_보기를_한_번_심는다` — 스키마 26 은 이미 있던 작업자료에 서식용 예시 보기를 한 번
-/// 심는다. 같은 이름의 보기가 있으면 그것을 두고, 지운 뒤 다시 열어도 되살아나지 않는다. 작업자료가 아닌 파일에는
-/// 심지 않는다.
+/// `판올림은_손대지_않은_서식용_예시를_걷는다` — v25 · v26 · v33 의 작업자료에서 사람이 손대지 않은 「서식용 예시」(그 판이
+/// 심은 그대로든, 키 순서만 갈렸든)는 스키마 34 를 지나며 걷히고 그 자리는 앱의 「문서 서식」 이 맡는다. 고친 것은 사람의
+/// 보통 보기로 그대로 두고, 지운 것은 되살리지 않는다. 작업자료가 아닌 파일은 손대지 않고 「문서 서식」 도 넣지 않는다.
 #[test]
-fn migration_seeds_example_view_once_and_only_into_work_files() {
-    let temp = Temp::new("uv-v25");
+fn migration_retires_only_untouched_example_view() {
+    let temp = Temp::new("uv-retire");
     let env = TestEnv::new();
-    let old = |name: &str, role: &str, own_view: Option<&str>| {
+    // 그 판의 파일 — 그 판이 심은 예시를 들었거나(정의를 고칠 수 있게 받는다), 없다.
+    let old = |name: &str, version: i32, role: &str, edit: Option<&dyn Fn(String) -> String>| {
         let path = temp.path(name);
-        legacy_at(&path, 25, role);
-        if let Some(definition) = own_view {
+        legacy_at(&path, version, role);
+        let package = if version < 27 { example_view_package_v26() } else { example_view_package_v33() };
+        if let Some(edit) = edit.filter(|_| version > 25) {
+            let v = read_view_package(package).unwrap().views.remove(0);
             raw(&path)
                 .execute(
-                    "INSERT INTO user_view (id, name, definition, sort_order) VALUES ('v-own', '서식용 예시', ?1, 10)",
-                    [definition],
+                    "INSERT INTO user_view (id, name, definition, sort_order) VALUES ('v-seed', ?1, ?2, 10)",
+                    rusqlite::params![v.name, edit(stored_definition(&v).unwrap())],
                 )
                 .unwrap();
         }
@@ -2623,128 +2752,61 @@ fn migration_seeds_example_view_once_and_only_into_work_files() {
         database.migrate(&env).unwrap();
         Store::new(database, &env)
     };
-
-    let plain = old("작업.pclm", "work", None);
-    let s = migrated(&plain);
-    let seeded = single(s.user_views().unwrap());
-    assert_eq!(seeded.name, "서식용 예시");
-    assert!(seeded.broken.is_empty(), "{:?}", seeded.broken);
-    // v26 이 그 판의 예시를 심고 v27 이 손대지 않은 그것을 갈아 끼워, v25 에서 오면 지금 구성이다.
-    assert_eq!(column_names(&seeded), builtin_field_names(None));
-
-    s.delete_user_view(&seeded.id).unwrap();
-    assert!(migrated(&plain).user_views().unwrap().is_empty());
-
-    let mine = json!({ "version": 2, "contracts": "split", "columns": [
-        { "id": "c-1", "name": "내 필드", "formula": doc("notice", "공고명") }
-    ] })
-    .to_string();
-    let owned = old("내것.pclm", "work", Some(&mine));
-    let kept = single(migrated(&owned).user_views().unwrap());
-    assert_eq!(kept.id, "v-own");
-    assert_eq!(column_names(&kept), ["내 필드"]);
-
-    let submission = old("제출.pclm", "submission", None);
-    assert!(migrated(&submission).user_views().unwrap().is_empty());
-}
-
-/// `판올림은_손대지_않은_예시_보기만_지금_구성으로_갈아_끼운다` — 스키마 27 은 v26 이 심은 예시 보기를 사람이 손대지
-/// 않았으면(키 순서는 보지 않는다) 지금 구성으로 갈아 끼운다. 고친 보기와 지운 보기는 그대로이고, 작업자료가 아닌
-/// 파일은 건드리지 않는다.
-#[test]
-fn migration_upgrades_only_untouched_example_view() {
-    let temp = Temp::new("uv-v26");
-    let env = TestEnv::new();
-    // v26 의 파일 — 그 판이 심은 예시를 들었거나(정의를 고칠 수 있게 받는다), 지워서 없다.
-    let old = |name: &str, role: &str, edit: Option<&dyn Fn(String) -> String>| {
-        let path = temp.path(name);
-        legacy_at(&path, 26, role);
-        if let Some(edit) = edit {
-            let mut c = raw(&path);
-            let t = c.transaction().unwrap();
-            // C# `Store.SeedExampleViews(old, transaction, ExampleViewPackageV26())` — 크레이트 밖에 내놓지 않은 것이라
-            // 같은 일을 공개된 조각(read_view_package·stored_definition)으로 한다.
-            for v in read_view_package(example_view_package_v26()).unwrap().views {
-                t.execute(
-                    "INSERT INTO user_view (id, name, definition, sort_order)
-                     VALUES (?1, ?2, ?3, coalesce((SELECT max(sort_order) FROM user_view), 0) + 10)",
-                    rusqlite::params![
-                        format!("{:032x}", 0xe6u32),
-                        v.name.clone().unwrap_or_default(),
-                        stored_definition(&v).unwrap()
-                    ],
-                )
-                .unwrap();
-            }
-            let definition: String = t
-                .query_row("SELECT definition FROM user_view", [], |r| r.get(0))
-                .unwrap();
-            t.execute("UPDATE user_view SET definition = ?1", [edit(definition)])
-                .unwrap();
-            t.commit().unwrap();
-        }
-        path
-    };
-
-    let v26 = builtin_field_names(Some(example_view_package_v26()));
-    assert_ne!(v26, builtin_field_names(None));
-    let migrated = |path: &std::path::Path| -> Vec<String> {
-        let database = Database::new(path, Access::Write);
-        database.migrate(&env).unwrap();
-        let view = single(Store::new(database, &env).user_views().unwrap());
-        assert_eq!(view.name, "서식용 예시");
-        assert!(view.broken.is_empty(), "{:?}", view.broken);
-        column_names(&view)
-    };
-
-    // 손대지 않은 것 — 그대로든, 키 순서만 갈렸든 지금 구성이다.
-    assert_eq!(
-        migrated(&old("그대로.pclm", "work", Some(&|d| d))),
-        builtin_field_names(None)
-    );
     let reverse = |d: String| {
         let node: Map<String, Value> = serde_json::from_str(&d).unwrap();
         let reversed: Map<String, Value> = node.into_iter().rev().collect();
         Value::Object(reversed).to_string()
     };
-    assert_eq!(
-        migrated(&old("순서.pclm", "work", Some(&reverse))),
-        builtin_field_names(None)
-    );
+    let same = |d: String| d;
 
-    // 고친 것 — 필드 이름 하나만 바꿔도 사람 것이라 그대로 둔다.
-    let edited = migrated(&old(
-        "고침.pclm",
-        "work",
-        Some(&|d: String| d.replace("\"게시일\"", "\"공고게시일\"")),
-    ));
-    assert_eq!(
-        edited,
-        v26.iter()
-            .map(|n| if n == "게시일" {
-                "공고게시일".to_string()
-            } else {
-                n.clone()
-            })
-            .collect::<Vec<_>>()
-    );
+    for (name, version) in [("v25.pclm", 25), ("v26.pclm", 26), ("v33.pclm", 33)] {
+        for (tag, edit) in [("그대로", &same as &dyn Fn(String) -> String), ("순서", &reverse)] {
+            let s = migrated(&old(&format!("{tag}-{name}"), version, "work", Some(edit)));
+            assert!(own_views(&s).is_empty(), "{tag} v{version}");
+            let view = single(s.user_views().unwrap());
+            assert_eq!((view.id.as_str(), view.name.as_str()), (DOCUMENT_VIEW_ID, "문서 서식"));
+            assert_eq!(column_names(&view), builtin_field_names(None));
+            assert!(view.broken.is_empty(), "{:?}", view.broken);
+        }
+    }
+
+    // 고친 것 — 필드 이름 하나만 바꿔도 사람 것이라 「서식용 예시」 그대로 둔다.
+    for (version, package) in [(26, example_view_package_v26()), (33, example_view_package_v33())] {
+        let edit = |d: String| d.replace("\"게시일\"", "\"공고게시일\"");
+        let kept = single(own_views(&migrated(&old(&format!("고침-{version}.pclm"), version, "work", Some(&edit)))));
+        assert_eq!((kept.id.as_str(), kept.name.as_str()), ("v-seed", "서식용 예시"));
+        let expected: Vec<String> = builtin_field_names(Some(package))
+            .into_iter()
+            .map(|n| if n == "게시일" { "공고게시일".into() } else { n })
+            .collect();
+        assert_eq!(column_names(&kept), expected);
+    }
 
     // 지운 것 — 되살리지 않는다.
-    let deleted = old("지움.pclm", "work", None);
-    let database = Database::new(&deleted, Access::Write);
-    database.migrate(&env).unwrap();
-    assert!(Store::new(database, &env).user_views().unwrap().is_empty());
+    assert!(own_views(&migrated(&old("지움.pclm", 26, "work", None))).is_empty());
 
-    // 작업자료가 아닌 파일은 손대지 않은 예시도 그대로다.
-    let submission = Database::new(old("제출.pclm", "submission", Some(&|d| d)), Access::Write);
-    submission.migrate(&env).unwrap();
-    assert_eq!(
-        column_names(&single(Store::new(submission, &env).user_views().unwrap())),
-        v26
-    );
+    // 같은 이름의 사람 보기는 그대로다.
+    let mine = json!({ "version": 2, "contracts": "split", "columns": [
+        { "id": "c-1", "name": "내 필드", "formula": doc("notice", "공고명") }
+    ] })
+    .to_string();
+    let owned = old("내것.pclm", 25, "work", None);
+    raw(&owned)
+        .execute(
+            "INSERT INTO user_view (id, name, definition, sort_order) VALUES ('v-own', '서식용 예시', ?1, 10)",
+            [&mine],
+        )
+        .unwrap();
+    let kept = single(own_views(&migrated(&owned)));
+    assert_eq!((kept.id.as_str(), column_names(&kept)), ("v-own", vec!["내 필드".to_string()]));
+
+    // 작업자료가 아닌 파일은 손대지 않은 예시도 그대로이고 「문서 서식」 도 없다.
+    let backup = migrated(&old("백업.pclm", 33, "backup", Some(&same)));
+    assert_eq!(single(backup.user_views().unwrap()).name, "서식용 예시");
+    assert!(migrated(&old("백업25.pclm", 25, "backup", None)).user_views().unwrap().is_empty());
 }
 
-/// C# `뷰의_group_concat_은_모두_집계_안에서_차례를_정한다` — 뷰 SQL 의 `group_concat` 은 모두 인자 안에 `ORDER BY` 가 있다.
+/// 뷰 SQL 의 `group_concat` 은 모두 인자 안에 `ORDER BY` 가 있다.
 /// 하위 질의의 `ORDER BY` 는 바깥 집계에 차례를 약속하지 않는다. 기본 뷰·가공열·접은 맞춤 뷰가 모두 선 작업자료를 본다.
 #[test]
 fn every_group_concat_in_views_orders_inside_the_aggregate() {
@@ -2793,7 +2855,7 @@ fn every_group_concat_in_views_orders_inside_the_aggregate() {
     assert!(unordered.is_empty(), "{unordered:#?}");
 }
 
-/// 뷰마다 `group_concat(` 의 짝 괄호까지를 인자로 보고, 그 안에 `ORDER BY` 가 없는 것을 낸다(C# `GroupConcats`).
+/// 뷰마다 `group_concat(` 의 짝 괄호까지를 인자로 보고, 그 안에 `ORDER BY` 가 없는 것을 낸다.
 fn group_concats(views: &[(String, String)]) -> (usize, Vec<String>) {
     const OPEN: &str = "group_concat(";
     let mut found = 0;
@@ -2833,79 +2895,4 @@ fn group_concats(views: &[(String, String)]) -> (usize, Vec<String>) {
         }
     }
     (found, unordered)
-}
-
-// ── 취합 ─────────────────────────────────────────────────
-
-/// `취합은_이름으로_고르고_정의가_다르면_알린다` — 맞춤 뷰도 정의라 열쇠는 이름이다(docs/user-views.md §4). 같은 이름에 정의가
-/// 다르면 먼저 온 것을 싣고 밀린 것을 알린다. 다른 이름은 둘 다 실리고, 취합본에도 그 뷰가 선다.
-#[test]
-fn merge_picks_views_by_name_and_reports_different_definitions() {
-    let t = Temp::new("uv-merge");
-    let env = TestEnv::new();
-    let submission = |who: &str, views: &[String]| {
-        let path = t.path(&format!("제출_{who}.pclm"));
-        let database = pclm_file::create(&path, pclm_core::PclmRole::SUBMISSION, &env).unwrap();
-        database
-            .open()
-            .unwrap()
-            .execute(
-                "INSERT INTO app_setting (key, value) VALUES ('submit.name', ?1)",
-                [who],
-            )
-            .unwrap();
-        let store = Store::new(database, &env);
-        for v in views {
-            store.save_user_view(v, None).unwrap();
-        }
-        path
-    };
-    let first = submission(
-        "홍길동",
-        &[
-            view("문서", &[(Some("c-1"), "공고명", doc("notice", "공고명"))]),
-            view(
-                "홍길동뷰",
-                &[(Some("c-1"), "번호", doc("contract", "계약번호"))],
-            ),
-        ],
-    );
-    let second = submission(
-        "김철수",
-        &[view_with(
-            "문서",
-            "fold",
-            &[(Some("c-1"), "공고명", doc("notice", "공고명"))],
-        )],
-    );
-    let output = t.path("취합.pclm");
-    std::fs::create_dir_all(t.path("임시")).unwrap();
-
-    let report =
-        pclm_core::storage::merger::merge(&[&first, &second], &output, &t.path("임시"), &env)
-            .unwrap();
-
-    assert_eq!(report.conflicts.len(), 1);
-    let conflict = &report.conflicts[0];
-    assert_eq!(conflict.kind, "맞춤 뷰");
-    assert_eq!(conflict.key, "문서");
-    assert_eq!(conflict.kept.submitter, "홍길동");
-    assert_eq!(conflict.pushed.len(), 1);
-    assert_eq!(conflict.pushed[0].submitter, "김철수");
-
-    let merged = Store::new(Database::new(&output, Access::Read), &env);
-    let views = merged.user_views().unwrap();
-    let mut names: Vec<&str> = views.iter().map(|v| v.name.as_str()).collect();
-    names.sort();
-    assert_eq!(names, ["문서", "홍길동뷰"]);
-    let document = views.iter().find(|v| v.name == "문서").unwrap();
-    assert_eq!(document.definition["contracts"], "split");
-    assert_eq!(column_names(document), ["공고명"]);
-    assert_eq!(
-        read_at(
-            &output,
-            r"SELECT CAST(count(*) AS TEXT) FROM sqlite_master WHERE name LIKE 'u\_%' ESCAPE '\'"
-        ),
-        "2"
-    );
 }

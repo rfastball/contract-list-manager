@@ -1,4 +1,4 @@
-//! 확장이 어디까지 깔렸는지(C# `Erp/ExtensionStatus.cs`). 앱은 브라우저를 들여다볼 수 없으므로 확장이 호스트에 인사할 때
+//! 확장이 어디까지 깔렸는지. 앱은 브라우저를 들여다볼 수 없으므로 확장이 호스트에 인사할 때
 //! 남긴 흔적(`extension-contact.json`)과 풀어 둔 확장의 판(`extension/manifest.json`)으로 안다.
 //!
 //! [`read`] 는 창이 읽는 쪽이라 호스트는 부르지 않는다 — 같은 파일을 두 구현이 같게 읽는지 시험하려고 함께 옮겼다.
@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use pclm_core::erp::capture::ExtensionHello;
 use pclm_core::erp::wire;
 use pclm_core::local_time::LocalDateTime;
-use pclm_home::{dotnet, win};
+use pclm_home::{paths, win};
 use serde_json::{Map, Value};
 
-use crate::log::{self, Entry, Problem};
+use crate::log::{self, Entry};
 use crate::presence;
 
 /// 브라우저별 마지막 연결.
@@ -28,26 +28,27 @@ pub struct Contact {
 pub struct LiveContact {
     pub browser: String,
     pub version: String,
+    pub revision: Option<String>,
+    pub update_state: Option<String>,
     pub connected_at: String,
 }
 
-/// C# `ExtensionStatus.State`.
+/// 확장의 상태.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct State {
     pub prepared: bool,
     pub embedded_version: String,
     pub disk_version: Option<String>,
+    pub disk_revision: Option<String>,
     pub contacts: Vec<Contact>,
     pub folder: PathBuf,
     pub live: Vec<LiveContact>,
     pub log: Vec<Entry>,
-    pub errors: Vec<Problem>,
-    pub past_error: Option<Problem>,
 }
 
 const BROWSERS: [&str; 3] = ["Edge", "Chrome", "기타"];
 
-/// .NET 정규식 `\d`(BMP 의 유니코드 Nd) — 실측표. 서로게이트 짝의 숫자는 `\d` 가 아니다.
+/// 숫자 `\d`(BMP 의 유니코드 Nd) — 옛 판이 쓰던 정규식에서 뽑은 실측표. 서로게이트 짝의 숫자는 `\d` 가 아니다.
 const DIGITS: &[(u32, u32)] = &[
     (0x0030, 0x0039),
     (0x0660, 0x0669),
@@ -102,7 +103,7 @@ fn version_shaped(version: &str) -> bool {
             .all(|p| !p.is_empty() && p.chars().all(is_digit))
 }
 
-/// 확장이 보낸 브라우저·판이 디스크에 적어도 되는 모양인가(C# `ExtensionStatus.Accepts`). 상시 연결·연결 기록도 같은
+/// 확장이 보낸 브라우저·판이 디스크에 적어도 되는 모양인가. 상시 연결·연결 기록도 같은
 /// 판정을 쓴다 — 확장이 디스크에 임의 글을 쓰지 못하게.
 pub fn accepts(browser: &str, version: &str) -> bool {
     BROWSERS.contains(&browser) && version_shaped(version)
@@ -112,15 +113,31 @@ fn contact_path(directory: &Path) -> PathBuf {
     directory.join("extension-contact.json")
 }
 
-/// 사용자 폴더에 풀어 둔 확장의 판(C# `ExtensionStatus.DiskVersion`). 없거나 못 읽으면 `None`.
+/// 사용자 폴더에 풀어 둔 확장의 판. 없거나 못 읽으면 `None`.
 pub fn disk_version(directory: &Path) -> Option<String> {
     let bytes = std::fs::read(directory.join("extension").join("manifest.json")).ok()?;
-    // JsonDocument.Parse(byte[]) — 머리표가 있으면 읽지 못한다. 같은 이름이 둘이면 TryGetProperty 는 뒤의 것이다.
+    // 머리표가 있으면 읽지 못한다. 같은 이름이 둘이면 뒤의 것이다.
     let manifest = pclm_core::erp::parse_json(std::str::from_utf8(&bytes).ok()?)?;
     manifest.get("version")?.as_str().map(str::to_string)
 }
 
-/// 브라우저별 마지막 연결을 적는다(C# `ExtensionStatus.RecordContact`). 모양이 맞는 것만 받는다. 기록이 깨졌거나 같은
+/// 추출이 완전히 끝난 뒤에만 내는 확장 묶음 판이다.
+pub fn disk_revision(directory: &Path) -> Option<String> {
+    let text = paths::read_all_text(&directory.join("extension-revision.json")).ok()?;
+    let parsed = wire::parse_node(&text)?;
+    let revision = parsed.get("revision")?.as_str()?;
+    revision_shaped(revision).then(|| revision.to_string())
+}
+
+/// SHA-256의 소문자 16진 글 64개만 표시 파일과 메시지에 싣는다.
+pub fn revision_shaped(revision: &str) -> bool {
+    revision.len() == 64
+        && revision
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// 브라우저별 마지막 연결을 적는다. 모양이 맞는 것만 받는다. 기록이 깨졌거나 같은
 /// 키가 두 번 들었으면 읽지 못한 기록으로 보고 새로 쓴다.
 pub fn record_contact(
     directory: &Path,
@@ -132,7 +149,7 @@ pub fn record_contact(
         return Ok(());
     }
     let path = contact_path(directory);
-    let mut root = match dotnet::read_all_text(&path) {
+    let mut root = match paths::read_all_text(&path) {
         Ok(text) => match wire::parse_node(&text) {
             Some(Value::Object(map)) => map,
             _ => Map::new(),
@@ -144,13 +161,13 @@ pub fn record_contact(
     entry.insert("at".into(), Value::String(now.second_text()));
     root.insert(browser.into(), Value::Object(entry));
     std::fs::create_dir_all(directory)?;
-    dotnet::replace_file(&path, &wire::to_web_json(&Value::Object(root)))
+    paths::replace_file(&path, &wire::to_web_json(&Value::Object(root)))
 }
 
-/// `now` 를 「오늘」 의 기준으로 읽는다(C# `ExtensionStatus.Read`). 연결 기록은 그날 로컬 자정부터 낸다.
+/// `now` 를 「오늘」 의 기준으로 읽는다. 연결 기록은 그날 로컬 자정부터 낸다.
 pub fn read(directory: &Path, embedded_version: &str, now: LocalDateTime) -> State {
     let mut contacts = Vec::new();
-    if let Ok(text) = dotnet::read_all_text(&contact_path(directory))
+    if let Ok(text) = paths::read_all_text(&contact_path(directory))
         && let Some(Value::Object(root)) = wire::parse_node(&text)
     {
         for browser in BROWSERS {
@@ -166,29 +183,19 @@ pub fn read(directory: &Path, embedded_version: &str, now: LocalDateTime) -> Sta
             }
         }
     }
-    let folder = dotnet::full_path(directory)
+    let folder = paths::full_path(directory)
         .unwrap_or_else(|_| directory.to_path_buf())
         .join("extension");
-    let log = log::read(directory, now.date())
-        .into_iter()
-        .filter(|e| {
-            matches!(
-                e.event.as_str(),
-                log::CONNECTED | log::DISCONNECTED | log::UPDATED
-            )
-        })
-        .collect();
-    let (errors, past_error) = log::problems(directory, now);
+    let log = log::read(directory, now.date());
     State {
         prepared: folder.is_dir(),
         embedded_version: embedded_version.into(),
         disk_version: disk_version(directory),
+        disk_revision: disk_revision(directory),
         contacts,
         folder,
         live: presence::read_live(directory),
         log,
-        errors,
-        past_error,
     }
 }
 
@@ -213,7 +220,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 판의_모양은_dotnet_의_숫자를_따른다() {
+    fn 판의_모양은_유니코드_숫자를_받는다() {
         for ok in ["0.8.0", "1", "1.2.3.4", "١.٢", "０.９"] {
             assert!(accepts("Chrome", ok), "{ok}");
         }

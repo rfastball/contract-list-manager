@@ -1,9 +1,9 @@
-//! Store 시험이 자료를 세우는 길 — C# `Store.UpsertNotice`·`UpsertContract`·`UpsertRequest`(시험 픽스처 전용,
-//! `internal`)를 SQL 로 옮긴 것. Core 는 이 셋을 옮기지 않았다(프로덕션 호출자가 없다) — 시험만 쓴다.
+//! Store 시험이 자료를 세우는 길 — 공고·계약·접수 업서트(시험 픽스처 전용)를 SQL 로 적은 것.
+//! Core 에는 이 셋이 없다(프로덕션 호출자가 없다) — 시험만 쓴다.
 //!
-//! 레코드 대신 **SQL 열 이름과 값의 쌍**을 받는다. C# 레코드의 속성 → 열 이름은 Store.cs 의 각 Upsert 가 정본이다
-//! (`Title` → `title`, `PostedAt` → `posted_at` …). 주지 않은 열은 NULL 이다 — C# 레코드의 null 속성과 같다.
-//! 넣은 뒤에는 C# 처럼 같은 연결에서 명시 참조로 연결을 다시 짓는다(`ExplicitLinks.Resolve`).
+//! 레코드 대신 **SQL 열 이름과 값의 쌍**을 받는다. 속성 이름 → 열 이름은 `Title` → `title`, `PostedAt` → `posted_at` … 꼴이다.
+//! 주지 않은 열은 NULL 이다.
+//! 넣은 뒤에는 같은 연결에서 명시 참조로 연결을 다시 짓는다(`ExplicitLinks.Resolve`).
 //!
 //! 값은 전부 지어낸 것이다(CLAUDE.md).
 
@@ -15,7 +15,7 @@ use rusqlite::{Connection, params_from_iter};
 
 use super::{Temp, TestEnv};
 
-/// 픽스처가 적는 `updated_at`. C# 은 `DateTime.UtcNow` 다 — 시험은 값을 보지 않는다.
+/// 픽스처가 적는 `updated_at`. 시험은 값을 보지 않는다.
 pub const NOW: &str = "2026-01-02T03:04:05.0000000Z";
 
 /// 시험 하나의 작업자료와 그 위의 [`Store`]. `env` 는 시험이 쥔다(시계·식별자를 정해 둔다).
@@ -26,13 +26,19 @@ pub struct Fixture {
 }
 
 impl Fixture {
-    /// `PclmFile.Create(path, Work)` 로 빈 작업자료를 짓는다.
+    /// 실제 생성 경로로 만든 빈 작업자료를 프로세스마다 한 번만 준비하고 독립 파일로 뜬다.
     pub fn new(name: &str) -> Self {
+        let f = Self::empty(name);
+        super::workfile(&f.path, f.env);
+        f
+    }
+
+    /// 생성·구버전 판올림 시험이 직접 DB를 세울 빈 자리.
+    pub fn empty(name: &str) -> Self {
         let temp = Temp::new(name);
         let path = temp.path("store.pclm");
         // 시험 하나가 끝날 때까지만 산다 — 새는 것은 시험 프로세스의 작은 값 하나다.
         let env: &'static TestEnv = Box::leak(Box::new(TestEnv::new()));
-        pclm_core::storage::pclm_file::create(&path, "work", env).unwrap();
         Fixture { temp, path, env }
     }
 
@@ -87,7 +93,7 @@ impl Fixture {
             .collect()
     }
 
-    /// C# `UpsertNotice` — 건·계열을 세우고 차수 행을 업서트하고 품목을 갈아 끼운다. `related` 는 관련공고(적힌 그대로).
+    /// 건·계열을 세우고 차수 행을 업서트하고 품목을 갈아 끼운다. `related` 는 관련공고(적힌 그대로).
     pub fn notice(
         &self,
         base: &str,
@@ -133,7 +139,7 @@ impl Fixture {
         explicit_links::resolve(&c).unwrap();
     }
 
-    /// C# `UpsertContract` — 계열을 세우고 차수 행을 업서트하고 품목을 갈아 끼운다(계약상대자 표는 시험이 따로 심는다).
+    /// 계열을 세우고 차수 행을 업서트하고 품목을 갈아 끼운다(계약상대자 표는 시험이 따로 심는다).
     pub fn contract(
         &self,
         base: &str,
@@ -152,7 +158,6 @@ impl Fixture {
         explicit_links::resolve(&c).unwrap();
     }
 
-    /// C# `UpsertRequest`.
     pub fn request(
         &self,
         base: &str,
@@ -172,7 +177,7 @@ impl Fixture {
     }
 }
 
-/// 차수 행 업서트 — 준 열만 바꾼다(C# 은 레코드의 모든 열을 바꾼다. 시험은 같은 차수를 다시 넣을 때 바꿀 열을 다 준다).
+/// 차수 행 업서트 — 준 열만 바꾼다(같은 차수를 다시 넣는 시험은 바꿀 열을 다 준다).
 fn head(
     c: &Connection,
     table: &str,

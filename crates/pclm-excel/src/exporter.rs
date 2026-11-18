@@ -1,11 +1,11 @@
-//! 계약면 뷰를 엑셀 한 권으로 내보낸다(C# `Storage/Exporter.cs`).
+//! 계약면 뷰를 엑셀 한 권으로 내보낸다.
 //!
 //! 이 파일은 **그 시점의 사진**이지 원본이 아니다. 언제든 다시 뽑을 수 있고, 여기에 손으로 적은 것은 DB 로 돌아오지
 //! 않는다. 시트를 뷰마다 하나씩 두는 까닭은 한 줄이 뜻하는 것이 시트마다 다르기 때문이다.
 //!
 //! 값은 이미 표시용 문자열이라 모든 칸을 글(`@`)로 못박는다 — 엑셀이 숫자로 재해석해 자릿점을 지우거나 긴 번호를 지수로
 //! 바꾸지 않게. 머리글은 굵게·`#EEF1F4` 로 채우고, 첫 줄을 고정하고, 쓰인 범위에 자동 거르개를 걸고, 열 너비를
-//! ClosedXML `AdjustToContents(1, 40, 60)` 처럼 잰다([`crate::measure`]).
+//! 내용에 맞춰(최소 40 · 최대 60 글자 폭) 잰다([`crate::measure`]).
 
 use std::fs::File;
 use std::io::BufWriter;
@@ -13,15 +13,15 @@ use std::path::{Path, PathBuf};
 
 use pclm_core::local_time::LocalDateTime;
 use pclm_core::storage::store::text_of;
-use pclm_core::storage::views;
+use pclm_core::storage::{pclm_file, views};
 use pclm_core::{Database, Error, Result};
 use rusqlite::types::ValueRef;
 
 use crate::font;
 use crate::measure::{self, MeasuredCell};
-use crate::writer::{self, Cell, Sheet, Style, Value};
+use crate::writer::{self, Cell, Sheet, Style};
 
-/// C# `SheetSnapshot(string[] Columns, string[][] Rows)` — 화면에서 확정한 열·행 차례 그대로의 한 장. JSON 의 null 은
+/// 화면에서 확정한 열·행 차례 그대로의 한 장. JSON 의 null 은
 /// `None` 이다(검사가 거절한다).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SheetSnapshot {
@@ -29,7 +29,7 @@ pub struct SheetSnapshot {
     pub rows: Option<Vec<Option<Vec<Option<String>>>>>,
 }
 
-/// `Exporter.DefaultFileName(on)` — 날짜를 박아 사진임을 드러낸다. `on` 은 부르는 쪽의 로컬 날짜(C# 은 `DateTime.Now`).
+/// 내보내기 파일의 기본 이름 — 날짜를 박아 사진임을 드러낸다. `on` 은 부르는 쪽의 로컬 날짜.
 pub fn default_file_name(on: LocalDateTime) -> String {
     format!("관리대장_{}.xlsx", compact_date(on))
 }
@@ -39,7 +39,7 @@ pub fn compact_date(on: LocalDateTime) -> String {
     format!("{:04}{:02}{:02}", on.year, on.month, on.day)
 }
 
-/// `Exporter.Export(path)` — [`views::EXPORTED`] 의 뷰마다 시트 하나. 실제로 쓴 전체 경로를 낸다.
+/// 전체 내보내기 — [`views::EXPORTED`] 의 뷰마다 시트 하나. 실제로 쓴 전체 경로를 낸다.
 ///
 /// `Names` 가 아니라 `Exported` 를 돈다. 차수를 편 뷰까지 함께 내면 같은 건이 여러 장에 되풀이된다.
 pub fn export(database: &Database, path: &Path) -> Result<PathBuf> {
@@ -49,6 +49,8 @@ pub fn export(database: &Database, path: &Path) -> Result<PathBuf> {
     }
 
     let connection = database.open_read_only()?;
+    // 시트마다 다른 순간을 읽지 않게 — 첫 읽기에서 잡은 스냅숏을 연결을 놓을 때까지 쥔다.
+    connection.execute_batch("BEGIN;")?;
     let mut sheets = Vec::new();
     for view in views::EXPORTED {
         let mut statement = connection.prepare(&format!("SELECT * FROM \"{view}\";"))?;
@@ -69,8 +71,8 @@ pub fn export(database: &Database, path: &Path) -> Result<PathBuf> {
     Ok(full)
 }
 
-/// `Exporter.ExportSheet(path, title, snapshot)` — 화면에서 확정한 열/행 차례 그대로 한 장. 전체 자료 내보내기와 별개의
-/// 사진이다. 없는 폴더는 짓는다 — C# 은 짓지 않지만 ClosedXML 의 `SaveAs` 가 짓는다.
+/// 화면 사진 내보내기 — 화면에서 확정한 열/행 차례 그대로 한 장. 전체 자료 내보내기와 별개의
+/// 사진이다. 없는 폴더는 짓는다.
 pub fn export_sheet(path: &Path, title: &str, snapshot: &SheetSnapshot) -> Result<PathBuf> {
     validate_snapshot(title, snapshot)?;
     let columns: Vec<String> = snapshot
@@ -95,7 +97,7 @@ pub fn export_sheet(path: &Path, title: &str, snapshot: &SheetSnapshot) -> Resul
     Ok(full)
 }
 
-/// `Exporter.ValidateSnapshot` — 엑셀이 받지 않는 시트 이름과 크기·값을 C# 과 같은 글로 거절한다. 길이는 UTF-16 단위다.
+/// 사진 검사 — 엑셀이 받지 않는 시트 이름과 크기·값을 거절한다. 길이는 UTF-16 단위다.
 pub fn validate_snapshot(title: &str, snapshot: &SheetSnapshot) -> Result<()> {
     let utf16 = |s: &str| s.encode_utf16().count();
     // char.IsControl 은 UTF-16 단위 하나씩 본다 — Cc(U+0000~001F, U+007F~009F).
@@ -150,9 +152,9 @@ pub fn validate_snapshot(title: &str, snapshot: &SheetSnapshot) -> Result<()> {
     Ok(())
 }
 
-/// `reader.IsDBNull(c) ? "" : reader.GetValue(c).ToString()` — 수는 현재 문화권 글(ko-KR). Invariant 와 갈리는 것은
-/// 무한대 표기뿐이라 그것만 따로 적는다(다리의 `sheet` 와 같다).
-fn display(value: ValueRef<'_>) -> String {
+/// 칸의 값을 글로 — 빈 값은 빈 글, 수는 한국어 문화권의 글, BLOB 은 `(바이너리)`. 문화권 중립과 갈리는 것은
+/// 무한대 표기뿐이라 그것만 따로 적는다. 다리의 `sheet` 도 이것을 쓴다.
+pub fn display(value: ValueRef<'_>) -> String {
     match value {
         ValueRef::Real(d) if d == f64::INFINITY => "∞".into(),
         ValueRef::Real(d) if d == f64::NEG_INFINITY => "-∞".into(),
@@ -160,12 +162,12 @@ fn display(value: ValueRef<'_>) -> String {
     }
 }
 
-/// ClosedXML 이 칸에 글을 넣을 때(`SetValue` · `Value =`) — `GetStyleForValue` 가 `'` 로 시작하는 글에 따옴표 머리를,
-/// `Environment.NewLine`(Windows 의 `\r\n`)이 든 글에 줄바꿈을 켜고, 꼴을 정한 뒤 `'` 하나를 떼어 담는다. 두 길 모두
+/// 칸에 글을 넣을 때 옛 판이 내던 통합 문서와 같게 — `'` 로 시작하는 글에 따옴표 머리를,
+/// `\r\n` 이 든 글에 줄바꿈을 켜고, 꼴을 정한 뒤 `'` 하나를 떼어 담는다. 두 길 모두
 /// 값을 먼저 넣고 꼴(굵게·채움, `@`)을 나중에 더하므로 둘이 겹친다. 뗀 값으로 너비를 재고 쓰인 범위를 정한다.
 fn cell(value: &str, style: Style) -> Cell {
     Cell {
-        value: Value::Text(value.strip_prefix('\'').unwrap_or(value).to_owned()),
+        value: value.strip_prefix('\'').unwrap_or(value).to_owned(),
         style: Style {
             quote: value.starts_with('\''),
             wrap: value.contains("\r\n"),
@@ -187,7 +189,7 @@ fn build(name: &str, columns: &[String], rows: &[Vec<String>]) -> Sheet {
     let mut last_col = 0;
     for (r, row) in all.iter().enumerate() {
         for (c, cell) in row.iter().enumerate() {
-            if matches!(&cell.value, Value::Text(t) if !t.is_empty()) {
+            if !cell.value.is_empty() {
                 last_row = last_row.max(r + 1);
                 last_col = last_col.max(c + 1);
             }
@@ -201,9 +203,7 @@ fn build(name: &str, columns: &[String], rows: &[Vec<String>]) -> Sheet {
             (0..columns.len())
                 .map(|c| {
                     let cells = all.iter().enumerate().filter_map(|(r, row)| {
-                        let Value::Text(text) = &row.get(c)?.value else {
-                            return None;
-                        };
+                        let text = &row.get(c)?.value;
                         Some(MeasuredCell {
                             text,
                             autofilter_row: autofilter.is_some() && r == 0,
@@ -226,8 +226,9 @@ fn build(name: &str, columns: &[String], rows: &[Vec<String>]) -> Sheet {
     }
 }
 
-/// ClosedXML `SaveAs` — 없는 폴더를 지은 뒤 쓴다.
+/// 없는 폴더를 지은 뒤 쓴다. 작업자료·옮겨진 옛 자료 자리는 거절한다.
 fn save(path: &Path, sheets: &[Sheet]) -> Result<()> {
+    pclm_file::require_overwritable(path)?;
     if let Some(directory) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(directory)?;
     }

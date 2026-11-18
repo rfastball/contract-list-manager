@@ -1,25 +1,23 @@
-//! 고치는 요청 — 사람이 채우는 열 · 가공열 · 덮개 · 지우기 · 여러 건 · 맞춤 뷰와 보기 구성(C# `Bridge` 의 「열 고치기」 ·
+//! 고치는 요청 — 사람이 채우는 열 · 가공열 · 덮개 · 지우기 · 여러 건 · 맞춤 뷰와 보기 구성(「열 고치기」 ·
 //! 「수집한 값 고치기」 · 「지우기」 와 보기 구성 갈래). 뜻은 모두 [`Store`] 가 쥔다 — 여기는 인자를 풀고 답의 꼴을 짓는다.
 
 use std::path::Path;
 
 use pclm_core::storage::flow::Flow;
-use pclm_core::storage::store::{self, CellChange, EntityRef, UserViewInfo, user_column_json};
+use pclm_core::storage::store::{CellChange, EntityRef, UserViewInfo, user_column_json};
 use pclm_core::storage::views::UserColumnDefinition;
 use serde_json::{Map, Value};
 
-use crate::dotnet_json::{self, Step};
-
 use crate::{
     Bridge, NOTHING_TO_DO, OpenPrompt, SavePrompt, core, file_name, malformed, object, parse_int,
-    text_or_null,
+    text_or_null, wrong_shape,
 };
 
 /// 보기 구성 파일의 거르개.
-const VIEW_PACKAGE_FILTER: &str = "보기 구성 (*.json)|*.json";
+const VIEW_PACKAGE_FILTER: &str = "뷰 구성 (*.json)|*.json";
 
 impl Bridge<'_> {
-    /// C# `UserColumns` — 열 관리가 읽는 목록. 식을 읽지 못하는 가공열은 깨진 열로 알린다.
+    /// 열 관리가 읽는 목록. 식을 읽지 못하는 가공열은 깨진 열로 알린다.
     pub(crate) fn user_columns(&self, entity_type: Option<&str>) -> Result<Value, String> {
         let store = self.store();
         let broken = store.broken_columns().map_err(core)?;
@@ -49,16 +47,11 @@ impl Bridge<'_> {
                     Err(other) => return Err(core(other)),
                 }
             }
-            // C# `readers[c.EntityType]` — 셋 밖의 종류면 KeyNotFoundException 이다.
+            // 셋 밖의 종류는 거절한다.
             let view_readers = readers
                 .iter()
                 .find(|(e, _)| *e == c.entity_type)
-                .ok_or_else(|| {
-                    format!(
-                        "The given key '{}' was not present in the dictionary.",
-                        c.entity_type
-                    )
-                })?
+                .ok_or_else(|| format!("모르는 종류입니다: {}", c.entity_type))?
                 .1
                 .get(&c.field_name)
                 .copied()
@@ -141,7 +134,7 @@ impl Bridge<'_> {
         self.user_columns(None)
     }
 
-    /// C# `SetField` — 손으로 채우는 열만 받는다.
+    /// 손으로 채우는 열만 받는다.
     pub(crate) fn set_field(
         &self,
         key: &str,
@@ -174,30 +167,7 @@ impl Bridge<'_> {
         Ok(Value::Null)
     }
 
-    pub(crate) fn clear_override(&self, key: &str, column: &str) -> Result<Value, String> {
-        let entity = self.target(key)?;
-        self.store().clear_override(&entity, column).map_err(core)?;
-        Ok(Value::Null)
-    }
-
-    /// 지우면 무엇이 사라지는지. **묻기 전에 세어 보인다.**
-    pub(crate) fn deletion_plan(&self, key: &str, scope: &str) -> Result<Value, String> {
-        let entity = self.target(key)?;
-        let whole = whole(scope)?;
-        self.store()
-            .plan_deletion(&entity, whole)
-            .map(|p| p.to_json())
-            .map_err(core)
-    }
-
-    pub(crate) fn delete_entity(&self, key: &str, scope: &str) -> Result<Value, String> {
-        let entity = self.target(key)?;
-        let whole = whole(scope)?;
-        self.store().delete(&entity, whole).map_err(core)?;
-        Ok(Value::Null)
-    }
-
-    /// C# `Target` — 열쇠를 풀지 못하면 사람 말로.
+    /// 열쇠를 풀지 못하면 사람 말로.
     fn target(&self, key: &str) -> Result<EntityRef, String> {
         self.store()
             .resolve(key)
@@ -221,6 +191,10 @@ impl Bridge<'_> {
         Ok(views_json(&self.store().delete_user_view(id).map_err(core)?))
     }
 
+    pub(crate) fn reset_document_view(&self) -> Result<Value, String> {
+        Ok(views_json(&self.store().reset_document_view().map_err(core)?))
+    }
+
     pub(crate) fn import_view_package(&self, json: &str, token: &str) -> Result<Value, String> {
         Ok(views_json(
             &self
@@ -230,29 +204,30 @@ impl Bridge<'_> {
         ))
     }
 
-    /// C# `ExportViewPackage` — 구성을 먼저 짓고 자리를 묻는다. 고른 자리 그대로를 낸다(온전한 경로로 바꾸지 않는다).
+    /// 구성을 먼저 짓고 자리를 묻는다. 고른 자리 그대로를 낸다(온전한 경로로 바꾸지 않는다).
     pub(crate) fn export_view_package(&self, ids: &str) -> Result<Value, String> {
         let ids = read_strings(ids)?;
         let json = self.store().export_view_package(&ids).map_err(core)?;
         let prompt = SavePrompt {
-            title: "보기 구성 내보내기".into(),
+            title: "뷰 구성 내보내기".into(),
             filter: VIEW_PACKAGE_FILTER.into(),
             default_ext: ".json".into(),
-            file_name: format!("보기구성_{}.json", self.stamp()?),
+            file_name: format!("뷰구성_{}.json", self.stamp()?),
             allow_overwrite: true,
         };
         let Some(target) = self.pick_save_path(prompt) else {
             return Ok(Value::Null);
         };
+        pclm_core::storage::pclm_file::require_overwritable(Path::new(&target)).map_err(core)?;
         std::fs::write(&target, json.as_bytes())
             .map_err(|e| crate::files::writing_error(pclm_core::Error::Io(e), &target))?;
         Ok(object([("path", Value::String(target))]))
     }
 
-    /// C# `PickViewPackage` — 고른 파일을 읽어 미리보기와 함께 낸다. 2MB 를 넘으면 읽지 않는다.
+    /// 고른 파일을 읽어 미리보기와 함께 낸다. 2MB 를 넘으면 읽지 않는다.
     pub(crate) fn pick_view_package(&self) -> Result<Value, String> {
         let prompt = OpenPrompt {
-            title: "보기 구성 가져오기".into(),
+            title: "뷰 구성 가져오기".into(),
             filter: VIEW_PACKAGE_FILTER.into(),
         };
         let Some(path) = self.host.pick_open_json(&prompt).filter(|p| !p.is_empty()) else {
@@ -263,31 +238,20 @@ impl Bridge<'_> {
             .filter(|m| m.is_file())
             .map(|m| m.len())
             .ok_or_else(|| {
-                let full = pclm_home::dotnet::full_path(&path)
+                let full = pclm_home::paths::full_path(&path)
                     .map(|p| crate::path_text(&p))
                     .unwrap_or_else(|_| path.clone());
-                format!("Could not find file '{full}'.")
+                format!("파일이 없습니다: {full}")
             })?;
         if length > 2_000_000 {
-            return Err("보기 구성 파일은 2MB까지 가져올 수 있습니다.".into());
+            return Err("뷰 구성 파일은 2MB까지 가져올 수 있습니다.".into());
         }
-        let json = pclm_home::dotnet::read_all_text(Path::new(&path))
+        let json = pclm_home::paths::read_all_text(Path::new(&path))
             .map_err(|e| core(pclm_core::Error::Io(e)))?;
         let preview = self.store().preview_view_package(&json).map_err(core)?;
         Ok(object([
             ("name", Value::String(file_name(Path::new(&path)))),
             ("json", Value::String(json)),
-            ("preview", preview.to_json()),
-        ]))
-    }
-
-    /// 서식용 예시 보기를 고른 파일처럼 내민다.
-    pub(crate) fn builtin_view_package(&self) -> Result<Value, String> {
-        let json = store::builtin_view_package();
-        let preview = self.store().preview_view_package(json).map_err(core)?;
-        Ok(object([
-            ("name", Value::String("예시 보기".into())),
-            ("json", Value::String(json.into())),
             ("preview", preview.to_json()),
         ]))
     }
@@ -323,8 +287,8 @@ fn views_json(views: &[UserViewInfo]) -> Value {
     Value::Array(views.iter().map(UserViewInfo::to_json).collect())
 }
 
-/// C# `ComputedColumn.ReadForEditing` — 편집 화면은 격리된 식도 원문과 진단을 함께 읽는다(`migrationError` 가 있으면
-/// 원문, 없으면 `Flow.Json` 꼴의 v2).
+/// 편집 화면은 격리된 식도 원문과 진단을 함께 읽는다(`migrationError` 가 있으면
+/// 원문, 없으면 v2 꼴의 흐름 글).
 fn read_for_editing(json: &str) -> pclm_core::Result<Value> {
     let formula = Flow::read_for_identity(json)?;
     let root: Value = serde_json::from_str(json)
@@ -338,7 +302,7 @@ fn read_for_editing(json: &str) -> pclm_core::Result<Value> {
     }
 }
 
-/// C# `Whole` — 계열 전체인가 이 차수 하나인가. 모르는 말이 오면 **넓은 쪽으로 넘기지 않는다**.
+/// 계열 전체인가 이 차수 하나인가. 모르는 말이 오면 **넓은 쪽으로 넘기지 않는다**.
 pub(crate) fn whole(scope: &str) -> Result<bool, String> {
     match scope {
         "series" => Ok(true),
@@ -347,7 +311,7 @@ pub(crate) fn whole(scope: &str) -> Result<bool, String> {
     }
 }
 
-/// C# `Split` — 화면은 후보를 세로줄로 이어 보낸다. 빈 것은 버리고 앞뒤 공백을 걷는다.
+/// 화면은 후보를 세로줄로 이어 보낸다. 빈 것은 버리고 앞뒤 공백을 걷는다.
 fn split(choices: Option<&str>) -> Vec<String> {
     choices.map_or_else(Vec::new, |c| {
         c.split('|')
@@ -358,7 +322,7 @@ fn split(choices: Option<&str>) -> Vec<String> {
     })
 }
 
-/// `long.TryParse(text, out var n)` — `NumberStyles.Integer`.
+/// 64비트 정수로 읽는다 — 앞뒤 공백, 앞의 부호 하나, 십진 숫자. 못 읽으면 `None`.
 fn try_parse_long(text: &str) -> Option<i64> {
     let trimmed =
         text.trim_matches(|c: char| matches!(c, ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r'));
@@ -378,8 +342,7 @@ fn try_parse_long(text: &str) -> Option<i64> {
     i64::try_from(if negative { -magnitude } else { magnitude }).ok()
 }
 
-/// C# `ReadBatch<string[]>` — JSON 의 null 이면 「작업할 자료가 없습니다.」. 꼴이 다른 값은 .NET 의 글로 거절한다
-/// ([`dotnet_json`]). null 원소는 .NET 이 받지만(그 뒤 Core 가 무엇을 하는지는 견주지 않았다) 여기서는 거절한다.
+/// 글 배열 — JSON 의 null 이면 「작업할 자료가 없습니다.」. 꼴이 다른 값 · null 원소는 그 칸의 길을 대어 거절한다.
 pub(crate) fn read_strings(json: &str) -> Result<Vec<String>, String> {
     let value: Value = serde_json::from_str(json).map_err(|e| malformed(e.to_string()))?;
     match value {
@@ -389,23 +352,21 @@ pub(crate) fn read_strings(json: &str) -> Result<Vec<String>, String> {
             .enumerate()
             .map(|(i, x)| match x {
                 Value::String(s) => Ok(s),
-                _ => Err(dotnet_json::not_converted(json, &[Step::Index(i)], "System.String")),
+                _ => Err(wrong_shape(&format!("$[{i}]"))),
             })
             .collect(),
-        _ => Err(dotnet_json::not_converted(json, &[], "System.String[]")),
+        _ => Err(wrong_shape("$")),
     }
 }
 
-/// C# `ReadBatch<CellChange[]>` — camelCase 이름(대소문자를 가린다)의 글 칸 다섯. 모르는 칸은 버리고, null 원소 · 빠진 칸은
-/// 비워 둬 Core 가 거절하게 한다. 꼴이 다른 값은 .NET 의 글로 거절한다([`dotnet_json`]) — 생성자로 짓는 기록이라 칸의 꼴이
-/// 틀려도 기록의 이름(`CellChange`)이 든다.
+/// 칸 고침 배열 — camelCase 이름(대소문자를 가린다)의 글 칸 다섯. 모르는 칸은 버리고, null 원소 · 빠진 칸은 비워 둬 Core 가
+/// 거절하게 한다. 꼴이 다른 값은 그 칸의 길을 대어 거절한다.
 pub(crate) fn read_changes(json: &str) -> Result<Vec<CellChange>, String> {
-    const TYPE: &str = "Pclm.Core.Storage.CellChange";
     let value: Value = serde_json::from_str(json).map_err(|e| malformed(e.to_string()))?;
     let items = match value {
         Value::Null => return Err(NOTHING_TO_DO.into()),
         Value::Array(items) => items,
-        _ => return Err(dotnet_json::not_converted(json, &[], &format!("{TYPE}[]"))),
+        _ => return Err(wrong_shape("$")),
     };
     items
         .iter()
@@ -414,16 +375,12 @@ pub(crate) fn read_changes(json: &str) -> Result<Vec<CellChange>, String> {
             let map = match item {
                 Value::Object(map) => map,
                 Value::Null => return Ok(CellChange::default()),
-                _ => return Err(dotnet_json::not_converted(json, &[Step::Index(i)], TYPE)),
+                _ => return Err(wrong_shape(&format!("$[{i}]"))),
             };
             let text = |map: &Map<String, Value>, key: &str| match map.get(key) {
                 None | Some(Value::Null) => Ok(None),
                 Some(Value::String(s)) => Ok(Some(s.clone())),
-                Some(_) => Err(dotnet_json::not_converted(
-                    json,
-                    &[Step::Index(i), Step::Key(key.into())],
-                    TYPE,
-                )),
+                Some(_) => Err(wrong_shape(&format!("$[{i}].{key}"))),
             };
             Ok(CellChange {
                 row_key: text(map, "rowKey")?,
@@ -436,7 +393,7 @@ pub(crate) fn read_changes(json: &str) -> Result<Vec<CellChange>, String> {
         .collect()
 }
 
-/// C# `SampleKeys` — 보표의 표본 열쇠(JSON 글 배열). 비었으면 `None`(최신 문서 셋).
+/// 보표의 표본 열쇠(JSON 글 배열). 비었으면 `None`(최신 문서 셋).
 pub(crate) fn sample_keys(json: Option<&str>) -> Result<Option<Vec<String>>, String> {
     let Some(json) = json.filter(|j| !j.is_empty()) else {
         return Ok(None);
@@ -444,7 +401,7 @@ pub(crate) fn sample_keys(json: Option<&str>) -> Result<Option<Vec<String>>, Str
     string_array(json).map_err(|_| "표본 열쇠 형식이 올바르지 않습니다.".to_string())
 }
 
-/// `JsonSerializer.Deserialize<string[]>(json)` — JSON 의 null 이면 `None`. 글이 아닌 원소는 거절한다.
+/// JSON 글 배열로 읽는다 — JSON 의 null 이면 `None`. 글이 아닌 원소는 거절한다.
 pub(crate) fn string_array(json: &str) -> Result<Option<Vec<String>>, ()> {
     match serde_json::from_str::<Value>(json).map_err(|_| ())? {
         Value::Null => Ok(None),

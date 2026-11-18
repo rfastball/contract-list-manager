@@ -99,6 +99,29 @@ describe("App", () => {
     }
   });
 
+  it("창으로 돌아와도 판이 같으면 다시 읽지 않고, 바뀌었으면 타이머를 기다리지 않고 읽는다", async () => {
+    let version = 0;
+    부름.mockImplementation(async (method, args) => method === "dataVersion" ? version : 본디(method, args));
+    const 다시읽기 = () => 부름.mock.calls.map(c => c[0]).filter(m => m === "sheet" || m === "dashboard" || m === "outline");
+    vi.useFakeTimers();
+    try {
+      render(<App />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(screen.getByRole("table", { name: "단계별 조달 자료" })).toBeTruthy();
+      부름.mockClear();
+      await act(async () => { fireEvent.focus(window); await vi.advanceTimersByTimeAsync(50); });
+      expect(부름).toHaveBeenCalledWith("dataVersion", []);
+      expect(다시읽기()).toEqual([]);
+
+      version++;
+      await act(async () => { fireEvent.focus(window); await vi.advanceTimersByTimeAsync(50); });
+      expect(다시읽기()).toContain("dashboard");
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
   it("늦은 조회와 오류가 다른 탭의 자료를 덮지 않고 실패한 조회를 재시도한다", async () => {
     const user = userEvent.setup();
     let finish!: (value: unknown) => void;
@@ -304,14 +327,12 @@ describe("App", () => {
   });
 
   /**
-   * 계획·현황은 동결되어 탐색에 나오지 않는다. 기본 탭은 통합 그대로다.
-   * 방향키·Home·End 는 보이는 차례를 그대로 따른다.
+   * 기본 탭은 통합이다. 방향키·Home·End 는 보이는 차례를 그대로 따른다.
    */
   it("활성 자료 탭만 키보드로 선택하고 처음으로 돌아온다", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    // 숨긴 계획·현황은 방향키·Home·End로도 닿지 않는다.
     const tabs = await screen.findAllByRole("tab");
     expect(tabs.map((t) => t.id)).toEqual(
       ["tab-통합", "tab-나라장터", "tab-접수", "tab-공고", "tab-계약"]);
@@ -339,16 +360,6 @@ describe("App", () => {
     await user.keyboard("{ArrowUp}");
     expect(document.activeElement).toBe(tabs[4]);
     expect(tabs[4].getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("통합은 표로도 볼 수 있다", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "표" }));
-
-    // 표에는 머리글이 선다. 구조 보기에는 없던 것이다.
-    expect(await screen.findByRole("columnheader", { name: /계약번호/ })).toBeTruthy();
   });
 
   it("계약 탭은 계약 뷰를 열고 손으로 채우는 열이 붙는다", async () => {
@@ -384,6 +395,7 @@ describe("App", () => {
 
     // 이 열은 통합이 접수에서 붙여 오는 것이다.
     expect(await screen.findByRole("columnheader", { name: "조달요구번호" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /계약번호/ })).toBeTruthy();
     expect(부름).toHaveBeenCalledWith("sheet", ["v_통합"]);
   });
 
@@ -523,11 +535,11 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
     const sidebar = within(screen.getByRole("complementary", { name: "작업 탐색" }));
-    const 자리 = sidebar.getByRole("button", { name: "보기 만들기" });
+    const 자리 = sidebar.getByRole("button", { name: "뷰 만들기" });
     expect(자리.closest(".sidebar-review")).toBeNull();
     await user.click(자리);
-    const 영역 = within(await screen.findByRole("main", { name: "내 보기" }));
-    const 이름 = await 영역.findByRole("textbox", { name: "보기 이름" });
+    const 영역 = within(await screen.findByRole("main", { name: "뷰" }));
+    const 이름 = await 영역.findByRole("textbox", { name: "뷰 이름" });
     expect(이름).toHaveProperty("value", "");
     await waitFor(() => expect(document.activeElement).toBe(이름));
     expect(document.getElementById("workspace")!.hidden).toBe(true);
@@ -541,39 +553,39 @@ describe("App", () => {
     await user.click(screen.getByRole("tab", { name: /^공고/ }));
     await user.click(저장됨);
     expect(await screen.findByRole("grid", { name: "자료 목록" })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "보기 이름" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "보기 편집" }));
-    expect(await screen.findByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "월간보고");
-    await user.clear(screen.getByRole("textbox", { name: "보기 이름" }));
-    await user.type(screen.getByRole("textbox", { name: "보기 이름" }), "분기보고");
+    expect(screen.queryByRole("textbox", { name: "뷰 이름" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "뷰 편집" }));
+    expect(await screen.findByRole("textbox", { name: "뷰 이름" })).toHaveProperty("value", "월간보고");
+    await user.clear(screen.getByRole("textbox", { name: "뷰 이름" }));
+    await user.type(screen.getByRole("textbox", { name: "뷰 이름" }), "분기보고");
     await user.click(screen.getByRole("button", { name: "저장" }));
     expect(await sidebar.findByRole("button", { name: "분기보고" })).toBeTruthy();
     expect(sidebar.queryByRole("button", { name: "월간보고" })).toBeNull();
     await user.click(sidebar.getByRole("button", { name: "계약서류" }));
-    await user.click(await screen.findByRole("button", { name: "보기 편집" }));
-    expect(await screen.findByRole("textbox", { name: "보기 이름" })).toHaveProperty("value", "계약서류");
-    await user.type(screen.getByRole("textbox", { name: "보기 이름" }), "수정");
+    await user.click(await screen.findByRole("button", { name: "뷰 편집" }));
+    expect(await screen.findByRole("textbox", { name: "뷰 이름" })).toHaveProperty("value", "계약서류");
+    await user.type(screen.getByRole("textbox", { name: "뷰 이름" }), "수정");
 
     await user.click(screen.getByRole("tab", { name: /^공고/ }));
-    const guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 보기 변경" }));
+    const guard = within(await screen.findByRole("dialog", { name: "저장하지 않은 뷰 변경" }));
     await user.click(guard.getByRole("button", { name: "변경 버리기" }));
-    await waitFor(() => expect(screen.queryByRole("main", { name: "내 보기" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("main", { name: "뷰" })).toBeNull());
     expect(document.getElementById("workspace")!.hidden).toBe(false);
     사용자뷰초기화();
   });
 
-  it("「내 보기 다시 불러오기」 는 빈 「보기 만들기」 가 아니라 첫 보기를 연다", async () => {
+  it("「뷰 다시 불러오기」 는 빈 「뷰 만들기」 가 아니라 첫 보기를 연다", async () => {
     let 실패 = true;
     부름.mockImplementation((method, args) => method === "userViews" && 실패 ? Promise.reject(new Error("보기를 읽지 못했습니다")) : 본디(method, args));
     const user = userEvent.setup();
     render(<App />);
     const sidebar = within(screen.getByRole("complementary", { name: "작업 탐색" }));
-    const 다시 = await sidebar.findByRole("button", { name: "내 보기 다시 불러오기" });
+    const 다시 = await sidebar.findByRole("button", { name: "뷰 다시 불러오기" });
     실패 = false;
     await user.click(다시);
-    const 영역 = within(await screen.findByRole("main", { name: "내 보기" }));
+    const 영역 = within(await screen.findByRole("main", { name: "뷰" }));
     expect(await 영역.findByRole("heading", { level: 1, name: "공고문서" })).toBeTruthy();
-    expect(영역.queryByRole("textbox", { name: "보기 이름" })).toBeNull();
+    expect(영역.queryByRole("textbox", { name: "뷰 이름" })).toBeNull();
     expect(await sidebar.findByRole("button", { name: "공고문서" })).toBeTruthy();
   });
 
@@ -585,8 +597,6 @@ describe("App", () => {
 
     // 경로 구분자는 정규식 이스케이프에 걸리므로 양끝만 본다.
     expect(await screen.findByText(/AppData.+계약자료\.pclm/)).toBeTruthy();
-    // 작업자료를 가리키는 홈도 함께 적는다 — 쪽지·백업·확장 연결이 거기 있다.
-    expect(await screen.findByText(/홈 C:.+Pclm/)).toBeTruthy();
   });
 
   /**
@@ -604,21 +614,6 @@ describe("App", () => {
     expect(await screen.findByRole("dialog", { name: "작업자료 옮기기" })).toBeTruthy();
     expect(부름.mock.calls.map(([m]) => m)).not.toContain("moveWorkfile");
     expect(부름.mock.calls.map(([m]) => m)).not.toContain("moveDataLocation");
-  });
-
-  it("설정에서 제출자 이름을 고친다", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "설정" }));
-
-    const dialog = await screen.findByRole("dialog", { name: "설정" });
-    const 이름 = within(dialog).getByLabelText("제출자 이름");
-    await user.clear(이름);
-    await user.type(이름, "김철수");
-
-    await user.click(within(dialog).getByRole("button", { name: "저장" }));
-    expect(await screen.findByText("설정을 저장했습니다.")).toBeTruthy();
   });
 
   // ── 찾기 단축키 ──────────────────────────────────────
@@ -702,7 +697,6 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: /^입력열\. / }).textContent).toBe(":");
     const preview = within(await screen.findByRole("region", { name: "목록 미리보기" }));
     expect(await preview.findByRole("columnheader", { name: "담당" })).toBeTruthy();
-    expect(preview.getByText(/새 열은 사용자 열 맨 뒤에 붙습니다/)).toBeTruthy();
     await user.type(screen.getByLabelText("입력해 보기"), "미리보기 담당자");
     expect(preview.getAllByText("미리보기 담당자").length).toBeGreaterThan(0);
     expect(부름.mock.calls.some(([method]) => method === "setField" || method === "addColumn")).toBe(false);

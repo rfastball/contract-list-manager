@@ -1,12 +1,11 @@
 //! 창의 일 — 이 창이 무엇을 여는가 · 다른 자료 열어 보기 · 판과 고지 · 창의 몸가짐(알림 영역 · 자동 실행) · 확장 설정 화면
-//! (C# `Bridge` 의 `Session` · `OpenOther` · `About` · `ReadWindowPrefs` · `SaveWindowPrefs` 와 `ExtensionSetup.cs`).
 //!
 //! 운영체제에 하는 일은 모두 [`Os`] 를 거친다. 무엇을 언제 하는지(업무 홈이 아니면 등록부를 고치지 않는다)는 여기서 정한다.
 
 use std::path::{Path, PathBuf};
 
 use pclm_core::storage::pclm_file::PclmRole;
-use pclm_home::dotnet;
+use pclm_home::paths;
 use pclm_home::window_prefs::WindowPrefs;
 use pclm_host::HOST_NAME;
 use serde_json::Value;
@@ -16,7 +15,7 @@ use crate::os::{Os, RegistryRoot, RegistryValue, SpecialFolder};
 use crate::{Bridge, autostart, core, object, path_text, text_or_null};
 
 impl Bridge<'_> {
-    /// C# `Session` — 이 창이 무엇을 열고 있는가. 화면은 이것으로 띠를 띄우고 편집 칸을 잠근다(ADR-031 넷째 겹).
+    /// 이 창이 무엇을 열고 있는가. 화면은 이것으로 띠를 띄우고 편집 칸을 잠근다(ADR-031 넷째 겹).
     pub(crate) fn session(&self) -> Value {
         let role = self
             .viewing
@@ -31,7 +30,7 @@ impl Bridge<'_> {
         ])
     }
 
-    /// C# `OpenOther` — 다른 자료를 **새 창(새 프로세스)**으로 열어 본다(ADR-031). 홈과 화면의 자리를 함께 넘긴다.
+    /// 다른 자료를 **새 창(새 프로세스)**으로 열어 본다(ADR-031). 홈과 화면의 자리를 함께 넘긴다.
     pub(crate) fn open_other(&self) -> Result<Value, String> {
         let prompt = crate::OpenPrompt {
             title: "열어 볼 자료 고르기".into(),
@@ -40,12 +39,12 @@ impl Bridge<'_> {
         let Some(picked) = self.host.pick_open_file(&prompt).filter(|p| !p.is_empty()) else {
             return Ok(Value::Null);
         };
-        let full = dotnet::full_path(&picked).map_err(|e| core(e.into()))?;
+        let full = paths::full_path(&picked).map_err(|e| core(e.into()))?;
         let full_text = path_text(&full);
 
         // 내 작업자료는 이미 이 창이 쓰고 있다. 열람 창을 띄우면 같은 파일을 두 창이 보며 한쪽은 낡는다.
         if self.viewing.is_none()
-            && dotnet::eq_ignore_case(&full_text, &path_text(self.database.path()))
+            && paths::eq_ignore_case(&full_text, &path_text(self.database.path()))
         {
             return Err(format!(
                 "지금 이 창에서 쓰고 있는 작업자료입니다: {full_text}"
@@ -54,7 +53,7 @@ impl Bridge<'_> {
         // 열람 창에서 내 작업자료를 골랐으면 새 창이 서지 않는다 — 본 창을 부른다.
         if self.viewing.is_some() && self.home.is_active_workfile(&full) {
             return Err(if self.os.signal_activation(&self.home.activation_name()) {
-                format!("지금 작업자료입니다 — 본 창을 앞으로 불렀습니다. 본 창에서 보세요: {full_text}")
+                format!("지금 작업자료입니다 — 본 창을 앞으로 불렀습니다: {full_text}")
             } else {
                 format!("지금 작업자료입니다 — 본 창에서 보세요: {full_text}")
             });
@@ -79,7 +78,7 @@ impl Bridge<'_> {
         Ok(object([("path", Value::String(full_text))]))
     }
 
-    /// C# `ReadWindowPrefs` — 알림 영역 두기는 홈의 `window.json` 에, 자동 실행은 등록부에 있다.
+    /// 알림 영역 두기는 홈의 `window.json` 에, 자동 실행은 등록부에 있다.
     pub(crate) fn read_window_prefs(&self) -> Value {
         let unavailable = autostart::unavailable(self.os, self.is_default_home);
         let copy_target = if unavailable.is_none() {
@@ -99,7 +98,7 @@ impl Bridge<'_> {
         ])
     }
 
-    /// C# `SaveWindowPrefs` — 적고 곧바로 세운다. 자동 실행을 걸 수 없는 자리에서 바꾸려 하면 **아무것도 적기 전에** 거절한다.
+    /// 적고 곧바로 세운다. 자동 실행을 걸 수 없는 자리에서 바꾸려 하면 **아무것도 적기 전에** 거절한다.
     pub(crate) fn save_window_prefs(
         &self,
         close_to_tray: bool,
@@ -124,7 +123,7 @@ impl Bridge<'_> {
     }
 }
 
-/// C# `About` — 판과 라이선스. 배포물은 exe 하나라 고지를 안에 박아 둔다.
+/// 판과 라이선스. 배포물은 exe 하나라 고지를 안에 박아 둔다.
 pub(crate) fn about() -> Value {
     object([
         ("version", Value::String(env!("CARGO_PKG_VERSION").into())),
@@ -136,17 +135,23 @@ pub(crate) fn about() -> Value {
 const LICENSE: &str = include_str!("../../../LICENSE");
 const NOTICES: &str = include_str!("../../../THIRD-PARTY-NOTICES.txt");
 
-/// `StreamReader(stream, Encoding.UTF8)` 는 머리표를 먹는다.
+/// 글 앞의 UTF-8 머리표(BOM)를 걷는다.
 fn strip_bom(text: &str) -> &str {
     text.strip_prefix('\u{feff}').unwrap_or(text)
 }
 
-/// C# `ExtensionSetup.Prepare` — 확장을 업무 홈에 꺼내고, 두 브라우저의 HKCU 등록부에 호스트 쪽지의 자리를 적는다.
+/// 확장을 업무 홈에 꺼내고, 두 브라우저의 HKCU 등록부에 호스트 쪽지의 자리를 적는다. 압축 안(임시 폴더)에서 켠 exe 면
+/// **아무것도 적기 전에** 거절한다 — 쪽지가 곧 지워질 exe 를 가리키게 된다.
 pub(crate) fn prepare_extension(os: &dyn Os) -> Result<Prepared, String> {
     let home = os.default_home().map_err(|e| core(e.into()))?;
     let exe = os
         .process_path()
-        .ok_or("Value cannot be null. (Parameter 'path')")?;
+        .ok_or("이 실행 파일의 자리를 알 수 없습니다.")?;
+    if autostart::in_temp(os, &exe) {
+        return Err(
+            "압축 파일 안에서 켠 프로그램이라 확장을 준비할 수 없습니다. 계속 둘 폴더에 풀어 켠 뒤 다시 하세요.".into(),
+        );
+    }
     let prepared = bundled::prepare(&home, &exe)?;
     for browser in [r"Google\Chrome", r"Microsoft\Edge"] {
         os.registry_set_string(
@@ -159,9 +164,9 @@ pub(crate) fn prepare_extension(os: &dyn Os) -> Result<Prepared, String> {
     Ok(prepared)
 }
 
-/// 창이 시작할 때 부른다(C# `App` 의 `ExtensionSetup.Refresh` · `Autostart.Refresh`) — **업무 홈일 때만.** 이미 꺼내 둔 내장
+/// 창이 시작할 때 부른다— **업무 홈일 때만.** 이미 꺼내 둔 내장
 /// 확장을 이 판으로 고치고, 걸려 있는 자동 실행이 이 exe 를 가리키게 한다. 창을 막을 일이 아니라 실패는 삼킨다 — 고치지
-/// 못했으면 설정 패널의 확장 상태가 옛 판을 드러낸다.
+/// 못했으면 설정 패널의 확장 상태가 옛 판을 드러낸다. 압축 안에서 켠 exe 면 확장 쪽은 [`prepare_extension`] 이 거절해 손대지 않는다.
 pub fn refresh_installation(os: &dyn Os, is_default_home: bool) {
     if !is_default_home {
         return;
@@ -184,7 +189,7 @@ pub(crate) fn process_name(target: &str) -> Result<&'static str, String> {
     }
 }
 
-/// C# `ExtensionSetup.Open` — 확장 폴더를 탐색기로, 또는 브라우저의 확장 관리 화면을 새 창으로. 브라우저는 명령줄로 받은
+/// 확장 폴더를 탐색기로, 또는 브라우저의 확장 관리 화면을 새 창으로. 브라우저는 명령줄로 받은
 /// `chrome://`·`edge://` 주소를 막고 새 탭만 열므로, 새 창을 띄우고 그 창의 주소창에 적어 넣는다.
 pub(crate) fn open_extension_setup(os: &dyn Os, target: &str) -> Result<Value, String> {
     let io = |e: std::io::Error| core(e.into());

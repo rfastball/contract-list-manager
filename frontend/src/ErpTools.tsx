@@ -123,13 +123,12 @@ export function ErpTools({ onChanged, startOpen = false, focusRequest = 0 }: {
         </div>)}
       </details>}
       <details><summary>수집 경로·키·코드 대응 JSON 편집</summary>
-        <p className="hint">fields 필드 대응 · tables 표와 행 키 (totalSelector 는 옛 매핑 호환용으로 남아 있고 읽지 않는다)</p>
         <textarea aria-label="매핑 JSON" rows={16} value={json} onChange={e => { setJson(e.target.value); invalidate(); }}/>
       </details>
       <div className="row">
-        <button className="action" type="button" onClick={() => void work(async () => { await run("saveMapping", { json }); setConfig(await run("list")); setMessage("편집본을 저장했습니다. 샘플 검증 후 활성화하세요."); })}>편집본 저장</button>
-        <button className="action" type="button" disabled={!source} onClick={() => void work(async () => { const result = await run<{ rows: unknown[] }>("sample", { json, profile, data: JSON.parse(source) }); setConfig(await run("list")); setMessage(`샘플 변환 ${result.rows.length}행 확인. 업무자료는 변경하지 않았습니다.`); })}>샘플로 검증</button>
-        <button className="action" type="button" onClick={() => void work(async () => { const revision = await run<string>("saveMapping", { json }); setConfig(await run("activateMapping", { revision })); invalidate(); setMessage("매핑을 활성화했습니다. 확장에서 다시 확인하세요."); })}>검증한 매핑 활성화</button>
+        <button className="action" type="button" onClick={() => void work(async () => { await run("saveMapping", { json }); setConfig(await run("list")); setMessage("편집본을 저장했습니다."); })}>편집본 저장</button>
+        <button className="action" type="button" disabled={!source} onClick={() => void work(async () => { const result = await run<{ rows: unknown[] }>("sample", { json, profile, data: JSON.parse(source) }); setConfig(await run("list")); setMessage(`샘플 변환 ${result.rows.length}행 확인.`); })}>샘플로 검증</button>
+        <button className="action" type="button" onClick={() => void work(async () => { const revision = await run<string>("saveMapping", { json }); setConfig(await run("activateMapping", { revision })); invalidate(); setMessage("매핑을 활성화했습니다."); })}>검증한 매핑 활성화</button>
       </div>
       <label className="field"><span className="label sub">저장 버전</span><select defaultValue="" onChange={e => { const v = config?.versions.find(v => v.revision === e.target.value); if (v) { setJson(v.json); invalidate(); } }}>
         <option value="">버전 선택</option>{config?.versions.map(v => <option key={v.revision} value={v.revision}>{v.created_at} {v.active ? "활성" : v.validated ? "검증됨" : "편집본"}</option>)}

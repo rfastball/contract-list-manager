@@ -1,5 +1,6 @@
 import type { Clause, Flow, FlowEnv, LinkKind, Step } from "./ast";
 import { checkFlow, placeholders } from "./check";
+import { formatValue, parseCode, type Code } from "./format";
 
 /**
  * 흐름식을 TypeScript 로 돈다. <b>목업 다리만 쓴다</b>(§9) — 진짜 앱은 같은 식을 SQL 로 컴파일해 SQLite 가 돈다.
@@ -34,15 +35,23 @@ export const toNumber = (s: string): number | null => {
   if (!t || !/^[-+]?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
   return Number(t);
 };
+/** 글 → 날짜(<code>YYYY-MM-DD</code>). 뒤가 <code> HH:MM</code> · <code> HH:MM:SS</code> 꼴의 올바른 시각이면 <code>YYYY-MM-DD HH:MM:SS</code> 로 지니고, 다른 꼬리는 버린다. */
 export const toDate = (s: string): string | null => {
   const t = s.slice(0, 10).replace(/\//g, "-");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
   const d = new Date(`${t}T00:00:00Z`);
-  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t ? null : t;
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return null;
+  const m = /^ (\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s.slice(10));
+  return m && m[1] <= "23" && m[2] <= "59" && (m[3] ?? "00") <= "59" ? `${t} ${m[1]}:${m[2]}:${m[3] ?? "00"}` : t;
 };
+/** 이 기계의 오늘(<code>YYYY-MM-DD</code>) — SQL 의 <code>date('now', 'localtime')</code>. */
+export function today(): string {
+  const now = new Date(), two = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+}
 const clean = (n: number) => Number(n.toPrecision(15));
 export const plain = (n: number) => String(clean(n));
-export function thousands(n: number): string {
+function thousands(n: number): string {
   const t = Math.trunc(n);
   const s = String(Math.abs(t)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return t < 0 ? `-${s}` : s;
@@ -81,17 +90,13 @@ function fill(text: string, r: Row | null) {
   return text.replace(/\{([^{}]+)\}/g, (_, f: string) => r?.[f] ?? "");
 }
 
+/** 날짜를 옮기고 지닌 시각은 그대로 붙여 둔다. */
 function datePlus(d: string, n: number, unit: Step["unit"]): string {
-  const x = new Date(`${d}T00:00:00Z`);
+  const x = new Date(`${d.slice(0, 10)}T00:00:00Z`);
   if (unit === "year") x.setUTCFullYear(x.getUTCFullYear() + n);
   else if (unit === "month") x.setUTCMonth(x.getUTCMonth() + n);
   else x.setUTCDate(x.getUTCDate() + n);
-  return x.toISOString().slice(0, 10);
-}
-
-function dateText(d: string, fmt: string): string {
-  const [y, m, day] = d.split("-");
-  return fmt.replace(/YYYY|MM|M|DD|D/g, t => ({ YYYY: y, MM: m, M: String(Number(m)), DD: day, D: String(Number(day)) })[t]!);
+  return x.toISOString().slice(0, 10) + d.slice(10);
 }
 
 /** 단계 하나. 꼴은 검사가 이미 맞춰 두었다. dropped·blank 는 보표의 꼬리. */
@@ -141,6 +146,7 @@ function apply(step: Step, v: V, input: EvalInput): { v: V; dropped?: number; bl
       return { v: v.k === "rows" ? { k: "row", row: (x as Row) ?? null } : { k: "value", text: (x as string) ?? "" } };
     }
     case "format": {
+      if (v.k === "number" || v.k === "date") return { v: { k: "value", text: formatValue(parseCode(step.text ?? "", v.k === "date") as Code, v.k === "number" ? v.n : v.d) } };
       const ph = placeholders(step.text ?? "") as string[];
       const hole = (r: Row | null) => ph.some(f => !(r?.[f] ?? ""));
       if (v.k === "row") return { v: { k: "value", text: v.row ? fill(step.text ?? "", v.row) : "" } };
@@ -204,7 +210,6 @@ function apply(step: Step, v: V, input: EvalInput): { v: V; dropped?: number; bl
       case "div": { const b = scalarArg(); return num(n === null || b === null || b === 0 ? null : n / b); }
       case "round": { const p = 10 ** (step.n ?? 0); return num(n === null ? null : Math.sign(n) * Math.round(Math.abs(n) * p) / p); }
       case "floor": { const p = 10 ** (step.n ?? 0); return num(n === null ? null : Math.floor(n * p) / p); }
-      case "thousands": return { v: { k: "value", text: n === null ? "" : thousands(n) } };
       case "plain": return { v: { k: "value", text: n === null ? "" : plain(n) } };
     }
   }
@@ -214,12 +219,12 @@ function apply(step: Step, v: V, input: EvalInput): { v: V; dropped?: number; bl
       case "dateAdd": return { v: { k: "date", d: d === null ? null : datePlus(d, step.n ?? 0, step.unit) } };
       case "dateDiff": {
         const other = toDate(base(step.field ?? ""));
-        return { v: { k: "number", n: d === null || other === null ? null : Math.round((Date.parse(d) - Date.parse(other)) / 86_400_000) } };
+        // 날짜 부분만으로 센다.
+        return { v: { k: "number", n: d === null || other === null ? null : Math.round((Date.parse(d.slice(0, 10)) - Date.parse(other.slice(0, 10))) / 86_400_000) } };
       }
       case "year": return { v: { k: "number", n: d === null ? null : Number(d.slice(0, 4)) } };
       case "month": return { v: { k: "number", n: d === null ? null : Number(d.slice(5, 7)) } };
       case "quarter": return { v: { k: "number", n: d === null ? null : Math.floor((Number(d.slice(5, 7)) - 1) / 3) + 1 } };
-      case "dateFormat": return { v: { k: "value", text: d === null ? "" : dateText(d, step.text ?? "") } };
     }
   }
   throw new Error(`이 꼴에서 돌 수 없는 연산: ${step.op}`);
@@ -237,12 +242,12 @@ function show(v: V, dropped?: number, blank?: number): TraceValue {
   }
 }
 
-/** 열에 찍힐 글(§4.6). 수는 정수면 천단위, 소수는 그대로. 날짜는 YYYY/MM/DD. */
+/** 열에 찍힐 글(§4.6). 수는 정수면 천단위, 소수는 그대로. 날짜는 YYYY/MM/DD(지닌 시각은 찍지 않는다). */
 function finalText(v: V): string {
   switch (v.k) {
     case "value": return v.text;
     case "number": return v.n === null ? "" : Number.isInteger(clean(v.n)) ? thousands(clean(v.n)) : plain(v.n);
-    case "date": return v.d === null ? "" : v.d.replace(/-/g, "/");
+    case "date": return v.d === null ? "" : v.d.slice(0, 10).replace(/-/g, "/");
     default: return "";
   }
 }
@@ -261,6 +266,7 @@ export function evaluate(flow: Flow, env: FlowEnv, input: EvalInput): Evaluated 
     case "field": v = { k: "value", text: input.row[from.field] ?? "" }; break;
     case "text": v = { k: "value", text: from.text }; break;
     case "number": v = { k: "number", n: from.value }; break;
+    case "today": v = { k: "date", d: today() }; break;
     case "linked": {
       const doc = input.linked[from.link] ?? null;
       if (env.linked[from.link]?.many) { v = { k: "rows", rows: Array.isArray(doc) ? doc : doc ? [doc.row] : [] }; break; }

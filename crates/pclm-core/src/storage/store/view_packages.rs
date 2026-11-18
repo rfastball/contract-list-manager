@@ -1,7 +1,7 @@
-//! C# `StoreViewPackages.cs` — 보기 구성(맞춤 뷰 몇 개와 그것이 읽는 맞춤 열)을 파일로 내보내고, 미리 보고, 가져온다.
-//! 판올림과 빈 작업자료 짓기가 부르는 서식용 예시 보기 심기·갈아 끼우기도 여기 있다.
+//! 보기 구성(맞춤 뷰 몇 개와 그것이 읽는 맞춤 열)을 파일로 내보내고, 미리 보고, 가져온다.
+//! 판올림이 부르는 옛 예시 보기 심기·갈아 끼우기·걷기와, 쓰기로 열 때마다 부르는 「문서 서식」 맞추기도 여기 있다.
 //!
-//! 구성 파일은 `PackageJson`(= `Flow.Json` + 모르는 속성 거절 + 들여쓰기)으로 쓰고 읽는다. 가져오기는 미리보기와 같은
+//! 구성 파일은 `PackageJson`(= 가공식 저장 꼴 + 모르는 속성 거절 + 들여쓰기)으로 쓰고 읽는다. 가져오기는 미리보기와 같은
 //! 일을 한 트랜잭션에서 실제로 해 본 뒤, 미리보기의 지문(`token`)이 같을 때만 커밋한다.
 
 use std::collections::{HashSet, VecDeque};
@@ -16,7 +16,7 @@ use super::user_views::{
 };
 use super::{
     Store, begin_deferred, check_free, check_kind, clean_name, object, pack, query,
-    read_user_columns, refuse_read, single_or_default, text_of,
+    refuse_read, scalar_i64, single_or_default, text_of,
 };
 use crate::env::Env;
 use crate::error::{Error, Result};
@@ -28,25 +28,37 @@ use crate::storage::sql_column::{self, Frame};
 use crate::storage::{computed_column, user_view_builder};
 use crate::text::{cmp_ordinal, ignore_case_key, utf16_len, utf16_prefix};
 
-/// `Store.BuiltinViewPackage` — exe 에 실린 서식용 예시 보기 구성(docs/user-views.md §13). `presets/` 의
+/// exe 에 실린 「문서 서식」 보기 구성(docs/user-views.md §13). `presets/` 의
 /// 파일을 그 자리에서 읽어 넣는다 — 두 벌로 옮겨 적지 않는다(화면의 목업도 같은 파일을 읽는다).
 pub fn builtin_view_package() -> &'static str {
     include_str!("../presets/builtin-views.json")
 }
+
+/// 「문서 서식」 줄의 `user_view.id`. 패널이 읽는 줄이라 이름이 아니라 이것으로 가린다(ADR-050 · 052).
+pub const DOCUMENT_VIEW_ID: &str = "pclm-document-view";
+
+/// `app_setting` 의 열쇠 — 사람이 「문서 서식」 을 고쳐 저장했다는 표시. 서 있으면 열 때 exe 의 정의로 맞추지 않는다(ADR-052).
+pub(crate) const DOCUMENT_VIEW_EDITED: &str = "document_view_edited";
 
 /// `Store.ExampleViewPackageV26` — 스키마 26 이 심었던 예시 보기를 얼려 둔 사본. 고치지 않는다.
 pub fn example_view_package_v26() -> &'static str {
     include_str!("../presets/example-view-v26.json")
 }
 
-/// C# `Store.ViewPackageView(Name, Definition)` — 보기 구성 안의 보기 하나.
+/// 스키마 34 직전의 「서식용 예시」 구성을 얼려 둔 사본. 고치지 않는다 — 스키마 27 이 이것으로 갈아 끼우고, 34 가
+/// 이것과 같은 줄만 걷는다.
+pub fn example_view_package_v33() -> &'static str {
+    include_str!("../presets/example-view-v33.json")
+}
+
+/// 보기 구성 안의 보기 하나.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewPackageView {
     pub name: Option<String>,
     pub definition: Value,
 }
 
-/// C# `Store.ViewPackageColumn(EntityType, FieldName, Kind, Choices, Formula)` — 보기가 읽는 맞춤 열 하나. 자리마다
+/// 보기가 읽는 맞춤 열 하나. 자리마다
 /// `Option` 인 것은 파일에서 빠지거나 `null` 로 올 수 있어서다 — 그것을 가르는 것은 가져오기의 검사다.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ViewPackageColumn {
@@ -57,7 +69,7 @@ pub struct ViewPackageColumn {
     pub formula: Option<Value>,
 }
 
-/// C# `Store.ViewPackage(Format, Version, IncludesAllColumnsForSql, Views, Columns)`. 열 원소가 `null` 일 수 있다.
+/// 보기 구성 한 벌. 열 원소가 `null` 일 수 있다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewPackage {
     pub format: Option<String>,
@@ -67,14 +79,14 @@ pub struct ViewPackage {
     pub columns: Vec<Option<ViewPackageColumn>>,
 }
 
-/// C# `Store.ViewPackagePlannedView(Name, ImportName)` — 가져오면 설 보기(겹치면 「(복사본)」 이름).
+/// 가져오면 설 보기(겹치면 「(복사본)」 이름).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewPackagePlannedView {
     pub name: String,
     pub import_name: String,
 }
 
-/// C# `Store.ViewPackagePlannedColumn(EntityType, FieldName, Action)` — `add`·`reuse`·`conflict`.
+/// 가져올 열 하나의 처리 — `add`·`reuse`·`conflict`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewPackagePlannedColumn {
     pub entity_type: String,
@@ -82,7 +94,7 @@ pub struct ViewPackagePlannedColumn {
     pub action: String,
 }
 
-/// C# `Store.ViewPackagePreview` — 미리보기. `token` 은 이 미리보기의 지문이다(가져오기가 견준다).
+/// 미리보기. `token` 은 이 미리보기의 지문이다(가져오기가 견준다).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewPackagePreview {
     pub views: Vec<ViewPackagePlannedView>,
@@ -146,7 +158,7 @@ impl ViewPackagePreview {
     }
 }
 
-/// `ViewPackage` 를 `Flow.Json`(`WhenWritingNull`) 꼴의 값으로 — 빈 자리는 적지 않는다.
+/// `ViewPackage` 를 저장 꼴(빈 자리 생략)의 값으로 — 빈 자리는 적지 않는다.
 fn package_value(package: &ViewPackage) -> Value {
     let mut root = Map::new();
     if let Some(format) = &package.format {
@@ -208,26 +220,25 @@ fn package_value(package: &ViewPackage) -> Value {
     Value::Object(root)
 }
 
-/// `Store.ReadViewPackage` — `PackageJson`(= `Flow.Json` + 모르는 속성 거절)으로 읽고 판·수를 본다.
+/// `PackageJson`(= 가공식 저장 꼴 + 모르는 속성 거절)으로 읽고 판·수를 본다.
 pub fn read_view_package(json: &str) -> Result<ViewPackage> {
     let bad_json = || {
         Error::invalid(
-            "보기 구성 JSON 형식이 올바르지 않습니다. 자료가 아닌 구성 파일을 골라 주세요.",
+            "뷰 구성 JSON 형식이 올바르지 않습니다. 자료가 아닌 구성 파일을 골라 주세요.",
         )
     };
     if utf16_len(json) > 2_000_000 {
         return Err(Error::invalid(
-            "보기 구성 파일은 2MB까지 가져올 수 있습니다.",
+            "뷰 구성 파일은 2MB까지 가져올 수 있습니다.",
         ));
     }
     let root = json::parse(json).map_err(|_| bad_json())?;
-    // 같은 키가 두 번 든 구성 파일은 읽을 수 없는 글이다 — 뒤의 값으로 접어 읽으면 안쪽(정의·식)의 겹침이 지워져 C#(막는다)과
-    // 갈렸다.
+    // 같은 키가 두 번 든 구성 파일은 읽을 수 없는 글이다 — 뒤의 값으로 접어 읽으면 안쪽(정의·식)의 겹침이 지워진다.
     if json::has_duplicate_keys(json) {
         return Err(bad_json());
     }
     let package = read_package(&root).map_err(|_| bad_json())?;
-    let unsupported = || Error::invalid("지원하는 보기 구성 파일이 아닙니다(구성 판 1).");
+    let unsupported = || Error::invalid("지원하는 뷰 구성 파일이 아닙니다(구성 판 1).");
     let Some(package) = package else {
         return Err(unsupported());
     };
@@ -276,7 +287,7 @@ fn read_package(value: &Value) -> JsonResult<Option<ViewPackage>> {
             Ok(())
         },
     )?;
-    // 보기·열 목록이 없으면(null) C# 은 판 검사에서 거절한다 — 같은 말이 나가게 빈 목록 대신 0 판으로 둔다.
+    // 보기·열 목록이 없으면(null) 판 검사에서 거절한다 — 같은 말이 나가게 빈 목록 대신 0 판으로 둔다.
     let (Some(views), Some(columns)) = (views, columns) else {
         return Ok(None);
     };
@@ -290,7 +301,7 @@ fn read_package(value: &Value) -> JsonResult<Option<ViewPackage>> {
 }
 
 fn read_view(value: &Value) -> JsonResult<ViewPackageView> {
-    // 원소가 null 인 보기는 C# 에서 뒤에 NullReference 로 터진다 — 여기서는 꼴 오류로 둔다.
+    // 원소가 null 인 보기는 꼴 오류로 둔다.
     let map = read_object(value)?.ok_or(json::JsonException)?;
     let mut view = ViewPackageView {
         name: None,
@@ -321,7 +332,7 @@ fn read_column(value: &Value) -> JsonResult<Option<ViewPackageColumn>> {
                 1 => column.field_name = json::read_string(v)?,
                 2 => column.kind = json::read_string(v)?,
                 3 => column.choices = read_array(v, json::read_string)?,
-                // `JsonElement?` — JSON null 은 없는 것이다.
+                // JSON null 은 없는 것이다.
                 _ => column.formula = (!v.is_null()).then(|| v.clone()),
             }
             Ok(())
@@ -330,7 +341,7 @@ fn read_column(value: &Value) -> JsonResult<Option<ViewPackageColumn>> {
     Ok(Some(column))
 }
 
-/// 보기 하나를 `JsonSerializer.Serialize(view, Flow.Json)` 한 뒤 `ParseViewInput` 으로 읽은 것 — 이름이 없으면 빈 글.
+/// 보기 하나를 저장 꼴 JSON 으로 쓴 뒤 [`parse_view_input`] 으로 읽은 것 — 이름이 없으면 빈 글.
 fn view_input(view: &ViewPackageView) -> Result<ViewInput> {
     let mut map = Map::new();
     if let Some(name) = &view.name {
@@ -340,7 +351,7 @@ fn view_input(view: &ViewPackageView) -> Result<ViewInput> {
     parse_view_object(&map)
 }
 
-/// `StoreUserViews.StoredFormula` — 저장 꼴의 필드 식: 가공식 v2 그대로이되 식 식별자는 싣지 않는다.
+/// 저장 꼴의 필드 식: 가공식 v2 그대로이되 식 식별자는 싣지 않는다.
 pub(crate) fn stored_formula(formula: &FlowFormula) -> Result<Value> {
     let mut node = formula_value(formula)?;
     if let Value::Object(map) = &mut node {
@@ -349,7 +360,7 @@ pub(crate) fn stored_formula(formula: &FlowFormula) -> Result<Value> {
     Ok(node)
 }
 
-/// `Store.StoredDefinition` — 구성의 보기 하나를 저장 꼴 정의로(화면이 저장하는 것과 같은 꼴).
+/// 구성의 보기 하나를 저장 꼴 정의로(화면이 저장하는 것과 같은 꼴).
 pub fn stored_definition(view: &ViewPackageView) -> Result<String> {
     let input = view_input(view)?;
     let mut columns = Vec::with_capacity(input.columns.len());
@@ -370,7 +381,7 @@ pub fn stored_definition(view: &ViewPackageView) -> Result<String> {
     Ok(json::to_compact(&Value::Object(root), Encoder::Relaxed))
 }
 
-/// `Store.SameJson` — 객체 키 차례는 보지 않고 배열 차례와 값은 본다. 읽을 수 없는 글과 같은 키가 두 번 든 글은 다르다.
+/// 객체 키 차례는 보지 않고 배열 차례와 값은 본다. 읽을 수 없는 글과 같은 키가 두 번 든 글은 다르다.
 pub(crate) fn same_json(a: &str, b: &str) -> bool {
     fn canon(node: &Value) -> String {
         match node {
@@ -396,7 +407,7 @@ pub(crate) fn same_json(a: &str, b: &str) -> bool {
             other => json::to_compact(other, Encoder::Default),
         }
     }
-    // 같은 키가 두 번 든 글은 어디에 들었든 같지 않다 — 손댄 정의이고, C# 은 그것을 JsonNode 로 열다 던진다.
+    // 같은 키가 두 번 든 글은 어디에 들었든 같지 않다 — 손댄 정의라 읽을 수 없는 글이다.
     match (json::parse(a), json::parse(b)) {
         (Ok(x), Ok(y)) => {
             !json::has_duplicate_keys(a) && !json::has_duplicate_keys(b) && canon(&x) == canon(&y)
@@ -405,13 +416,13 @@ pub(crate) fn same_json(a: &str, b: &str) -> bool {
     }
 }
 
-/// `Store.SeedExampleViews` — 예시 보기를 작업자료에 심는다. 같은 이름(대소문자 무시)의 보기가 이미 있으면 그것을
-/// 두고 넘어간다. `package` 가 없으면 지금 구성([`builtin_view_package`])이다. 뷰를 짓는 것은 부르는 쪽이다.
+/// 스키마 26. 그 판의 예시 보기를 작업자료에 심는다. 같은 이름(대소문자 무시)의 보기가 이미 있으면 그것을
+/// 두고 넘어간다. 뷰를 짓는 것은 부르는 쪽이다.
 ///
-/// 보기 식별자는 C# 의 `Guid.NewGuid().ToString("N")` 자리라 [`Env::new_id`] 로 짓는다.
+/// 보기 식별자는 [`Env::new_id`] 로 짓는다.
 pub(crate) fn seed_example_views(
     connection: &Connection,
-    package: Option<&str>,
+    package: &str,
     env: &dyn Env,
 ) -> Result<()> {
     let mut taken: HashSet<String> = connection
@@ -421,7 +432,7 @@ pub(crate) fn seed_example_views(
         .iter()
         .map(|n| ignore_case_key(n))
         .collect();
-    for view in read_view_package(package.unwrap_or(builtin_view_package()))?.views {
+    for view in read_view_package(package)?.views {
         let name = view.name.clone().unwrap_or_default();
         if !taken.insert(ignore_case_key(&name)) {
             continue;
@@ -435,10 +446,10 @@ pub(crate) fn seed_example_views(
     Ok(())
 }
 
-/// `Store.UpgradeExampleViews` — 스키마 27. v26 이 심은 예시 보기를 사람이 손대지 않았으면(이름이 같고 저장된
-/// 정의가 v26 의 것과 같은 JSON) 지금 구성으로 갈아 끼운다. 고쳤거나 지웠거나 이름을 바꾼 보기는 그대로 둔다.
+/// 스키마 27. v26 이 심은 예시 보기를 사람이 손대지 않았으면(이름이 같고 저장된
+/// 정의가 v26 의 것과 같은 JSON) v33 의 구성으로 갈아 끼운다. 고쳤거나 지웠거나 이름을 바꾼 보기는 그대로 둔다.
 pub(crate) fn upgrade_example_views(connection: &Connection) -> Result<()> {
-    let current = read_view_package(builtin_view_package())?.views;
+    let current = read_view_package(example_view_package_v33())?.views;
     for old in read_view_package(example_view_package_v26())?.views {
         let Some(next) = current.iter().find(|v| v.name == old.name) else {
             continue;
@@ -461,7 +472,76 @@ pub(crate) fn upgrade_example_views(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// `Store.CopyViewName` — 이미 있는 이름이면 「(복사본)」·「(복사본 2)」… 를 붙인다. 길이 한도 안으로 앞을 자른다.
+/// 스키마 34. 사람이 손대지 않은 「서식용 예시」(이름이 같고 저장된 정의가 v33 의 것과 같은 JSON)를 걷는다 —
+/// 그 자리는 앱의 「문서 서식」 이 맡는다([`sync_document_view`]). 고친 줄은 사람의 보통 보기로 둔다.
+pub(crate) fn retire_example_views(connection: &Connection) -> Result<()> {
+    for old in read_view_package(example_view_package_v33())?.views {
+        let definition = stored_definition(&old)?;
+        let stored: Vec<(String, String)> = connection
+            .prepare("SELECT id, definition FROM user_view WHERE name = ?1")?
+            .query_map([&old.name], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, saved) in stored {
+            if same_json(&saved, &definition) {
+                connection.execute("DELETE FROM user_view WHERE id = ?1", [id])?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 「문서 서식」 줄([`DOCUMENT_VIEW_ID`])의 이름과 정의를 exe 의 것([`builtin_view_package`])으로 맞춘다. 없으면
+/// 넣고, 이미 같으면 아무것도 쓰지 않는다. 그 이름을 사람의 다른 보기가 쓰고 있으면 그 보기를 복사본 이름으로 비킨다.
+/// 쓰기로 여는 길([`crate::Database::migrate`])이 뷰를 다시 짓기 전에 부른다 — 판올림이 아니라 여는 순간 따라온다.
+/// 사람이 고쳐 저장한 표시([`DOCUMENT_VIEW_EDITED`])가 서 있고 줄이 있으면 손대지 않는다. 줄을 새로 넣거나 고치면 표시를 지운다.
+pub(crate) fn sync_document_view(connection: &Connection) -> Result<()> {
+    let view = read_view_package(builtin_view_package())?
+        .views
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::invalid("문서 서식 뷰가 없습니다."))?;
+    let name = view.name.clone().unwrap_or_default();
+    let definition = stored_definition(&view)?;
+    let rows = query(connection, "SELECT id, name, definition FROM user_view", [], |r| {
+        Ok((
+            text_of(r.get_ref(0)?).unwrap_or_default(),
+            text_of(r.get_ref(1)?).unwrap_or_default(),
+            text_of(r.get_ref(2)?).unwrap_or_default(),
+        ))
+    })?;
+    let edited = scalar_i64(
+        connection,
+        "SELECT count(*) FROM app_setting WHERE key = ?1",
+        [DOCUMENT_VIEW_EDITED],
+    )? > 0;
+    if rows.iter().any(|(id, n, d)| {
+        id == DOCUMENT_VIEW_ID && (edited || (*n == name && *d == definition))
+    }) {
+        return Ok(());
+    }
+    let mut taken: HashSet<String> = rows.iter().map(|(_, n, _)| ignore_case_key(n)).collect();
+    for (id, n, _) in &rows {
+        if id != DOCUMENT_VIEW_ID && ignore_case_key(n) == ignore_case_key(&name) {
+            connection.execute(
+                "UPDATE user_view SET name = ?1 WHERE id = ?2",
+                params![copy_view_name(n, &mut taken), id],
+            )?;
+        }
+    }
+    connection.execute(
+        "INSERT INTO user_view (id, name, definition, sort_order)\n\
+         VALUES (?1, ?2, ?3, coalesce((SELECT max(sort_order) FROM user_view), 0) + 10)\n\
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, definition = excluded.definition",
+        params![DOCUMENT_VIEW_ID, name, definition],
+    )?;
+    connection.execute(
+        "DELETE FROM app_setting WHERE key = ?1",
+        [DOCUMENT_VIEW_EDITED],
+    )?;
+    Ok(())
+}
+
+/// 이미 있는 이름이면 「(복사본)」·「(복사본 2)」… 를 붙인다. 길이 한도 안으로 앞을 자른다.
 fn copy_view_name(name: &str, taken: &mut HashSet<String>) -> String {
     if taken.insert(ignore_case_key(name)) {
         return name.to_string();
@@ -482,14 +562,14 @@ fn copy_view_name(name: &str, taken: &mut HashSet<String>) -> String {
     }
 }
 
-/// `Store.ConflictMessage` — 받는 사람이 할 수 있는 길을 먼저 말한다. 조사(과/와)는 이름 끝 글자의 받침을 본다.
+/// 받는 사람이 할 수 있는 길을 먼저 말한다. 조사(과/와)는 이름 끝 글자의 받침을 본다.
 fn conflict_message(entity_type: &str, mine: &str) -> String {
     let kind = match entity_type {
         "request" => "접수",
         "notice" => "공고",
         _ => "계약",
     };
-    // C# `mine[^1]` — 끝 UTF-16 단위. BMP 밖 글자면 뒤 서로게이트라 받침이 없다.
+    // 끝 글자의 받침 — BMP 밖 글자는 한글이 아니라 받침이 없다.
     let c = mine.chars().last().unwrap_or(' ');
     let batchim = if ('가'..='힣').contains(&c) {
         !(c as u32 - '가' as u32).is_multiple_of(28)
@@ -503,7 +583,7 @@ fn conflict_message(entity_type: &str, mine: &str) -> String {
     )
 }
 
-/// `JsonElement.GetRawText()` 자리 — 다시 읽기만 하므로 같은 값의 JSON 글이면 된다.
+/// 값의 원문 글 — 다시 읽기만 하므로 같은 값의 JSON 글이면 된다.
 fn raw_text(value: Option<&Value>) -> String {
     value.map_or_else(String::new, |v| json::to_compact(v, Encoder::Relaxed))
 }
@@ -512,7 +592,7 @@ fn raw_text(value: Option<&Value>) -> String {
 type StagedColumn = (ViewPackagePlannedColumn, Option<String>);
 
 impl Store<'_> {
-    /// `Store.ExportViewPackage` — 고른 보기와 그것이 (가공식을 타고) 읽는 맞춤 열을 구성 파일 글로. SQL 필드가
+    /// 고른 보기와 그것이 (가공식을 타고) 읽는 맞춤 열을 구성 파일 글로. SQL 필드가
     /// 하나라도 있으면 맞춤 열을 모두 싣는다 — SQL 은 간접 참조를 숨길 수 있어 글에서 짐작하지 않는다.
     pub fn export_view_package(&self, ids: &[String]) -> Result<String> {
         let connection = self.database.open_read_only()?;
@@ -522,14 +602,10 @@ impl Store<'_> {
         let distinct: HashSet<&String> = ids.iter().collect();
         if chosen.is_empty() || distinct.len() != chosen.len() {
             return Err(Error::invalid(
-                "내보낼 보기를 하나 이상 고르세요. 삭제된 보기는 목록을 새로 읽어 주세요.",
+                "내보낼 뷰를 하나 이상 고르세요. 삭제된 뷰는 목록을 새로 읽어 주세요.",
             ));
         }
-        let all = read_user_columns(
-            &connection,
-            "SELECT entity_type, field_name, kind, options, sort_order FROM user_column ORDER BY entity_type, sort_order",
-            [],
-        )?;
+        let all = database::read_user_columns(&connection)?;
         let mut needed: HashSet<(String, String)> = HashSet::new();
         let mut formulas: VecDeque<(Option<String>, String)> = chosen
             .iter()
@@ -570,7 +646,7 @@ impl Store<'_> {
             .map(|v| {
                 Ok(ViewPackageView {
                     name: Some(v.name.clone()),
-                    // 읽지 못하는 정의(깨진 글·같은 키가 두 번 든 글)는 형식 오류다(C# `StoredDefinition`).
+                    // 읽지 못하는 정의(깨진 글·같은 키가 두 번 든 글)는 형식 오류다.
                     definition: json::parse(&v.definition)
                         .ok()
                         .filter(|_| !json::has_duplicate_keys(&v.definition))
@@ -610,11 +686,11 @@ impl Store<'_> {
         ))
     }
 
-    /// `Store.PreviewViewPackage` — 가져오면 무엇이 서는지 한 트랜잭션에서 실제로 해 보고 되돌린다.
+    /// 가져오면 무엇이 서는지 한 트랜잭션에서 실제로 해 보고 되돌린다.
     pub fn preview_view_package(&self, json: &str) -> Result<ViewPackagePreview> {
         refuse_read(
             &self.database,
-            "열람 중에는 보기 구성을 가져올 수 없습니다.",
+            "열람 중에는 뷰 구성을 가져올 수 없습니다.",
         )?;
         let connection = self.database.open()?;
         let transaction = database::begin(&connection)?;
@@ -622,11 +698,29 @@ impl Store<'_> {
         self.stage_view_package(&transaction, &read_view_package(json)?)
     }
 
-    /// `Store.ImportViewPackage` — 미리보기와 같은 일을 하고, 오류가 없고 지문이 미리보기의 것과 같을 때만 커밋한다.
+    /// 「문서 서식」 을 처음 상태로 — 고친 표시를 지우고 exe 의 정의(이름 포함)로 맞춘 뒤 맞춤 뷰를 다시 짓는다. 그 뒤로는
+    /// 손대지 않은 줄처럼 exe 를 따라온다(ADR-052).
+    pub fn reset_document_view(&self) -> Result<Vec<UserViewInfo>> {
+        refuse_read(&self.database, "열람 중에는 뷰를 고칠 수 없습니다.")?;
+        {
+            let connection = self.database.open()?;
+            let transaction = database::begin(&connection)?;
+            transaction.execute(
+                "DELETE FROM app_setting WHERE key = ?1",
+                [DOCUMENT_VIEW_EDITED],
+            )?;
+            sync_document_view(&transaction)?;
+            refresh(&transaction)?;
+            transaction.commit()?;
+        }
+        self.user_views()
+    }
+
+    /// 미리보기와 같은 일을 하고, 오류가 없고 지문이 미리보기의 것과 같을 때만 커밋한다.
     pub fn import_view_package(&self, json: &str, token: &str) -> Result<Vec<UserViewInfo>> {
         refuse_read(
             &self.database,
-            "열람 중에는 보기 구성을 가져올 수 없습니다.",
+            "열람 중에는 뷰 구성을 가져올 수 없습니다.",
         )?;
         {
             let connection = self.database.open()?;
@@ -645,7 +739,7 @@ impl Store<'_> {
         self.user_views()
     }
 
-    /// `Store.StageViewPackage` — 맞춤 열과 보기를 넣어 보고 뷰를 다시 지어 본다. 오류는 모아 낸다.
+    /// 맞춤 열과 보기를 넣어 보고 뷰를 다시 지어 본다. 오류는 모아 낸다.
     fn stage_view_package(
         &self,
         connection: &Connection,
@@ -713,7 +807,7 @@ impl Store<'_> {
                 }
                 for ((view, _), why) in broken.user_views.iter() {
                     if view_ids.contains(view) {
-                        errors.push(format!("보기 필드: {why}"));
+                        errors.push(format!("뷰 필드: {why}"));
                     }
                 }
                 // 보통 저장과 같은 한 행 값 수 검사를 들인 정의 위에서 한다.
@@ -878,12 +972,12 @@ impl Store<'_> {
             _ => false,
         };
         if !version_two {
-            return Err(Error::invalid("보기 정의는 판 2여야 합니다."));
+            return Err(Error::invalid("뷰 정의는 판 2여야 합니다."));
         }
         let input = view_input(v)?;
-        let name = clean_view_name(&input.name, "보기 이름")?;
+        let name = clean_view_name(&input.name, "뷰 이름")?;
         if name.is_empty() || input.columns.is_empty() {
-            return Err(Error::invalid("보기 이름과 필드가 필요합니다."));
+            return Err(Error::invalid("뷰 이름과 필드가 필요합니다."));
         }
         let mut seen_names = HashSet::new();
         let mut ids = HashSet::new();
@@ -893,7 +987,7 @@ impl Store<'_> {
             if field.is_empty() || !seen_names.insert(ignore_case_key(&field)) {
                 return Err(Error::invalid("필드 이름이 비었거나 겹칩니다."));
             }
-            // C# 객체 초기자의 차례 — 식별자를 먼저 짓고 식을 읽는다.
+            // 식별자를 먼저 짓고 식을 읽는다.
             let id = match usable_id(id.as_deref(), &mut ids) {
                 Some(id) => id,
                 None => self.new_column_id(&mut ids),
@@ -966,7 +1060,7 @@ mod tests {
         assert!(!same_json("{", "{"));
     }
 
-    /// C# `겹친_키가_든_JSON_은_같은_JSON_이_아니다` — 같은 키가 두 번 든 글은 어디에 들었든 같지 않다.
+    /// 같은 키가 두 번 든 글은 어디에 들었든 같지 않다.
     #[test]
     fn same_json_refuses_duplicate_keys() {
         assert!(same_json(r#"{"a":1,"b":[1,2]}"#, r#"{"b":[1,2],"a":1}"#));
@@ -979,20 +1073,13 @@ mod tests {
 
     #[test]
     fn presets_are_supported_packages() {
-        assert_eq!(
-            read_view_package(builtin_view_package())
-                .unwrap()
-                .views
-                .len(),
-            1
-        );
-        assert_eq!(
-            read_view_package(example_view_package_v26())
-                .unwrap()
-                .views
-                .len(),
-            1
-        );
+        for package in [
+            builtin_view_package(),
+            example_view_package_v26(),
+            example_view_package_v33(),
+        ] {
+            assert_eq!(read_view_package(package).unwrap().views.len(), 1);
+        }
     }
 
     #[test]

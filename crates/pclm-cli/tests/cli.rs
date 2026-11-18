@@ -1,10 +1,10 @@
 //! 명령줄의 동작 — 못박은 시계와 격리한 홈(`--home`)으로 [`pclm_cli::run`] 을 부르고, 표준 출력·오류의 바이트와 종료 코드를
-//! 본다. C# 과의 바이트 대조는 `scripts/parity.ps1` 의 `cli-*` 사례가 하고, 여기서는 갈래마다의 약속을 붙든다. 값은 모두
+//! 본다. 갈래마다의 약속을 붙든다. 값은 모두
 //! 지어낸 것이다.
 
 use std::path::{Path, PathBuf};
 
-use pclm_cli::{CRASH_EXIT, Context, run};
+use pclm_cli::{Context, run};
 use pclm_core::Env;
 use pclm_core::local_time::FixedZone;
 use pclm_core::storage::pclm_file;
@@ -127,11 +127,11 @@ fn 인자_거절은_홈을_열기_전에_2_로_끝난다() {
 #[test]
 fn file_은_읽는_명령에만_받고_거절_글에는_소문자_명령이_든다() {
     let temp = Temp::new();
-    let ran = pclm(&["PLAN", "--file", "x", "--home", &temp.home()]);
+    let ran = pclm(&["SET", "--file", "x", "--home", &temp.home()]);
     assert_eq!(ran.code, 2);
     assert_eq!(
         ran.err,
-        "--file 은 열람 전용입니다 — status · 현황 · export 에만 씁니다. plan 는 작업자료에서 하세요.\r\n"
+        "--file 은 열람 전용입니다 — status · export 에만 씁니다. set 는 작업자료에서 하세요.\r\n"
     );
     // 거절은 홈에 아무것도 짓지 않는다.
     assert!(!temp.join("home").exists());
@@ -164,7 +164,7 @@ fn 깨진_쪽지는_글_뒤에_쪽지_자리를_한_줄_더_쓴다() {
     let temp = Temp::new();
     std::fs::create_dir_all(temp.join("home")).unwrap();
     std::fs::write(temp.join("home").join("config.json"), "{\"version\":2}").unwrap();
-    let ran = pclm(&["현황", "--home", &temp.home()]);
+    let ran = pclm(&["status", "--home", &temp.home()]);
     assert_eq!(ran.code, 2);
     let lines: Vec<&str> = ran.err.split("\r\n").collect();
     assert_eq!(lines.len(), 3, "{}", ran.err);
@@ -201,14 +201,14 @@ fn 모르는_명령은_도움말이다() {
     bound(&temp);
     let ran = pclm(&["없는명령", "--home", &temp.home()]);
     assert_eq!(ran.code, 0);
-    assert!(ran.out.starts_with("pclm plan [엑셀]  "));
+    assert!(ran.out.starts_with("pclm status  "));
     assert!(
         ran.out
             .ends_with("쌓이는 자리는 pclm status 가 첫 줄에 적는다.\r\n")
     );
-    // 도움말 안의 줄은 LF 다(C# 원시 문자열 — 소스의 줄 끝).
+    // 도움말 안의 줄은 LF 다(소스의 줄 끝).
     assert_eq!(ran.out.matches("\r\n").count(), 1);
-    assert_eq!(ran.out.matches('\n').count(), 20);
+    assert_eq!(ran.out.matches('\n').count(), 13);
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn 차수가_쌓인_건을_적는다() {
     let temp = Temp::new();
     bound(&temp);
     let ran = pclm(&["STATUS", "--home", &temp.home()]);
-    // 읽기 전용 연결이 마지막에 닫혀도 작업자료 곁에 -wal · -shm 이 남지 않는다(C# 과 같은 자리).
+    // 읽기 전용 연결이 마지막에 닫혀도 작업자료 곁에 -wal · -shm 이 남지 않는다(풀이 없어 쓰기 연결을 마지막에 닫는다).
     assert_eq!(names(&temp.join("data")), ["work.pclm"]);
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert!(
@@ -331,85 +331,20 @@ fn 지우기는_예_없이는_세어_보이기만_한다() {
 }
 
 #[test]
-fn 제출본_이름은_못박은_오늘과_정해_둔_이름으로_짓는다() {
-    let temp = Temp::new();
-    let workfile = bound(&temp);
-    let home = temp.home();
-    let out = temp.join("out");
-    std::fs::create_dir_all(&out).unwrap();
-    let target = out.display().to_string();
-
-    let ran = pclm(&["submit", &target, "--home", &home]);
-    assert_eq!(ran.code, 0, "{}", ran.err);
-    let saved = out.join("제출_20260910.pclm");
-    assert!(
-        ran.out
-            .starts_with(&format!("제출본  {}\r\n        ", saved.display()))
-    );
-    assert!(
-        ran.out
-            .contains(&format!("MB · DB {}\r\n", workfile.display()))
-    );
-    assert!(
-        ran.out
-            .contains("\n  ※ 이름이 비어 있어 파일 이름에 넣지 못했습니다.\n")
-    );
-    assert_eq!(
-        pclm_file::inspect(&saved).role.as_deref(),
-        Some(pclm_file::PclmRole::SUBMISSION)
-    );
-
-    let ran = pclm(&["submit", "--이름", "홍길동", &target, "--home", &home]);
-    assert!(!ran.out.contains("※"), "{}", ran.out);
-    assert!(out.join("제출_홍길동_20260910.pclm").is_file());
-    // 작업자료 자리는 덮지 않는다 — C# 은 잡지 않는 예외로 끝난다.
-    let ran = pclm(&["submit", &workfile.display().to_string(), "--home", &home]);
-    assert_eq!(ran.code, CRASH_EXIT);
-    assert!(
-        ran.err
-            .starts_with("Unhandled exception. 그 자리에는 작업자료이(가) 있어 덮지 않습니다")
-    );
-}
-
-#[test]
-fn 합칠_것이_없으면_취합본을_짓지_않고_2_로_끝난다() {
-    let temp = Temp::new();
-    bound(&temp);
-    let home = temp.home();
-    let ran = pclm(&["merge", "--home", &home]);
-    assert_eq!(ran.code, 2);
-    assert_eq!(
-        ran.err,
-        "합칠 제출본을 찾지 못했습니다.\r\n  pclm merge <폴더|파일…> [--out <경로>]\r\n\n제출본은 pclm submit 이 뜬 .pclm 파일입니다.\r\n"
-    );
-    let missing = temp.join("없음").display().to_string();
-    let out = temp.join("합.pclm").display().to_string();
-    let ran = pclm(&["merge", &missing, "--out", &out, "--home", &home]);
-    assert_eq!(ran.code, 2);
-    assert_eq!(
-        ran.err,
-        format!(
-            "합칠 제출본을 찾지 못했습니다.\r\n  {missing} — 그런 폴더도 파일도 없습니다\r\n\n제출본은 pclm submit 이 뜬 .pclm 파일입니다.\r\n"
-        )
-    );
-    assert!(!temp.join("합.pclm").exists());
-}
-
-#[test]
 fn 열람은_사본을_읽고_다_읽으면_걷는다() {
     let temp = Temp::new();
     let workfile = bound(&temp);
-    let other = temp.join("data").join("제출.pclm");
+    let other = temp.join("data").join("받은.pclm");
     pclm_file::snapshot(
         &pclm_core::Database::new(&workfile, pclm_core::Access::Read),
         &other,
-        pclm_file::PclmRole::SUBMISSION,
+        pclm_file::PclmRole::BACKUP,
         false,
         &Pinned,
     )
     .unwrap();
     let ran = pclm(&[
-        "현황",
+        "status",
         "--file",
         &other.display().to_string(),
         "--home",
@@ -418,7 +353,7 @@ fn 열람은_사본을_읽고_다_읽으면_걷는다() {
     assert_eq!(ran.code, 0, "{}", ran.err);
     assert!(
         ran.out.starts_with(&format!(
-            "열람  {} (제출본, v{}) — 읽기 전용\n\r\nDB  {}\r\n\r\n",
+            "열람  {} (백업, v{}) — 읽기 전용\n\r\nDB  {}\n\r\n",
             other.display(),
             pclm_core::storage::schema::VERSION,
             other.display()

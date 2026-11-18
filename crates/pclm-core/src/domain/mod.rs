@@ -1,3 +1,3 @@
-//! 값 읽기(C# `Pclm.Core.Domain`).
+//! 값 읽기.
 
 pub mod value_parser;

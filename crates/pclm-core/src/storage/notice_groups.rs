@@ -1,14 +1,14 @@
-//! 수집된 관련공고·접수 참조로 공고건을 재구성한다(C# `Storage/NoticeGroups.cs`).
+//! 수집된 관련공고·접수 참조로 공고건을 재구성한다.
 
 use std::collections::HashMap;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 
 use crate::domain::value_parser::split_notice_ref;
 use crate::error::Result;
 use crate::text::cmp_ordinal;
 
-/// `NoticeGroups.Kind` — 종류와 상태를 따로 수집한다. 이미 완성된 다른 화면의 공고종류는 그대로 표시한다.
+/// 종류와 상태를 따로 수집한다. 이미 완성된 다른 화면의 공고종류는 그대로 표시한다.
 pub(crate) fn kind(kind: &str, status: &str) -> String {
     format!(
         "CASE WHEN NULLIF({kind}, '') IS NOT NULL AND {status} IN ('일반공고','변경공고','취소공고','재공고')\n  \
@@ -49,19 +49,7 @@ WHERE 후보수 = 1 OR (후보수 > 1 AND 재공고수 = 1 AND 재공고 = 1)",
     )
 }
 
-/// `NoticeGroups.GroupOf` — 이 본번호가 속한 건. 계열이 없으면 `None`.
-pub fn group_of(connection: &Connection, notice_base: &str) -> Result<Option<String>> {
-    Ok(connection
-        .query_row(
-            "SELECT group_base FROM notice_series WHERE notice_base = ?1;",
-            [notice_base],
-            |r| r.get(0),
-        )
-        .optional()?
-        .flatten())
-}
-
-/// `NoticeGroups.Rebuild` — 링크 셋을 비우고 관련공고를 해소한 뒤 건을 다시 짓는다. 부르는 쪽의 트랜잭션 안에서 돈다.
+/// 링크 셋을 비우고 관련공고를 해소한 뒤 건을 다시 짓는다. 부르는 쪽의 트랜잭션 안에서 돈다.
 pub(crate) fn rebuild(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "DELETE FROM request_item_link; DELETE FROM request_link; DELETE FROM project_link;",
@@ -117,7 +105,7 @@ fn resolve_relations(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// 넣은 차례를 지키는 사전 — C# `Dictionary` 는 지우지 않는 한 넣은 차례로 돈다. 건을 넣는 차례가 행의
+/// 넣은 차례를 지키는 사전 — 지우지 않는 한 넣은 차례로 돈다. 건을 넣는 차례가 행의
 /// rowid 차례가 되므로 그대로 따른다.
 #[derive(Default)]
 struct Ordered {
@@ -149,7 +137,7 @@ impl Ordered {
     }
 }
 
-/// `NoticeGroups.성분` — 관련공고 간선을 풀어 본번호 → 그 건의 이름(성분의 Ordinal 최소 본번호).
+/// 관련공고 간선을 풀어 본번호 → 그 건의 이름(성분의 최소 본번호(서수 비교)).
 fn components(connection: &Connection) -> Result<Vec<(String, String)>> {
     let mut sets = Ordered::default();
     let strings = |sql: &str| -> Result<Vec<String>> {
@@ -275,7 +263,7 @@ mod tests {
         .collect()
     }
 
-    /// C# `NoticeGroupTests.뷰의_현행공고가_정본과_같다` — 뷰가 고르는 현행공고와 정본 부질의(`현행공고`)가 같다. 규칙이 두 벌로
+    /// 뷰가 고르는 현행공고와 정본 부질의(`현행공고`)가 같다. 규칙이 두 벌로
     /// 갈리면 화면과 뷰가 다른 공고를 현행으로 세운다. 실측의 세 모양(재채번·앞가리킴·문서 없는 조상)을 함께 넣는다.
     #[test]
     fn view_current_notice_is_the_canonical_rule() {

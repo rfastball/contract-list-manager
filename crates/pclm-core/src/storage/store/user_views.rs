@@ -1,4 +1,4 @@
-//! C# `StoreUserViews.cs` — 맞춤 뷰(docs/user-views.md)의 목록·재료·보표·표본·미리보기·저장·지우기.
+//! 맞춤 뷰(docs/user-views.md)의 목록·재료·보표·표본·미리보기·저장·지우기.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -8,7 +8,8 @@ use serde_json::{Map, Value};
 use super::columns::{Sample, TRACE_SAMPLES, TraceFrame, trace};
 use super::{
     COMPUTED_SAMPLE, Store, begin_deferred, object, query, read_all, readable_schema, scalar_i64,
-    single_or_default, strings_json, text_of, view_packages::stored_formula,
+    single_or_default, strings_json, text_of,
+    view_packages::{DOCUMENT_VIEW_EDITED, DOCUMENT_VIEW_ID, stored_formula},
 };
 use crate::dict::Dict;
 use crate::error::{Error, Result};
@@ -21,13 +22,13 @@ use crate::storage::user_view_builder::{self, KEY, NUMBER, TITLE, UserViewFrame}
 use crate::storage::views::{self, USER_VIEW_PREFIX};
 use crate::text::{eq_ignore_case, ignore_case_key, utf16_len};
 
-/// `Store.UserViewNameLength` — 뷰·필드 이름의 길이 한도.
+/// 뷰·필드 이름의 길이 한도.
 pub(super) const USER_VIEW_NAME_LENGTH: usize = 40;
 
-/// `Store.UserViewEdges` — 표본 고르개의 가장자리.
+/// 표본 고르개의 가장자리.
 pub const USER_VIEW_EDGES: [&str; 2] = ["manyContracts", "unlinked"];
 
-/// C# `Store.UserViewInfo(Id, Name, Definition, Broken)` — 목록의 맞춤 뷰 하나. `broken` 은 필드 식별자 → 까닭.
+/// 목록의 맞춤 뷰 하나. `broken` 은 필드 식별자 → 까닭.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UserViewInfo {
     pub id: String,
@@ -47,17 +48,16 @@ impl UserViewInfo {
             ("name", Value::String(self.name.clone())),
             ("definition", self.definition.clone()),
             ("broken", Value::Object(broken)),
+            ("managed", Value::Bool(self.id == DOCUMENT_VIEW_ID)),
         ])
     }
 }
 
-/// `Store.ChainOrder`.
 const CHAIN_ORDER: &str = "s.공고 IS NULL, s.공고, s.접수 IS NULL, s.접수, s.계약 IS NULL, s.계약";
 
-/// `Store.ChainPrefix`.
 const CHAIN_PREFIX: &str = "(coalesce(s.접수, '') || '|' || coalesce(s.공고, '') || '|')";
 
-/// `Store.AllChains`·`Store.AllFolded` — 거르지 않는 줄 꼴.
+/// 거르지 않는 줄 꼴.
 fn all_frame(fold: bool) -> UserViewFrame {
     UserViewFrame {
         fold,
@@ -65,18 +65,18 @@ fn all_frame(fold: bool) -> UserViewFrame {
     }
 }
 
-/// C# `Store.ViewInput(Name, Fold, Columns)` — 화면이 보낸 뷰를 읽은 것. 필드는 (식별자, 이름, 가공식 JSON).
+/// 화면이 보낸 뷰를 읽은 것. 필드는 (식별자, 이름, 가공식 JSON).
 pub(super) struct ViewInput {
     pub(super) name: String,
     pub(super) fold: bool,
     pub(super) columns: Vec<(Option<String>, String, String)>,
 }
 
-/// `Store.ParseViewInput` — `{ name, definition: { contracts, columns: [{ id, name, formula }] } }`.
+/// `{ name, definition: { contracts, columns: [{ id, name, formula }] } }`.
 pub(super) fn parse_view_input(json_text: &str) -> Result<ViewInput> {
     let bad = || Error::invalid("맞춤 뷰 형식이 올바르지 않습니다.");
     let root = json::parse(json_text).map_err(|_| bad())?;
-    // 같은 키가 두 번 든 뷰(최상위·필드·식 어디든)도 형식 오류다 — 뒤의 값을 골라 받아들이면 C#(형식 오류)과 갈린다.
+    // 같은 키가 두 번 든 뷰(최상위·필드·식 어디든)도 형식 오류다 — 뒤의 값을 골라 받아들이면 겹친 키가 조용히 지워진다.
     if json::has_duplicate_keys(json_text) {
         return Err(bad());
     }
@@ -111,7 +111,7 @@ pub(super) fn parse_view_object(view: &Map<String, Value>) -> Result<ViewInput> 
         .iter()
         .map(|c| match c {
             Value::Object(o) => Ok((
-                // C# `o["id"] is null` — 빠졌거나 JSON null 이면 없다.
+                // 빠졌거나 JSON null 이면 없다.
                 o.get("id").filter(|v| !v.is_null()).map(|v| text(Some(v))),
                 text(o.get("name")),
                 o.get("formula")
@@ -129,7 +129,7 @@ pub(super) fn parse_view_object(view: &Map<String, Value>) -> Result<ViewInput> 
     })
 }
 
-/// `Store.CleanViewName` — 뷰·필드 이름을 다듬는다. 큰따옴표는 뷰 이름(`"u_이름"`)을 깨뜨린다.
+/// 뷰·필드 이름을 다듬는다. 큰따옴표는 뷰 이름(`"u_이름"`)을 깨뜨린다.
 pub(super) fn clean_view_name(name: &str, what: &str) -> Result<String> {
     let clean = name.trim();
     if utf16_len(clean) > USER_VIEW_NAME_LENGTH {
@@ -157,7 +157,7 @@ pub(super) fn usable_id(id: Option<&str>, taken: &mut HashSet<String>) -> Option
 }
 
 impl Store<'_> {
-    /// `Store.NewColumnId` — `c-` + 새 식별자. 겹치면 다시 뽑는다.
+    /// `c-` + 새 식별자. 겹치면 다시 뽑는다.
     pub(super) fn new_column_id(&self, taken: &mut HashSet<String>) -> String {
         loop {
             let id = format!("c-{}", self.env.new_id());
@@ -169,7 +169,7 @@ impl Store<'_> {
 
     // ── 목록 ─────────────────────────────────────────────
 
-    /// `Store.UserViews` — 저장된 맞춤 뷰와 그 깨진 필드.
+    /// 저장된 맞춤 뷰와 그 깨진 필드.
     pub fn user_views(&self) -> Result<Vec<UserViewInfo>> {
         let connection = self.database.open_read_only()?;
         let _transaction = begin_deferred(&connection)?;
@@ -178,7 +178,7 @@ impl Store<'_> {
 
     // ── 필드 목록 재료 ─────────────────────────────────────
 
-    /// `Store.UserViewContext` — 맞춤 뷰 편집기의 재료와 사슬의 건수.
+    /// 맞춤 뷰 편집기의 재료와 사슬의 건수.
     pub fn user_view_context(&self) -> Result<Value> {
         let connection = self.database.open_read_only()?;
         let _transaction = begin_deferred(&connection)?;
@@ -229,7 +229,7 @@ impl Store<'_> {
 
     // ── 보표 ─────────────────────────────────────────────
 
-    /// `Store.TraceUserViewColumn` — 맞춤 뷰 필드의 값 흐름. 표본 열쇠를 주지 않으면 사슬의 앞 셋이다.
+    /// 맞춤 뷰 필드의 값 흐름. 표본 열쇠를 주지 않으면 사슬의 앞 셋이다.
     pub fn trace_user_view_column(
         &self,
         json_text: &str,
@@ -394,7 +394,7 @@ impl Store<'_> {
 
     // ── 표본 고르개 ─────────────────────────────────────────
 
-    /// `Store.UserViewSamples` — 미리보기 표본으로 고를 건. `query` 는 번호·건명의 일부, `edge` 는 가장자리.
+    /// 미리보기 표본으로 고를 건. `query` 는 번호·건명의 일부, `edge` 는 가장자리.
     pub fn user_view_samples(
         &self,
         view_json: &str,
@@ -453,7 +453,7 @@ impl Store<'_> {
                 ),
             ]))
         };
-        // Dapper 는 글에 없는 매개변수를 넘기지 않는다 — 찾을 말이 있을 때만 `@q` 가 글에 선다.
+        // 글에 없는 매개변수는 넘기지 않는다 — 찾을 말이 있을 때만 `@q` 가 글에 선다.
         if q.is_empty() {
             query(&connection, &sql, [], map)
         } else {
@@ -463,7 +463,7 @@ impl Store<'_> {
 
     // ── 미리보기 ─────────────────────────────────────────
 
-    /// `Store.PreviewUserView` — 저장하기 전의 뷰를 표본 한 건과 빈 칸 수로 미리 본다. 필드마다 따로 컴파일해 깨진
+    /// 저장하기 전의 뷰를 표본 한 건과 빈 칸 수로 미리 본다. 필드마다 따로 컴파일해 깨진
     /// 필드는 까닭을 싣는다.
     pub fn preview_user_view(&self, view_json: &str, sample_key: Option<&str>) -> Result<Value> {
         let input = parse_view_input(view_json)?;
@@ -599,7 +599,7 @@ impl Store<'_> {
 
     // ── 저장·지우기 ─────────────────────────────────────────
 
-    /// `Store.SaveUserView` — 맞춤 뷰를 저장한다. 필드를 다시 검사하고, 뷰를 다시 지어 깨진 필드가 있으면 되돌린다.
+    /// 맞춤 뷰를 저장한다. 필드를 다시 검사하고, 뷰를 다시 지어 깨진 필드가 있으면 되돌린다.
     /// `previous_id` 가 있으면 그 뷰를 고친다.
     pub fn save_user_view(
         &self,
@@ -709,6 +709,13 @@ impl Store<'_> {
                     "UPDATE user_view SET name = ?1, definition = ?2 WHERE id = ?3",
                     rusqlite::params![name, definition, previous],
                 )?;
+                if previous == DOCUMENT_VIEW_ID {
+                    // 사람이 고친 「문서 서식」 — 열 때 exe 의 정의로 되돌리지 않는다(ADR-052).
+                    transaction.execute(
+                        "INSERT OR REPLACE INTO app_setting (key, value) VALUES (?1, '1')",
+                        [DOCUMENT_VIEW_EDITED],
+                    )?;
+                }
                 previous.to_string()
             }
             None => {
@@ -744,7 +751,7 @@ impl Store<'_> {
             Err(Error::Sqlite(error)) => {
                 return Err(Error::InvalidOperation(format!(
                     "맞춤 뷰를 짓지 못했습니다: {}",
-                    sql_column::dotnet_message(&error)
+                    sql_column::sqlite_message(&error)
                 )));
             }
             Err(other) => return Err(other),
@@ -753,8 +760,12 @@ impl Store<'_> {
         self.user_views()
     }
 
-    /// `Store.DeleteUserView` — 맞춤 뷰를 지운다(정의만 — 자료는 건드리지 않는다).
+    /// 맞춤 뷰를 지운다(정의만 — 자료는 건드리지 않는다).
     pub fn delete_user_view(&self, id: &str) -> Result<Vec<UserViewInfo>> {
+        if id == DOCUMENT_VIEW_ID {
+            // 패널이 읽는 줄이다 — 지우는 대신 설정에서 처음 상태로 되돌린다(ADR-052).
+            return Err(Error::invalid("문서 서식 뷰는 지울 수 없습니다."));
+        }
         {
             let connection = self.database.open()?;
             let transaction = database::begin(&connection)?;
@@ -767,14 +778,14 @@ impl Store<'_> {
         self.user_views()
     }
 
-    /// `Store.UserViewReaders` — 이 종류의 사람 열마다 그것을 읽는 맞춤 뷰 수.
+    /// 이 종류의 사람 열마다 그것을 읽는 맞춤 뷰 수.
     pub fn user_view_readers(&self, entity_type: &str) -> Result<Dict<String, i32>> {
         let connection = self.database.open_read_only()?;
         user_view_builder::readers(&connection, entity_type)
     }
 }
 
-/// 저장 꼴의 정의 `{version:2, contracts, columns:[{id, name, formula}]}` 를 `Flow.Json` 으로.
+/// 저장 꼴의 정의 `{version:2, contracts, columns:[{id, name, formula}]}` 를 저장 꼴 JSON 으로.
 pub(super) fn stored_view_definition(fold: bool, columns: Vec<(String, String, Value)>) -> String {
     let columns = columns
         .into_iter()
@@ -799,7 +810,6 @@ pub(super) fn stored_view_definition(fold: bool, columns: Vec<(String, String, V
     )
 }
 
-/// `Store.ListUserViews`.
 fn list_user_views(connection: &Connection) -> Result<Vec<UserViewInfo>> {
     let built: Vec<(String, Option<String>)> = query(
         connection,
@@ -834,7 +844,7 @@ fn list_user_views(connection: &Connection) -> Result<Vec<UserViewInfo>> {
                 );
             }
         }
-        // 같은 키가 두 번 든 정의도 읽지 못한 정의다 — 뒤의 값으로 접어 내보내면 C# 과 글이 갈린다.
+        // 같은 키가 두 번 든 정의도 읽지 못한 정의다 — 뒤의 값으로 접어 내보내면 겹친 키가 조용히 지워진다.
         let definition = json::parse(&view.definition)
             .ok()
             .filter(|_| !json::has_duplicate_keys(&view.definition))

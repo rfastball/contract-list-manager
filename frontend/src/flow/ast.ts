@@ -38,7 +38,9 @@ export type Source =
   | { kind: "field"; field: string }
   | { kind: "linked"; link: LinkKind; field?: string; items?: true }
   | { kind: "text"; text: string }
-  | { kind: "number"; value: number };
+  | { kind: "number"; value: number }
+  /** 오늘(이 기계의 날짜, 시각 없음). */
+  | { kind: "today" };
 
 export type Compare = "=" | "≠" | ">" | "<" | "≥" | "≤" | "포함" | "비어있음" | "안비어있음";
 /**
@@ -53,8 +55,8 @@ export type Op =
   | "filter" | "sort" | "distinct" | "take" | "nth" | "first" | "last" | "format" | "get" | "join" | "abbrev"
   | "count" | "sum" | "min" | "max" | "avg"
   | "trim" | "replace" | "before" | "after" | "substr" | "padStart" | "ifEmpty" | "map" | "if" | "cases"
-  | "toNumber" | "add" | "sub" | "mul" | "div" | "round" | "floor" | "thousands" | "plain"
-  | "toDate" | "dateAdd" | "dateDiff" | "year" | "month" | "quarter" | "dateFormat";
+  | "toNumber" | "add" | "sub" | "mul" | "div" | "round" | "floor" | "plain"
+  | "toDate" | "dateAdd" | "dateDiff" | "year" | "month" | "quarter";
 
 export type Step = {
   op: Op;

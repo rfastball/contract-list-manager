@@ -1,12 +1,12 @@
-//! .NET `decimal` 의 좁은 옮김 — 브리핑(`Reports.Dashboard`)이 금액 글을 읽고 더하고 다리에 싣는 만큼만.
+//! 십진 수(96비트 가수, 소수 자리 0~28)의 좁은 구현 — 브리핑이 금액 글을 읽고 더하고 다리에 싣는 만큼만.
 //!
-//! - **읽기**는 `decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture)` 다(.NET 8 실측): 앞뒤 공백
+//! - **읽기**는 로케일 없는 십진 수 읽기다(옛 판의 실측과 맞춘 규칙): 앞뒤 공백
 //!   (U+0009..U+000D·U+0020), 앞 **또는** 뒤의 부호 하나(`+`·`-`, 앞 부호 뒤에는 공백 없이), 숫자가 하나라도 나온 뒤의
 //!   천 단위 쉼표(소수점 앞에서만, 몇 개든), 소수점 하나, 끝의 NUL. 지수·괄호·통화 기호·NBSP 는 받지 않는다.
 //!   소수 자리는 적힌 그대로 지킨다(`1.10` 은 자리 둘). 96비트·자리 28 을 넘으면 짝수 쪽으로 반올림해 줄이고, 정수 부분이
-//!   96비트를 넘으면 읽지 못한다. .NET 은 유효 숫자 29자리 뒤를 버린 채 반올림하므로 **30자리 넘는 글**에서만 갈릴 수 있다.
+//!   96비트를 넘으면 읽지 못한다. 유효 숫자 29자리 뒤는 버린 채 반올림하므로 **30자리 넘는 글**에서만 갈릴 수 있다.
 //! - **더하기**는 자리를 큰 쪽에 맞춘다(`1.50 + 2` = `3.50`).
-//! - **쓰기**는 `Utf8JsonWriter.WriteNumberValue(decimal)`(`G`) — 자리를 지키고, 0 에는 부호를 붙이지 않는다(`-0.00` → `0.00`).
+//! - **쓰기**는 JSON 수 글(`G` 꼴)이다 — 자리를 지키고, 0 에는 부호를 붙이지 않는다(`-0.00` → `0.00`).
 
 use std::cmp::Ordering;
 
@@ -29,7 +29,7 @@ impl Decimal {
         scale: 0,
     };
 
-    /// `decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture)`. 읽지 못하면 `None`.
+    /// 로케일 없는 십진 수 읽기(모듈 설명의 규칙). 읽지 못하면 `None`.
     pub fn parse_number(text: &str) -> Option<Decimal> {
         let chars: Vec<char> = text.chars().collect();
         let white = |c: char| matches!(c, '\u{9}'..='\u{d}' | ' ');
@@ -136,7 +136,7 @@ impl Decimal {
         })
     }
 
-    /// `a + b` — 자리를 큰 쪽에 맞춘다. 96비트를 넘으면 자리를 줄이고, 정수로도 넘으면 `None`(.NET 은 `OverflowException`).
+    /// `a + b` — 자리를 큰 쪽에 맞춘다. 96비트를 넘으면 자리를 줄이고, 정수로도 넘으면 `None`.
     pub fn checked_add(self, other: Decimal) -> Option<Decimal> {
         let (mut a, mut b) = (self, other);
         // 맞출 자리에서 넘치면 자리가 큰 쪽을 깎아 내려온다.
@@ -180,7 +180,7 @@ impl Decimal {
         })
     }
 
-    /// `decimal.ToString("G", Invariant)` — 자리를 지킨다. 0 에는 부호가 없다.
+    /// 로케일 없는 `G` 꼴 — 자리를 지킨다. 0 에는 부호가 없다.
     pub fn to_text(self) -> String {
         let digits = self.mantissa.to_string();
         let scale = self.scale as usize;
@@ -223,9 +223,9 @@ mod tests {
         Decimal::parse_number(text).map(Decimal::to_text)
     }
 
-    /// .NET 8 실측(scratch 콘솔, `decimal.TryParse(…, NumberStyles.Number, InvariantCulture)` → `JsonSerializer`).
+    /// 옛 판이 낸 값의 실측(로케일 없는 십진 수 읽기 → JSON 수 글).
     #[test]
-    fn reads_like_dotnet() {
+    fn reads_number_style_text() {
         let cases: &[(&str, Option<&str>)] = &[
             ("1,000", Some("1000")),
             (",5", None),

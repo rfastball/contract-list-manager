@@ -1,4 +1,4 @@
-//! C# `DurableKeyTests` — 변경공고·변경계약·변경접수가 들어와도 **사람이 붙인 것이 뷰에서 사라지지 않는지** 본다.
+//! 변경공고·변경계약·변경접수가 들어와도 **사람이 붙인 것이 뷰에서 사라지지 않는지** 본다.
 //!
 //! 손으로 적은 값과 명시 참조 연결이 `(본번호, 차수)` 에 매달려 있고 뷰는 최신 차수만 내던 시절, 변경계약 한 건이 들어오면
 //! 진행상태·담당·메모가 조용히 빈 문자열이 되고 링크가 끊겨 공고 열이 통째로 비었다. 아무 오류도 나지 않아 사람이 알아챌
@@ -18,7 +18,7 @@ const CONTRACT_BASE: &str = "R26TA98000707";
 const NOTICE_BASE: &str = "R26BK98000575";
 const REQUEST_BASE: &str = "TSTPLA26500286";
 
-/// C# `Contract(seq)` — 건명과 금액(`164_872_340m` 을 Microsoft.Data.Sqlite 가 묶는 꼴).
+/// 건명과 금액.
 fn contract(f: &Fixture, seq: &str) {
     f.contract(
         CONTRACT_BASE,
@@ -31,12 +31,12 @@ fn contract(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `Notice(seq)`. `title` 은 `with { Title = … }` 자리.
+/// 공고 한 건. `title` 은 건명을 바꾸는 자리.
 fn notice(f: &Fixture, seq: &str, title: &str) {
     f.notice(NOTICE_BASE, seq, &[("title", title)], &[], &[]);
 }
 
-/// C# `Request(seq)` — 품목 한 줄.
+/// 품목 한 줄.
 fn request(f: &Fixture, seq: &str) {
     f.request(
         REQUEST_BASE,
@@ -52,7 +52,6 @@ fn request(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `ReferenceFixture.Contract`.
 fn reference_contract(f: &Fixture) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -65,7 +64,6 @@ fn reference_contract(f: &Fixture) {
     tx.commit().unwrap();
 }
 
-/// C# `ReferenceFixture.Request(request(seq), notice)`.
 fn reference_request(f: &Fixture, request_seq: &str) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -92,7 +90,7 @@ fn reference_request(f: &Fixture, request_seq: &str) {
     tx.commit().unwrap();
 }
 
-/// C# `Single(sql)` — 줄이 꼭 하나다. NULL 은 빈 글.
+/// 줄이 꼭 하나다. NULL 은 빈 글.
 fn single(f: &Fixture, sql: &str) -> BTreeMap<String, String> {
     let c = f.database().open_read_only().unwrap();
     let mut statement = c.prepare(sql).unwrap();

@@ -9,20 +9,26 @@ Claude Code 가 이 저장소에서 일할 때 읽는 문서.
 
 ## 이 저장소
 
-나라장터 업무 화면을 브라우저 확장으로 수집하거나 ERP JSON·계획 엑셀을 가져와 SQLite 에 쌓고,
-문서 자동 생성기가 읽을 뷰로 내놓는다. 자료가 들어오는 길은 그 셋뿐이다 — PDF 입구는 걷었다
-(ADR-028). 창(Tauri 2 + WebView2 위의 React)과 명령줄이 같은 자료를 본다.
+나라장터 화면을 보다가 그 건의 문서를 바로 만드는 브라우저 확장이다(ADR-047). 확장의 「문서 만들기」
+패널이 지금 탭의 건을 SQLite 작업자료에 저장하고 그 값으로 서식을 채운다. 수집과 목록은 그 근거를 쌓는
+뒷받침이고, 창(Tauri 2 + WebView2 위의 React)은 값 정정 · 연결 확인 · 설정 같은 보조다. 자료가 들어오는
+길은 확장과 ERP JSON 둘뿐이다(PDF 는 ADR-028, 계획 엑셀은 ADR-047 이 걷었다). 창 · 명령줄 · 확장 호스트가
+같은 자료를 보고, 문서나르미 같은 바깥 프로그램은 면 뷰를 읽는다.
 
 쌓이는 개체는 셋이다 — **접수 → 공고 → 계약**. 관계는 **ERP 명시 참조**로만 재구성한다(ADR-040). 수동 연결·비교 추천·거절 기록은 없다.
 
 ```
-crates/pclm-core/     Domain · Erp · Storage
-crates/pclm-home/     홈 · 작업자료 바꾸기
-crates/pclm-cli/      명령줄 (pclm)
-crates/pclm-bridge/   화면과 앱 사이의 유일한 통로
-crates/pclm-desktop/  창 (Tauri 2) · 확장 호스트 — 배포되는 exe 하나
-frontend/             화면 (Vite + React)
-tests/                parity 박제 · 흐름식 공유 사례표
+extension/               확장 — 「문서 만들기」 사이드 패널 · 동봉 서식 (exe 에 실린다)
+crates/pclm-doc-engine/  문서 만들기 엔진 — wasm 으로 지어 확장에 싣는다
+crates/pclm-core/        Domain · Erp · Storage
+crates/pclm-home/        홈 · 작업자료 바꾸기
+crates/pclm-cli/         명령줄 (pclm)
+crates/pclm-bridge/      화면과 앱 사이의 유일한 통로
+crates/pclm-desktop/     창 (Tauri 2) · 확장 호스트 — 배포되는 exe 하나
+crates/pclm-host/ · pclm-erp-host/  native messaging 호스트 (exe 가 싣는다)
+crates/pclm-excel/       엑셀 쓰기
+frontend/                화면 (Vite + React)
+tests/                   흐름식 공유 사례표
 ```
 
 ## 명령
@@ -33,10 +39,10 @@ tests/                parity 박제 · 흐름식 공유 사례표
 ./run.ps1 -Cli status      명령줄
 ./publish.ps1              배포물 (dist/계약목록/ 와 zip)
 ./scripts/publish-public.ps1  공개 저장소에 이 판의 스냅샷 (릴리스 마지막 단계)
+./scripts/fake-g2b.ps1     가짜 나라장터 + 확장 올린 브라우저 — 확장 · 호스트 · 앱 · DB 는 진짜(개발 홈)
 
 npm test                   화면 시험
 cargo test --workspace     Rust 시험 (창은 cargo clippy -p pclm-desktop --features shell)
-./scripts/parity.ps1       Rust 를 C# 이 낸 박제(tests/parity-golden)와 같은 바이트로 대조
 ./scripts/generate-crate-notices.ps1  exe 에 실리는 크레이트 고지 다시 짓기
 ```
 
@@ -48,6 +54,20 @@ cargo test --workspace     Rust 시험 (창은 cargo clippy -p pclm-desktop --fe
 실제 문서에서 본 번호·건명·기관·금액·날짜를 픽스처·목업·문서·주석의 예로 옮겨 적지도 않는다 —
 이 트리는 판마다 공개 저장소로 나가고(`scripts/publish-public.ps1`), 목업은 exe 에도 실린다.
 이 저장소의 옛 이력에는 그런 값이 남아 있어 그대로 공개하지 않는다.
+
+**통합 뷰와 동봉 서식은 한 몸이다.** 패널은 작업자료의 「문서 서식」 줄(`store::DOCUMENT_VIEW_ID`)의 정의를 셈해
+읽는다 — 깔린 `u_*` 는 읽지 않고, 그 줄이 없으면 exe 에 실린 통합 뷰(`presets/builtin-views.json`)다. 그 줄은 앱이
+쓰기로 열 때마다 exe 의 정의로 맞춰 깔지만, 사람이 창에서 고쳐 저장하면(`app_setting` 의 `document_view_edited`) 더는
+맞추지 않고 고친 것이 문서에 닿는다 — 지우지는 못하고 설정의 「문서 서식 처음 상태로…」가 되돌린다(ADR-050 · 052).
+그래서 통합 뷰를 고쳐 내도 그 줄을 고친 사람에게는 닿지 않는다. 이름이 아니라 그 식별자로
+가리고, 맞추는 일은 판올림이 아니라 `Database::migrate` 의 끝에서 하므로 정의를 고쳐도 스키마 판을 올리지 않는다. 서식의 칸 이름이 그 열 이름이라, 열 이름을
+바꾸면 서식의 그 칸이 아무것도 실패하지 않은 채 【확인 필요】가 된다 — `pclm-doc-engine` 의
+`tests/vocabulary.rs` 가 동봉 서식(`extension/templates/`)의 칸을 통합 뷰의 열 · 내 정보와 대조하니
+같은 커밋에서 서식을 고친다. 문서에 찍힐 꼴(「원」 · 공문서 날짜 · 한글 금액 · 오늘)도 그 뷰가 흐름식 「서식」 의 엑셀 표시 형식
+코드로 짓는다(ADR-053 — `[DBNum4]` 만 앱 함수 `한글금액` 을 부른다) — 엔진은 값을 바꾸거나 더하지 않으니(ADR-051) 꼴을 고치려면 뷰를 고친다. 서식은 사람의 서식 폴더에 있는 파일이고 exe 가 읽어 넘긴다(ADR-049) — 동봉 서식은 폴더에 없는
+이름만 채우고 있는 파일을 덮어쓰지 않으므로, 동봉 서식을 고쳐 내도 이미 그 파일을 가진 사람에게는 닿지 않는다. 한글 서식은
+컴파일 전 모습(항목 표시가 글로 보이는 것)으로 싣는다 — 패널이 컴파일하고, 원본 바이트와 `engine.wasm` 의 해시가 같으면 확장에 담아 둔 컴파일본을 쓴다. 엔진을 고치면 `scripts/build-engine.ps1` 로 다시 지어야 화면 시험
+(`frontend/src/DocumentPanel.test.ts`)이 새 엔진을 본다 — `extension/engine.wasm` 은 빌드 산출물이다.
 
 **계약면은 약속이다.** 뷰 열 개(`v_통합`·`v_통합차수`·`v_접수`·`v_접수품목`·`v_공고`·
 `v_공고품목`·`v_공고차수`·`v_계약`·`v_계약차수`·`v_계약품목`)의 이름과 의미가 소비자에 저장된
@@ -81,7 +101,7 @@ cargo test --workspace     Rust 시험 (창은 cargo clippy -p pclm-desktop --fe
 
 **작업자료를 바꾸는 일은 한 절차를 탄다**(`Home::switch`, ADR-032). 나가는 자료의 쓰기 잠금을 쥔
 채 쪽지를 고친다 — 잠금 밖에서 고치면 줄 서 있던 수집이 옛 자료에 들어가 성공을 알린다. 쓰기는
-역할이 `work` 인 파일에만 한다(ADR-031): 제출본·취합본·백업·옮겨진 옛 자료에 쓰는 길을 내지 않고,
+역할이 `work` 인 파일에만 한다(ADR-031): 백업·옮겨진 옛 자료에 쓰는 길을 내지 않고,
 결과물로 작업자료를 덮지 않는다. 남의 파일을 보는 일은 원본에 닿지 않는다 — 읽기 전용 사본을 떠
 `Access::Read` 로 연다.
 
@@ -95,8 +115,7 @@ cargo test --workspace     Rust 시험 (창은 cargo clippy -p pclm-desktop --fe
 **의존을 바꾸면 고지도 바꾼다.** npm·Rust 크레이트 운영 의존·글꼴을 더하거나 판을 올리면
 `THIRD-PARTY-NOTICES.txt` 를 함께 고친다 — exe 에 실려 나가는 것의 고지라, 시험이 실제 목록과 대조해 잡는다.
 
-**계약면 박제는 눈으로 본 뒤에만 새로 쓴다.** `PCLM_UPDATE_GOLDEN=1` 은 회귀를 덮어버린다. parity 박제
-(`tests/parity-golden`)도 같다 — `PCLM_PARITY_RECORD=1` 이 그것을 새로 쓰는 유일한 길이다.
+**계약면 박제는 눈으로 본 뒤에만 새로 쓴다.** `PCLM_UPDATE_GOLDEN=1` 은 회귀를 덮어버린다.
 
 **검산하지 않는다**(ADR-016). 읽은 값이 맞는지 기계가 판정하지 않는다 — 적힌 그대로
 담고, 맞는지는 원본을 보는 사람이 정한다. 막는 것은 번호를 읽지 못한 자료뿐이다.

@@ -1,4 +1,4 @@
-//! 작업자료 바꾸기(C# `Storage/HomeSwitch.cs`, ADR-032) — 옮기기·다른 작업자료 쓰기·스냅샷에서 새로·새 계약자료,
+//! 작업자료 바꾸기(ADR-032) — 옮기기·다른 작업자료 쓰기·스냅샷에서 새로·새 계약자료,
 //! 그리고 백업.
 //!
 //! **바꾸는 일은 모두 한 절차([`Home::switch`])를 탄다.** 나가는 작업자료의 쓰기 잠금(`BEGIN IMMEDIATE`)을 쥔 채 쪽지를
@@ -16,10 +16,10 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, Transactio
 use crate::resolve::{
     create_work, dataset_id_of, refusal_message, require_local, require_work, suffixed,
 };
-use crate::{Home, SystemEnv, dotnet, win};
+use crate::{Home, SystemEnv, paths, win};
 
-/// 옮기기의 사본 검사가 세는 표(C# `CountedTables`). 개체 셋과 계획 — 사람이 쌓은 것의 몸통이다.
-const COUNTED_TABLES: [&str; 4] = ["request", "notice", "contract", "plan"];
+/// 옮기기의 사본 검사가 세는 표. 개체 셋 — 사람이 쌓은 것의 몸통이다.
+const COUNTED_TABLES: [&str; 3] = ["request", "notice", "contract"];
 
 /// 표마다 줄 수. 차례는 [`COUNTED_TABLES`] 다.
 type Counts = Vec<(&'static str, i64)>;
@@ -31,7 +31,7 @@ struct Next {
     retired: Option<PathBuf>,
 }
 
-/// 시험의 끼움 자리(C# `Home.WhileLocked`). 같음·복제는 뜻이 없다 — 늘 같다고 친다.
+/// 시험의 끼움 자리. 같음·복제는 뜻이 없다 — 늘 같다고 친다.
 #[cfg(test)]
 #[derive(Clone, Default)]
 pub(crate) struct Hook(pub(crate) Option<std::sync::Arc<dyn Fn() + Send + Sync>>);
@@ -58,7 +58,7 @@ impl PartialEq for Hook {
 impl Eq for Hook {}
 
 impl Home {
-    /// 작업자료를 다른 자리로 옮긴다(C# `Home.MoveTo`). **같은 자료다** — 신원을 그대로 가져가므로 확장의 열린 검토
+    /// 작업자료를 다른 자리로 옮긴다. **같은 자료다** — 신원을 그대로 가져가므로 확장의 열린 검토
     /// 화면이 새 자리로 이어진다. 옛 파일은 `retired` 로 표시되고 다음 시작에 지워진다. 사본은 쓰기 잠금을 쥔 채 뜬다.
     ///
     /// 네트워크 자리·지금 자리와 같음·검사 실패는 [`Error::InvalidOperation`], 그 자리에 이미 파일이 있으면 [`Error::Io`].
@@ -97,12 +97,12 @@ impl Home {
         Ok(full)
     }
 
-    /// 있는 다른 작업자료를 그 자리에서 쓴다(C# `Home.UseInPlace`, 「내 계약자료로 사용」). 역할이 `work` 인 것만
+    /// 있는 다른 작업자료를 그 자리에서 쓴다(「내 계약자료로 사용」). 역할이 `work` 인 것만
     /// 받는다([`Error::PclmFile`]). 지금 작업자료는 그대로 작업자료로 남는다.
     pub fn use_in_place(&self, current: &Database, path: &Path) -> Result<PathBuf> {
-        let full = dotnet::full_path(path)?;
+        let full = paths::full_path(path)?;
         require_local(&full)?;
-        if dotnet::same_path(&full.to_string_lossy(), &current.path().to_string_lossy()) {
+        if paths::same_path(&full.to_string_lossy(), &current.path().to_string_lossy()) {
             return Err(Error::InvalidOperation(format!(
                 "지금 이 창에서 쓰고 있는 작업자료입니다: {}",
                 full.display()
@@ -125,7 +125,7 @@ impl Home {
         Ok(full)
     }
 
-    /// 제출본·취합본·백업(무엇이든)의 사본을 떠서 새 작업자료로 삼는다(C# `Home.CreateFromSnapshot`, 「이 파일로 새
+    /// 백업이나 남의 파일(무엇이든)의 사본을 떠서 새 작업자료로 삼는다(「이 파일로 새
     /// 계약자료 만들기」). **원본은 그대로다.** 사본은 **새 신원**을 받는다. 판이 낮으면 사본을 올린다.
     pub fn create_from_snapshot(
         &self,
@@ -133,7 +133,7 @@ impl Home {
         source: &Path,
         target: &Path,
     ) -> Result<PathBuf> {
-        let from = dotnet::full_path(source)?;
+        let from = paths::full_path(source)?;
         let full = check_new_target(current, target)?;
 
         let info = pclm_file::inspect(&from);
@@ -200,7 +200,7 @@ impl Home {
         Ok(full)
     }
 
-    /// 빈 작업자료를 지어 그것으로 바꾼다(C# `Home.CreateNewWhileRunning`, 「새 계약자료」). 지금 작업자료는 그대로 남는다.
+    /// 빈 작업자료를 지어 그것으로 바꾼다(「새 계약자료」). 지금 작업자료는 그대로 남는다.
     pub fn create_new_while_running(&self, current: &Database, target: &Path) -> Result<PathBuf> {
         let full = check_new_target(current, target)?;
         let mut created = Vec::new();
@@ -234,7 +234,7 @@ impl Home {
 
     // ── 전환 절차 ────────────────────────────────────────────────
 
-    /// 전환 절차(C# `Home.Switch`, ADR-032). 바꾸는 일은 모두 이것 하나를 탄다.
+    /// 전환 절차(ADR-032). 바꾸는 일은 모두 이것 하나를 탄다.
     ///
     /// ```text
     /// 1. 나가는 작업자료에 연결 A, BEGIN IMMEDIATE      ← 확장 호스트·명령줄의 쓰기가 여기서 줄 선다
@@ -245,7 +245,7 @@ impl Home {
     /// ```
     ///
     /// 3 앞에서 무엇이 실패하든 이 절차가 지은 파일(`created`)을 지우고 쪽지는 그대로 둔다. 3 을 지난 뒤의 실패는 그대로
-    /// 올라가되 지은 파일을 지우지 않는다. 연결 A 를 열거나 잠금을 얻다 실패하면 C# 처럼 지은 파일을 지우지 않는다.
+    /// 올라가되 지은 파일을 지우지 않는다. 연결 A 를 열거나 잠금을 얻다 실패해도 지은 파일을 지우지 않는다.
     fn switch(
         &self,
         current: &Database,
@@ -286,35 +286,35 @@ impl Home {
             hook();
         }
         transaction.commit()?;
-        // 연결은 여기서 닫힌다 — 남아 있으면 다음 시작이 옛 파일을 지우지 못한다(C# 의 ReleasePool).
+        // 연결은 여기서 닫힌다 — 남아 있으면 다음 시작이 옛 파일을 지우지 못한다.
         drop(connection);
         Ok(())
     }
 
-    /// 시험이 잠금 안에 끼울 일(C# `Home.WhileLocked = …`).
+    /// 시험이 잠금 안에 끼울 일.
     #[cfg(test)]
     pub(crate) fn set_while_locked(&mut self, hook: impl Fn() + Send + Sync + 'static) {
         self.while_locked = Hook(Some(std::sync::Arc::new(hook)));
     }
 }
 
-/// 지금 시점을 백업 파일로 뜬다(C# `Home.BackupTo`, 「백업 만들기」). 역할은 `backup`, 신원은 새로 — 쪽지는 그대로다.
+/// 지금 시점을 백업 파일로 뜬다(「백업 만들기」). 역할은 `backup`, 신원은 새로 — 쪽지는 그대로다.
 ///
 /// 자리는 사람이 저장 대화상자에서 고른 것이라 그 자리의 옛 백업은 덮는다(ADR-031). 다만 **작업자료는 덮지 않는다** —
 /// 그 검사는 `pclm_file::snapshot` 이 쥔다. 뜬 자리의 온전한 경로를 낸다.
 pub fn backup_to(current: &Database, target: &Path) -> Result<PathBuf> {
-    let full = dotnet::full_path(target)?;
+    let full = paths::full_path(target)?;
     require_local(&full)?;
     create_parent(&full)?;
     pclm_file::snapshot(current, &full, PclmRole::BACKUP, true, &SystemEnv)
 }
 
-/// 새 작업자료가 설 자리(C# `Home.CheckNewTarget`). 로컬 디스크이고, 지금 자리가 아니고, **비어 있어야 한다** —
+/// 새 작업자료가 설 자리. 로컬 디스크이고, 지금 자리가 아니고, **비어 있어야 한다** —
 /// `-wal` 만 남은 자리도 비지 않은 것으로 본다. 창은 자리를 고른 직후에도 이것을 부른다. 온전한 경로를 낸다.
 pub fn check_new_target(current: &Database, target: &Path) -> Result<PathBuf> {
-    let full = dotnet::full_path(target)?;
+    let full = paths::full_path(target)?;
     require_local(&full)?;
-    if dotnet::same_path(&full.to_string_lossy(), &current.path().to_string_lossy()) {
+    if paths::same_path(&full.to_string_lossy(), &current.path().to_string_lossy()) {
         return Err(Error::InvalidOperation(format!(
             "지금 쓰고 있는 작업자료 자리입니다: {}",
             full.display()
@@ -332,7 +332,7 @@ pub fn check_new_target(current: &Database, target: &Path) -> Result<PathBuf> {
     Ok(full)
 }
 
-/// C# 의 `Database.Snapshot` 이 짓던 폴더.
+/// 사본이 뜰 자리의 폴더를 짓는다.
 fn create_parent(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
@@ -340,7 +340,7 @@ fn create_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 사본을 제자리 이름으로 바꾸기 전에 본다(C# `Verify`, ADR-031): PCLM·역할·신원, `quick_check`, 표마다 줄 수.
+/// 사본을 제자리 이름으로 바꾸기 전에 본다(ADR-031): PCLM·역할·신원, `quick_check`, 표마다 줄 수.
 fn verify(
     path: &Path,
     role: &str,
@@ -411,14 +411,14 @@ fn identity(transaction: &Transaction<'_>) -> Result<(String, String)> {
         )
         .optional()?
         .ok_or_else(|| {
-            Error::InvalidOperation("작업자료의 이름표(pclm_file)가 비어 있습니다.".into())
+            Error::InvalidOperation("작업자료의 이름표가 비어 있습니다.".into())
         })
 }
 
-/// 사본에 작업자료의 이름표를 적는다(C# `Stamp`) — 역할 `work`, **새 신원**, 지은 때는 지금. 판올림이 WAL 로 바꿔
+/// 사본에 작업자료의 이름표를 적는다 — 역할 `work`, **새 신원**, 지은 때는 지금. 판올림이 WAL 로 바꿔
 /// 두었으면 한 파일로 되돌린다. `required` 면 이름표가 없을 때 거절한다(판올림 전의 옛 v19 사본은 아직 없다).
 ///
-/// 신원과 시각은 C# 과 같은 SQL(`randomblob`·`strftime('now')`)이 짓는다 — 이 층은 환경 효과를 가진다.
+/// 신원과 시각은 SQL(`randomblob`·`strftime('now')`)이 짓는다 — 이 층은 환경 효과를 가진다.
 fn stamp(path: &Path, required: bool) -> Result<()> {
     let connection = Connection::open_with_flags(
         path,
@@ -436,7 +436,7 @@ fn stamp(path: &Path, required: bool) -> Result<()> {
     if exists == 0 {
         if required {
             return Err(Error::InvalidOperation(format!(
-                "뜬 사본에 파일 이름표(pclm_file)가 없습니다: {}",
+                "뜬 사본에 파일 이름표가 없습니다: {}",
                 path.display()
             )));
         }
@@ -457,7 +457,7 @@ fn read_only(path: &Path) -> Result<Connection> {
     )?)
 }
 
-/// 이 전환이 지은 파일을 지운다(C# `ViewedFile.Discard`). 지은 것만 담겨 오므로 남의 파일을 지울 일이 없다.
+/// 이 전환이 지은 파일을 지운다. 지은 것만 담겨 오므로 남의 파일을 지울 일이 없다.
 fn discard(created: &[PathBuf]) {
     for path in created {
         for suffix in ["", "-wal", "-shm", "-journal"] {

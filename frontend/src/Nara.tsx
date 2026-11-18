@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { call } from "./bridge";
 import { ErpTools } from "./ErpTools";
+import { 으로, 이가 } from "./flow/josa";
 import { 검토대기, 탭설명 } from "./Mirror";
 import type { CaptureDay, CaptureEntry, ExtensionContact, ExtensionLive, ExtensionLogEntry, ExtensionStatus, MirrorState, MirrorTab } from "./types";
 
@@ -47,24 +48,6 @@ export const 브라우저이름 = (browser: string) => (browser === "기타" ? "
 export const 부터때 = (at: string, now = new Date()) =>
   오늘인가(at, now) ? at.slice(11, 16) : `${at.slice(5, 7)}/${at.slice(8, 10)} ${at.slice(11, 16)}`;
 
-/**
- * 받침 — 브라우저 이름·판 번호 뒤의 조사를 고른다. 없으면 빈 문자열, ㄹ 이면 「ㄹ」, 그 밖은 「ㅇ」.
- * Chrome(크롬)·0(영)·3(삼)·6(육) 은 받침이 있고, 1(일)·7(칠)·8(팔) 은 ㄹ 이다.
- */
-export const 받침 = (word: string) => {
-  const last = word.trim().slice(-1);
-  if (/[0-9]/.test(last)) return "036".includes(last) ? "ㅇ" : "178".includes(last) ? "ㄹ" : "";
-  if (/[가-힣]/.test(last)) {
-    const code = (last.charCodeAt(0) - 0xac00) % 28;
-    return code === 0 ? "" : code === 8 ? "ㄹ" : "ㅇ";
-  }
-  return word === "Chrome" ? "ㅇ" : "";
-};
-export const 이가 = (w: string) => w + (받침(w) ? "이" : "가");
-export const 을를 = (w: string) => w + (받침(w) ? "을" : "를");
-/** 「으로/로」 — ㄹ 받침 뒤에는 「로」. */
-export const 으로 = (w: string) => w + (받침(w) && 받침(w) !== "ㄹ" ? "으로" : "로");
-
 // ── 원천의 상태 ────────────────────────────────────────
 
 /**
@@ -102,13 +85,16 @@ export const 붙은이름 = (live: ExtensionLive[]) =>
 /**
  * 원천이 지금 어떤가. 붙어 있는지는 상시 연결이 말한다(<code>live</code>) — 인사 흔적만으로는 「연결됨」 이라 하지 않는다.
  *
- * <p>상태를 읽지 못했으면(개발 실행·시험 홈은 다리가 거절한다) 준비 전으로 본다. 준비를 누르면 거기서 까닭이 선다.</p>
+ * <p>상태를 읽지 못했으면 준비 전으로 본다. 준비를 누르면 거기서 까닭이 선다.</p>
  */
 export function 원천상태(status: ExtensionStatus | null | undefined, readOnly: boolean): SourceState {
   const latest = 마지막인사(status);
   const live = status?.live ?? [];
-  const oldLive = status ? live.find((l) => l.version !== status.embeddedVersion) : undefined;
-  const diskStale = !!status && status.diskVersion !== null && status.diskVersion !== status.embeddedVersion;
+  const oldLive = status ? live.find((l) => status.embeddedRevision
+    ? l.revision !== status.embeddedRevision : l.version !== status.embeddedVersion) : undefined;
+  const diskStale = !!status && (status.embeddedRevision
+    ? status.diskRevision !== status.embeddedRevision
+    : status.diskVersion !== null && status.diskVersion !== status.embeddedVersion);
   const stale = live.length > 0 && (!!oldLive || diskStale);
   const staleVersion = !stale ? null : oldLive ? oldLive.version : status!.diskVersion;
   const attached = oldLive ?? live[0] ?? null;
@@ -123,7 +109,7 @@ export function 원천상태(status: ExtensionStatus | null | undefined, readOnl
   if (readOnly) return { ...base, kind: "readonly", text: "열람 창 · 수집 안 함" };
   if (status === undefined) return { ...base, kind: "unknown", text: "" };
   if (!status?.prepared) return { ...base, kind: "setup", text: "확장 설치 필요" };
-  if (stale) return { ...base, kind: "stale", text: "확장이 옛 판" };
+  if (stale) return { ...base, kind: "stale", text: status.embeddedRevision ? `확장 ${갱신표시(status, attached)}` : "확장이 옛 판" };
   if (live.length > 0) return { ...base, kind: "live", text: "연결됨" };
   if (!lastSeen) return { ...base, kind: "waiting", text: "확장 연결 기다림" };
   return { ...base, kind: "offline", text: "연결 안 됨" };
@@ -131,6 +117,26 @@ export function 원천상태(status: ExtensionStatus | null | undefined, readOnl
 
 /** 붙어 있는가 — 판이 같든 다르든. 줄기·통로가 실선이 된다. */
 const 붙음 = (kind: SourceKind) => kind === "live" || kind === "stale";
+
+function 갱신표시(status: ExtensionStatus, attached: ExtensionLive | null) {
+  if (!status.embeddedRevision) return "옛 판";
+  if (attached?.updateState === "failed") return "갱신 실패";
+  if (attached && !attached.revision) return "확인 필요";
+  return "갱신 대기";
+}
+
+function 갱신안내(status: ExtensionStatus, attached: ExtensionLive | null) {
+  if (!status.embeddedRevision) return "앱을 업데이트한 뒤에는 버전 번호가 같아도 확장 관리에서 이 확장을 새로고침하세요.";
+  if (status.diskRevision !== status.embeddedRevision) return "확장 파일을 준비 중이거나 준비를 마치지 못했습니다. 이 상태가 계속되면 앱을 다시 실행해 주세요.";
+  if (!attached) return "브라우저가 연결되면 확장 파일을 확인하고 자동으로 적용합니다.";
+  if (attached.revision === status.embeddedRevision) return "앱의 최신 확장 파일이 적용되었습니다.";
+  if (attached.updateState === "failed") return `자동 갱신을 마치지 못했습니다. 확장 관리에서 앱이 준비한 폴더(${status.folder})를 로드하세요. 저장소의 extension 폴더를 로드한 확장은 자동 갱신되지 않습니다.`;
+  if (!attached.revision) return `실행 중인 확장의 파일을 확인할 수 없습니다. 확장 관리에서 새로고침하고, 계속되면 앱이 준비한 폴더(${status.folder})를 로드하세요.`;
+  if (attached.updateState === "waiting-panel") return "패널을 닫으면 자동 적용";
+  if (attached.updateState === "waiting-work") return "진행 중인 작업을 마치면 자동으로 적용합니다.";
+  if (attached.updateState === "preparing") return "확장 파일 준비가 끝나면 자동으로 적용합니다.";
+  return "새 확장 파일을 자동으로 적용하는 중입니다.";
+}
 
 /** 원천 아이콘·알약의 결. 붙어 있고 판이 같으면 ok, 손이 더 가야 하면 warn, 끊겼거나 열람 창이면 흐리게. */
 const 결 = (kind: SourceKind) =>
@@ -332,7 +338,6 @@ export function NaraPanel(props: Props) {
       <header className="top">
         <div className="page-heading">
           <h1>나라장터</h1>
-          <p>브라우저 확장이 나라장터의 접수·공고·계약 화면을 이 작업자료로 가져옵니다.</p>
         </div>
         {!setupShown && (
           <div className="top-group">
@@ -411,8 +416,7 @@ function ReadOnlyNote() {
     <section className="nara-readonly" aria-label="수집 통로">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
       <p>
-        <b>이 창에는 수집한 자료가 저장되지 않습니다.</b>{" "}
-        <span className="soft">가져오기는 작업자료 창에서만 합니다. 아래는 이 파일에 남은 수집 기록입니다.</span>
+        <b>이 창에는 수집한 자료가 저장되지 않습니다.</b>
       </p>
     </section>
   );
@@ -439,7 +443,7 @@ function Conduit({ status, source, pulse, workfileName, onManage }: {
   const stale = source.kind === "stale";
   const browser = (connected ? source.attached?.browser : source.lastSeen?.browser) ?? source.latest?.browser ?? "Chrome";
   const name = 브라우저이름(browser);
-  const version = source.attached?.version ?? source.latest?.version ?? status.diskVersion ?? status.embeddedVersion;
+  const version = source.attached?.version;
   const since = source.since ? 부터때(source.since) : "";
   const line = (delay: boolean) => (
     <div className={`conduit-line${delay ? " second" : " first"}`} aria-hidden="true">
@@ -464,10 +468,8 @@ function Conduit({ status, source, pulse, workfileName, onManage }: {
         <div className="conduit-end">
           <span className={`conduit-icon${live ? " on" : ""}`}>{확장그림}</span>
           <div className="conduit-label">
-            <div className="conduit-title">확장 {version}</div>
-            {stale
-              ? <div className="warn-strong">옛 판 · 새 판은 {status.embeddedVersion}</div>
-              : <div className="soft">나라장터 연결</div>}
+            <div className="conduit-title">{version ? `확장 ${version}` : "확장 · 현재 판 확인 안 됨"}</div>
+            {stale && <div className="warn-strong">{status.embeddedRevision ? 갱신표시(status, source.attached) : `옛 판 · 새 판은 ${status.embeddedVersion}`}</div>}
           </div>
         </div>
         {line(true)}
@@ -483,20 +485,16 @@ function Conduit({ status, source, pulse, workfileName, onManage }: {
       <div className="conduit-status">
         <span className="conduit-state">
           <span className={`dot${live ? " ok" : stale ? " warn" : " hollow"}`} aria-hidden="true" />
-          {live ? `연결됨 · ${since}부터` : stale ? "연결됨 · 확장이 옛 판" : "연결 안 됨"}
+          {live ? `연결됨 · ${since}부터` : stale ? `연결됨 · ${source.text}` : "연결 안 됨"}
         </span>
-        <span className="soft">{live
-          ? "지금 보는 화면에서 가져오면 아래 목록과 왼쪽 메뉴에 바로 나타납니다."
-          : stale
-            ? "옛 판으로도 연결은 되지만, 화면을 읽는 새 규칙이 적용되지 않을 수 있습니다."
-            : `${이가(name)} 꺼져 있거나 확장이 꺼져 있습니다. ${을를(name)} 켜면 자동으로 다시 연결됩니다. 확장 설정의 「개발 DB 사용」 이 켜져 있어도 이어지지 않습니다.`}</span>
+        {!live && !stale && <span className="soft">{`현재 확장 연결을 확인할 수 없습니다. ${name} 실행 여부와 확장 사용 설정을 확인해 주세요.`}</span>}
       </div>
 
       {stale && (
         <div className="nara-stale" role="alert">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19zM12 10v4M12 17h.01" /></svg>
-          <p><b className="warn-strong">{name}의 확장이 옛 판({source.staleVersion})입니다.</b>{" "}
-            나라장터 화면을 열면 새 판({status.embeddedVersion})으로 자동으로 바뀝니다. 바뀌지 않으면 확장 관리에서 새로고침하세요.</p>
+          <p>{status.embeddedRevision ? 갱신안내(status, source.attached) : <><b className="warn-strong">{name}의 확장이 옛 판({source.staleVersion})입니다.</b>{" "}
+            확장 관리에서 이 확장을 새로고침해 새 판({status.embeddedVersion})을 적용하세요.</>}</p>
           <button className="action" onClick={() => onManage(browser)}>{관리이름(browser)}</button>
         </div>
       )}
@@ -519,7 +517,6 @@ function Setup({ status, source, prepared, onPrepared, onJson }: {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [justPrepared, setJustPrepared] = useState(false);
   const folderInput = useRef<HTMLInputElement>(null);
 
   // 상태를 읽지 못한 창(개발 실행)에서도 방금 준비했으면 다음 단계로 넘긴다.
@@ -535,9 +532,8 @@ function Setup({ status, source, prepared, onPrepared, onJson }: {
   }
 
   const prepare = () => work(async () => {
-    setCopied(false); setJustPrepared(false);
+    setCopied(false);
     const result = await call<{ folder: string; version: string }>("prepareExtension");
-    setJustPrepared(true);
     onPrepared(result);
     // 되면 폴더 선택 창에 바로 붙여 넣는다. 안 되면 아래 칸에서 손으로 복사한다.
     try { await navigator.clipboard.writeText(result.folder); setCopied(true); } catch { /* 칸에 맡긴다 */ }
@@ -555,17 +551,14 @@ function Setup({ status, source, prepared, onPrepared, onJson }: {
     <section className="nara-setup" aria-label="확장 설치">
       <div className="nara-setup-in">
         <h2>Chrome 확장 설치</h2>
-        <p className="soft lead">나라장터 자료는 확장으로 들어옵니다. 한 번 설치하면 앱을 새 판으로 바꿔도 확장이 함께 바뀝니다.</p>
         <ol className="steps">
           <li>
             {marker(ready ? "done" : "active", 1)}
             <div>
               <h3>확장 준비</h3>
-              <p className="soft">앱에 들어 있는 확장을 폴더에 꺼내고, 이 앱과의 연결을 등록합니다. 관리자 권한은 필요 없습니다.</p>
               {ready
                 ? <p className="ok-strong small">준비했습니다 · 확장 {version}</p>
                 : <button className="action primary step-act" onClick={() => void prepare()} disabled={busy}>{busy ? "준비 중…" : "확장 준비"}</button>}
-              {justPrepared && <p role="status" className="hint">확장 {version}을 준비했습니다. 브라우저에서 추가를 완료하세요.</p>}
             </div>
           </li>
           <li>
@@ -595,7 +588,6 @@ function Setup({ status, source, prepared, onPrepared, onJson }: {
             {marker("todo", 3)}
             <div>
               <h3>연결 확인</h3>
-              <p className="soft">추가를 마치면 이 화면이 자동으로 바뀝니다.</p>
               {ready && <p role="status" className="waiting"><span className="dot hollow" aria-hidden="true" />Chrome 연결을 기다리는 중</p>}
             </div>
           </li>
@@ -644,9 +636,6 @@ function CaptureList({ readOnly, captures, fresh, onOpen, children }: {
           {!captures && <div role="row" className="nara-row empty"><span role="cell">읽는 중…</span></div>}
         </div>
       </div>
-      <p className="nara-foot">{readOnly
-        ? "열람 중이라 기록을 보기만 합니다."
-        : "저장된 자료만 보입니다. 아직 가져오지 않은 화면은 「지금 보는 화면」 에 있습니다."}</p>
       {children}
     </section>
   );
@@ -679,7 +668,7 @@ function 기록말(e: ExtensionLogEntry, embedded: string, named: boolean) {
   const why = [
     named ? 브라우저이름(e.browser) : "",
     e.event === "connected" && e.version !== embedded ? `확장 ${e.version} · 앱은 ${embedded}` : "",
-    e.event === "updated" && e.version === embedded ? "앱의 새 판에 맞춰 자동으로" : "",
+    e.event === "updated" && e.version === embedded ? "앱과 같은 버전 번호" : "",
   ].filter(Boolean).join(" · ");
   return { what, why };
 }
@@ -707,18 +696,15 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
 
   const pill = {
     unknown: "확인 중", readonly: "열람 창", setup: "설치 전", waiting: "연결 기다림",
-    live: "연결됨", stale: "옛 판", offline: "연결 안 됨",
+    live: "연결됨", stale: status ? 갱신표시(status, attached) : "옛 판", offline: "연결 안 됨",
   }[source.kind];
   const sub = {
-    unknown: "확장 상태를 읽는 중입니다",
-    readonly: "수집한 자료는 작업자료 창에 저장됩니다",
-    setup: "아직 브라우저에 확장을 설치하지 않았습니다",
-    waiting: "확장을 준비했고 브라우저의 첫 연결을 기다립니다",
+    unknown: "", readonly: "", setup: "", waiting: "",
     live: `${status ? 붙은이름(status.live) : name} · 확장 ${attached?.version ?? ""} · ${since}부터 연결됨`,
-    stale: `${since}부터 연결됨 · 새 판으로 바꿔야 함`,
+    stale: `${since}부터 연결됨 · ${status?.embeddedRevision ? source.text : "새 판으로 바꿔야 함"}`,
     offline: lastSeen ? `${name} · 마지막 연결 ${lastSeen}` : "",
   }[source.kind];
-  const shownVersion = attached?.version ?? latest?.version ?? status?.diskVersion ?? null;
+  const shownVersion = attached?.version ?? null;
   const lastEntry = captures?.last;
   // 열린 탭은 붙어 있을 때만 안다. 끊긴 동안은 수를 지어내지 않는다.
   const tabsKnown = connected && !readOnly && mirror !== null && mirror.reporting;
@@ -737,11 +723,11 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
           <span className={`board-icon ${tone}`}>{브라우저그림}</span>
           <div className="summary-text">
             <div className="summary-title"><h2>{title}</h2><span className={`pill ${tone}`}>{pill}</span></div>
-            <div className="soft clip num">{sub}</div>
+            {sub && <div className="soft clip num">{sub}</div>}
           </div>
         </div>
         <dl className="summary-nums">
-          <div><dt>확장 판</dt><dd className={stale ? "warn-strong" : ""}>{shownVersion ?? "—"}</dd></div>
+          <div><dt>연결된 확장 판</dt><dd className={stale ? "warn-strong" : ""}>{shownVersion ?? "—"}</dd></div>
           <div><dt>오늘 저장</dt><dd>{captures?.saved ?? 0}</dd></div>
           <div><dt>검토 대기</dt><dd className={waiting ? "warn-strong" : ""}>{waiting ?? "—"}</dd></div>
         </dl>
@@ -832,15 +818,16 @@ function Board({ readOnly, status, source, captures, workfileName, roleName, mir
             <dl className="board-dl">
               <dt>브라우저의 판</dt>
               <dd className={stale ? "warn-strong" : ""}>{connected && attached
-                ? `${attached.version} · ${attached.version === embedded ? "앱과 같음" : "앱과 다름"}`
+                ? `${attached.version} · ${attached.version === embedded ? "앱과 같은 버전 번호" : "앱과 다른 버전 번호"}`
                 : latest ? `${latest.version} · 마지막 연결 때` : "—"}</dd>
               <dt>앱에 포함된 판</dt><dd>{status?.embeddedVersion ?? "—"}</dd>
-              {updated && <><dt>판 바뀐 때</dt><dd>{긴때(updated.at)}{updated.version === embedded ? " · 자동" : ""}</dd></>}
+              {updated && <><dt>판 바뀐 때</dt><dd>{긴때(updated.at)}</dd></>}
               <dt>확장 폴더</dt><dd title={status?.folder}>{status?.folder || "—"}</dd>
               <dt>저장 대상</dt><dd>{readOnly ? "작업자료 창의 작업자료" : `${workfileName} · ${roleName}`}</dd>
               <dt>사이트 접근</dt><dd className={settings && !settings.siteAccess ? "warn-strong" : ""}>{settings
                 ? settings.siteAccess ? "www.g2b.go.kr 허용됨" : "www.g2b.go.kr 허용 안 됨" : "—"}</dd>
             </dl>
+            <p className="soft small" role="status">{status && 갱신안내(status, attached)}</p>
           </section>
 
           <section className="board-card">

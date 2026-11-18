@@ -1,12 +1,10 @@
-//! 지금 보는 화면(ADR-036)·수집하는 화면(ADR-037)·들어온 자료 시험 — C# `MirrorTests`·`ScreensTests`·
-//! `CaptureLogTests`.
+//! 지금 보는 화면(ADR-036)·수집하는 화면(ADR-037)·들어온 자료 시험.
 //!
 //! 옮기지 않은 것: 홈의 파일에 닿는 중계(`ExtensionRelay`·`ExtensionPresence` — 탭 보고·명령 폴더·상시 호스트 파이프)와
 //! 자동 수집 설정의 **파일** 읽고 쓰기(`AutoCapturePreferences.Read/Write(home)`)는 이 크레이트에 없다. 설정은 글(`from_json`·
 //! `to_json`)만, 자동 수집은 판단(`AutoCapture::try_save`)만 옮긴다. 쪽지(`Home`)는 [`Pointing`] 이 대신한다.
 //!
-//! C# 이 이 기계의 시간대(`DateTime.Now`·`ToLocalTime`)를 읽던 자리는 한국 표준시(+9) 고정 시간대로 바꿨다 — 기대값은 C# 시험이
-//! 세운 것과 같은 방식(로컬 자정 경계)으로 셈한다. 번호·건명·금액은 모두 지어낸 것이다.
+//! 시각은 이 기계의 시간대가 아니라 한국 표준시(+9) 고정 시간대로 읽는다 — 기대값은 그 시간대의 자정 경계로 셈한다. 번호·건명·금액은 모두 지어낸 것이다.
 
 mod common;
 
@@ -25,9 +23,9 @@ use pclm_core::erp::mirror::{
 };
 use pclm_core::erp::{capture_log, screens};
 use pclm_core::local_time::{FixedZone, LocalDateTime, to_utc_text};
-use pclm_core::storage::store::{EntityRef, Store};
-use pclm_core::storage::{pclm_file, views};
-use pclm_core::{Access, Database, Env, Error, PclmRole, Result};
+use pclm_core::storage::store::{DOCUMENT_VIEW_ID, EntityRef, Store};
+use pclm_core::storage::views;
+use pclm_core::{Access, Database, Env, Error, Result};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, params};
 use serde_json::{Map, Value, json};
@@ -37,7 +35,7 @@ const ITEMS: &str = "mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis"
 
 // ── 같이 쓰는 것 ───────────────────────────────────────────────
 
-/// 거절 사유(C# `Assert.Throws<InvalidOperationException>(..).Message`).
+/// 거절 사유(던진 오류의 글).
 fn reason<T>(result: Result<T>) -> String {
     match result {
         Err(Error::InvalidOperation(message)) => message,
@@ -50,7 +48,6 @@ fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
 }
 
-/// `Assert.Single(items, predicate)`.
 fn single<'a, T>(items: impl Iterator<Item = &'a T>) -> &'a T {
     let mut found: Vec<&T> = items.collect();
     assert_eq!(found.len(), 1, "정확히 하나여야 한다");
@@ -144,7 +141,7 @@ impl Harness {
         let temp = Temp::new(name);
         let path = temp.path("계약자료.pclm");
         let env = TestEnv::new();
-        let db = pclm_file::create(&path, PclmRole::WORK, &env).unwrap();
+        let db = common::workfile(&path, &env);
         Harness {
             _temp: temp,
             path,
@@ -165,7 +162,7 @@ impl Harness {
         mirror::project(&self.host(), &self.env, &ZONE, input, screen)
     }
 
-    /// 확장과 같은 길로 저장한다(C# `Save(input)`).
+    /// 확장과 같은 길로 저장한다.
     fn save(&self, input: &CaptureInput) {
         let host = self.host();
         let preview = host.inspect(input).unwrap();
@@ -224,7 +221,7 @@ fn view_row(c: &Connection, view: &str, key: &str, value: &str) -> HashMap<Strin
         .unwrap()
 }
 
-/// C# `Home` 의 쪽지 자리 — 지금 가리키는 (파일, 자료 ID).
+/// 홈의 쪽지 자리 — 지금 가리키는 (파일, 자료 ID).
 struct Pointing(RefCell<Option<(PathBuf, String)>>);
 
 impl Pointing {
@@ -232,7 +229,6 @@ impl Pointing {
         Pointing(RefCell::new(None))
     }
 
-    /// C# `Home.WriteConfig(path, dataset)`.
     fn write_config(&self, path: &Path, dataset: &str) {
         *self.0.borrow_mut() = Some((path.to_path_buf(), dataset.to_string()));
     }
@@ -249,47 +245,23 @@ impl Destination for Pointing {
 
 // ── 자동 수집 ───────────────────────────────────────────────
 
-/// 설정은 글로만 다닌다 — 파일 읽고 쓰기는 홈의 것이다.
-/// C# MirrorTests.자동수집_설정은_로컬에서_기본꺼짐이며_이름을_선택적으로_저장한다 (글 쪽만)
+/// 설정은 글로만 다닌다 — 파일 읽고 쓰기는 홈의 것이다. 담당자 이름은 설정이 아니다(확장이 보고에 싣는 내 정보).
 #[test]
-fn 자동수집_설정은_로컬에서_기본꺼짐이며_이름을_선택적으로_저장한다() {
+fn 자동수집_설정은_로컬에서_기본꺼짐이며_켜기만_저장한다() {
     // 파일이 없을 때의 읽기는 글이 없는 것과 같다.
     assert!(!AutoCapturePreferences::from_json("").enabled);
-    let settings = AutoCapturePreferences {
-        enabled: true,
-        name: "합성 담당자".into(),
-    };
-    assert_eq!(
-        AutoCapturePreferences::from_json(&settings.to_json().unwrap()).name,
-        "합성 담당자"
-    );
-    let unnamed = AutoCapturePreferences {
-        name: String::new(),
-        ..settings.clone()
-    };
-    assert_eq!(
-        AutoCapturePreferences::from_json(&unnamed.to_json().unwrap()),
-        AutoCapturePreferences {
-            enabled: true,
-            name: String::new()
-        }
-    );
+    let settings = AutoCapturePreferences { enabled: true };
+    assert_eq!(AutoCapturePreferences::from_json(&settings.to_json()), settings);
+    assert_eq!(settings.to_value(), json!({ "enabled": true }));
+    // 옛 파일의 이름 · 규칙은 모르는 칸이라 건너뛴다.
     let legacy = r#"{"enabled":true,"name":"합성 담당자","rules":[{"screen":"01579","enabled":true,"source":"ctrtNm","text":"옛 조건"}]}"#;
     assert_eq!(AutoCapturePreferences::from_json(legacy), settings);
-    let too_long = AutoCapturePreferences {
-        name: "가".repeat(201),
-        ..settings.clone()
-    };
-    assert!(matches!(
-        too_long.to_json(),
-        Err(Error::InvalidOperation(_))
-    ));
-    for invalid in [
-        "{".to_string(),
-        r#"{"enabled":true,"name":null}"#.to_string(),
-        serde_json::to_string(&too_long.to_value()).unwrap(),
-    ] {
-        assert!(!AutoCapturePreferences::from_json(&invalid).enabled);
+    assert_eq!(
+        AutoCapturePreferences::from_json(r#"{"enabled":true,"name":null}"#),
+        settings
+    );
+    for invalid in ["{", r#"{"enabled":"yes"}"#, "[]"] {
+        assert!(!AutoCapturePreferences::from_json(invalid).enabled);
     }
 }
 
@@ -331,7 +303,6 @@ fn with_staff(input: &CaptureInput, staff: &str) -> CaptureInput {
     with_data(input, |data| data["pointInfo"]["ctrtPicNm"] = json!(staff))
 }
 
-/// C# MirrorTests.자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_모두_확인한다
 #[test]
 fn 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_모두_확인한다() {
     let h = Harness::new("mirror-auto");
@@ -344,29 +315,29 @@ fn 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_�
         &contract("00", "합성 담당자", "20260914", &[(1, 1, 1000)]),
         " 합성 담당자 ",
     );
-    let preferences = AutoCapturePreferences {
-        enabled: true,
-        name: "합성 담당자".into(),
-    };
-    let named = |name: &str| AutoCapturePreferences {
-        name: name.into(),
-        ..preferences.clone()
-    };
+    let preferences = AutoCapturePreferences { enabled: true };
     let tab = |snapshot: &CaptureInput, options: TabOptions<'_>| {
         auto_tab(snapshot, &dataset, now, options)
     };
     let plain = TabOptions::default();
     let mut automatic = AutoCapture::new(&h.db, &home, &h.env);
-    let save = |automatic: &mut AutoCapture<'_>, tab: &Value, p: &AutoCapturePreferences| {
-        state_of(automatic.try_save(tab, p, now, None))
+    // 이름은 확장이 보고에 실은 패널의 내 정보 이름이다.
+    let judge = |automatic: &mut AutoCapture<'_>, tab: &Value, name: &str| {
+        automatic.try_save(tab, &preferences, name, now, None).unwrap()
     };
+    let save = |automatic: &mut AutoCapture<'_>, tab: &Value, name: &str| {
+        judge(automatic, tab, name).state
+    };
+    let me = "합성 담당자";
 
     assert_eq!(
-        save(
-            &mut automatic,
+        state_of(automatic.try_save(
             &tab(&input, plain),
-            &AutoCapturePreferences::default()
-        ),
+            &AutoCapturePreferences::default(),
+            me,
+            now,
+            None
+        )),
         "hold"
     );
     for options in [
@@ -384,92 +355,44 @@ fn 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_�
             ..plain
         },
     ] {
-        assert_eq!(
-            save(&mut automatic, &tab(&input, options), &preferences),
-            "hold"
-        );
+        assert_eq!(save(&mut automatic, &tab(&input, options), me), "hold");
     }
     let old_rule = CaptureInput {
         mapping_revision: Some("old".into()),
         ..input.clone()
     };
-    assert_eq!(
-        save(&mut automatic, &tab(&old_rule, plain), &preferences),
-        "hold"
-    );
+    assert_eq!(save(&mut automatic, &tab(&old_rule, plain), me), "hold");
     let without_staff = contract("01", "담당자 없는 합성 계약", "20260915", &[(1, 1, 1000)]);
-    assert_eq!(
-        save(&mut automatic, &tab(&without_staff, plain), &preferences),
-        "hold"
-    );
-    assert_eq!(
-        save(&mut automatic, &tab(&input, plain), &named("합성 담당자2")),
-        "hold"
-    );
+    assert_eq!(save(&mut automatic, &tab(&without_staff, plain), me), "hold");
+    assert_eq!(save(&mut automatic, &tab(&input, plain), "합성 담당자2"), "hold");
     for staff in ["다른 담당자(010-0000-0000)", ""] {
         assert_eq!(
-            save(
-                &mut automatic,
-                &tab(&with_staff(&input, staff), plain),
-                &preferences
-            ),
+            save(&mut automatic, &tab(&with_staff(&input, staff), plain), me),
             "hold"
         );
     }
+    // 이름이 비면 어느 화면도 자동으로 수집하지 않는다.
+    for empty in ["", "  "] {
+        let held = judge(&mut automatic, &tab(&input, plain), empty);
+        assert_eq!(
+            (held.state.as_str(), held.message.as_str()),
+            ("hold", "패널 설정의 내 정보에 이름이 없어 자동으로 수집하지 않습니다.")
+        );
+        assert_eq!(save(&mut automatic, &tab(&without_staff, plain), empty), "hold");
+    }
     assert_eq!(count(&c, "erp_capture"), 0);
     assert_eq!(
-        save(
-            &mut automatic,
-            &tab(&input, plain),
-            &named("  합성 담당자  ")
-        ),
+        save(&mut automatic, &tab(&input, plain), "  합성 담당자  "),
         "stored"
     );
     assert_eq!(count(&c, "erp_capture"), 1);
     // 새 coordinator도 같은 내용을 보고 영수증을 늘리지 않는다.
     let mut second = AutoCapture::new(&h.db, &home, &h.env);
-    assert_eq!(
-        save(&mut second, &tab(&input, plain), &preferences),
-        "unchanged"
-    );
-    assert_eq!(
-        save(&mut automatic, &tab(&input, plain), &named("담당자")),
-        "unchanged"
-    );
+    assert_eq!(save(&mut second, &tab(&input, plain), me), "unchanged");
+    assert_eq!(save(&mut automatic, &tab(&input, plain), "담당자"), "unchanged");
+    // 이름이 바뀌면 같은 읽기라도 다시 판단한다 — 앞서 낸 결과를 돌려주지 않는다.
+    assert_eq!(save(&mut automatic, &tab(&input, plain), "홍길동"), "hold");
     assert_eq!(count(&c, "erp_capture"), 1);
-    assert_eq!(
-        save(
-            &mut automatic,
-            &tab(
-                &without_staff,
-                TabOptions {
-                    stable: false,
-                    ..plain
-                }
-            ),
-            &named("")
-        ),
-        "hold"
-    );
-    assert_eq!(
-        save(
-            &mut automatic,
-            &tab(
-                &without_staff,
-                TabOptions {
-                    target: Some("other"),
-                    ..plain
-                }
-            ),
-            &named("")
-        ),
-        "hold"
-    );
-    assert_eq!(
-        save(&mut automatic, &tab(&without_staff, plain), &named("  ")),
-        "stored"
-    );
-    assert_eq!(count(&c, "erp_capture"), 2);
     let mut table = Map::new();
     table.insert(
         "mf_wfm_container_gridView".into(),
@@ -487,16 +410,15 @@ fn 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_�
         }),
         Some("01117"),
     );
-    // 기관담당자로 업무 담당자를 대신하지 않는다.
-    assert_eq!(
-        save(&mut automatic, &tab(&request, plain), &preferences),
-        "hold"
-    );
-    assert_eq!(
-        save(&mut automatic, &tab(&request, plain), &named("")),
-        "stored"
-    );
-    assert_eq!(count(&c, "erp_capture"), 3);
+    // 접수 화면은 이름과 무관하게 자동으로 수집하지 않는다(이름 판정보다 먼저 본다).
+    for name in [me, ""] {
+        let held = judge(&mut automatic, &tab(&request, plain), name);
+        assert_eq!(
+            (held.state.as_str(), held.message.as_str()),
+            ("hold", "접수 화면은 자동으로 수집하지 않습니다.")
+        );
+    }
+    assert_eq!(count(&c, "erp_capture"), 1);
     let matching_staff = [
         "합성 담당자(010-0000-0000)",
         " 합성 담당자 ( ☎ 000-0000-0000 ) ",
@@ -505,24 +427,17 @@ fn 자동수집은_현재담당자_부분일치와_새읽기_대상_규칙을_�
     ];
     for staff in matching_staff {
         let snapshot = with_staff(&input, staff);
-        assert_eq!(
-            save(&mut automatic, &tab(&snapshot, plain), &preferences),
-            "stored"
-        );
+        assert_eq!(save(&mut automatic, &tab(&snapshot, plain), me), "stored");
         assert_eq!(
             text_of(&c, "SELECT staff FROM contract WHERE seq = '00'"),
             staff.trim()
         );
     }
-    assert_eq!(count(&c, "erp_capture"), 3 + matching_staff.len() as i64);
+    assert_eq!(count(&c, "erp_capture"), 1 + matching_staff.len() as i64);
     home.write_config(&h._temp.path("다른.pclm"), "other");
-    assert_eq!(
-        save(&mut automatic, &tab(&input, plain), &preferences),
-        "hold"
-    );
+    assert_eq!(save(&mut automatic, &tab(&input, plain), me), "hold");
 }
 
-/// C# MirrorTests.자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈칸_사람정정은_유지한다
 #[test]
 fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈칸_사람정정은_유지한다() {
     let h = Harness::new("mirror-auto-change");
@@ -531,10 +446,7 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
     let dataset = h.dataset();
     home.write_config(&h.path, &dataset);
     let now = 1_800_000_000_000_i64;
-    let preferences = AutoCapturePreferences {
-        enabled: true,
-        name: "합성 담당자".into(),
-    };
+    let preferences = AutoCapturePreferences { enabled: true };
     let mut automatic = AutoCapture::new(&h.db, &home, &h.env);
     let with_staff_or_not = |input: &CaptureInput, include: bool| {
         with_data(input, |data| {
@@ -549,7 +461,7 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
         })
     };
     let tab = |input: &CaptureInput| {
-        // 메뉴는 01579 로 못 박는다(C# 도 그렇다).
+        // 메뉴는 01579 로 못 박는다.
         let mut tab = auto_tab(input, &dataset, now, TabOptions::default());
         tab["menu"] = json!("01579");
         tab
@@ -559,7 +471,7 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
         true,
     );
     assert_eq!(
-        state_of(automatic.try_save(&tab(&first), &preferences, now, None)),
+        state_of(automatic.try_save(&tab(&first), &preferences, "합성 담당자", now, None)),
         "stored"
     );
     let second = with_staff_or_not(
@@ -567,18 +479,18 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
         true,
     );
     assert_eq!(
-        state_of(automatic.try_save(&tab(&second), &preferences, now, None)),
+        state_of(automatic.try_save(&tab(&second), &preferences, "합성 담당자", now, None)),
         "stored"
     );
     assert_eq!(text_of(&c, "SELECT title FROM contract"), "합성 B");
     assert_eq!(
-        state_of(automatic.try_save(&tab(&first), &preferences, now, None)),
+        state_of(automatic.try_save(&tab(&first), &preferences, "합성 담당자", now, None)),
         "stored"
     );
     assert_eq!(text_of(&c, "SELECT title FROM contract"), "합성 A");
     assert_eq!(count(&c, "erp_capture"), 3);
     automatic
-        .try_save(&tab(&first), &preferences, now, None)
+        .try_save(&tab(&first), &preferences, "합성 담당자", now, None)
         .unwrap();
     assert_eq!(count(&c, "erp_capture"), 3);
     // DB의 담당자를 조건으로 보충하지 않는다.
@@ -586,6 +498,7 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
         state_of(automatic.try_save(
             &tab(&with_staff_or_not(&first, false)),
             &preferences,
+            "합성 담당자",
             now,
             None
         )),
@@ -602,7 +515,7 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
         data["tables"] = json!({});
     });
     assert_eq!(
-        state_of(automatic.try_save(&tab(&partial), &preferences, now, None)),
+        state_of(automatic.try_save(&tab(&partial), &preferences, "합성 담당자", now, None)),
         "stored"
     );
     assert_eq!(count(&c, "contract_item"), 2);
@@ -616,7 +529,6 @@ fn 자동수집은_정상변경과_되돌아온값을_저장하고_누락행_빈
 
 // ── 투영 ───────────────────────────────────────────────
 
-/// C# MirrorTests.수집_안_함의_안내는_매핑에서_화면을_단_프로필을_읽는다
 #[test]
 fn 수집_안_함의_안내는_매핑에서_화면을_단_프로필을_읽는다() {
     // 창이 「수집하는 화면은 아래 …」 로 보이는 목록 — 따로 적어 두지 않고 매핑의 screen 에서 끌어낸다(ADR-037).
@@ -629,19 +541,19 @@ fn 수집_안_함의_안내는_매핑에서_화면을_단_프로필을_읽는다
     };
     assert_eq!(
         vec![
-            screen("01117", "request", "접수", "조달요구 접수(목록형)"),
-            screen("01112", "request", "접수", "조달요구 접수 상세(일반용역)"),
-            screen("01179", "notice", "공고", "입찰공고 상세"),
-            screen("01181", "notice", "공고", "입찰공고 상세(일반용역)"),
-            screen("01196", "notice", "공고", "입찰공고상세조회(통합)"),
-            screen("01579", "contract", "계약", "계약 상세"),
+            screen("01117", "request", "접수", "계약요청접수상세조회-국방부"),
+            screen("01112", "request", "접수", "계약요청접수상세조회-일반용역"),
+            screen("01114", "request", "접수", "계약요청접수상세조회-물품"),
+            screen("01179", "notice", "공고", "입찰공고작성[물품]"),
+            screen("01181", "notice", "공고", "입찰공고작성[일반용역]"),
+            screen("01196", "notice", "공고", "입찰공고상세"),
+            screen("01579", "contract", "계약", "물품·일반용역 계약서"),
             screen("01608", "contract", "계약", "물품·일반용역 변경계약서 작성"),
         ],
         mirror::supported_screens(&h.db, &h.env)
     );
 }
 
-/// C# MirrorTests.새_자료는_모든_칸을_새로_담길_것으로_비추고_작업자료에는_아무것도_남기지_않는다
 #[test]
 fn 새_자료는_모든_칸을_새로_담길_것으로_비추고_작업자료에는_아무것도_남기지_않는다() {
     let h = Harness::new("mirror-new");
@@ -743,9 +655,8 @@ fn 새_자료는_모든_칸을_새로_담길_것으로_비추고_작업자료에
     assert_eq!(before, footprint(&watcher));
 }
 
-/// C# MirrorTests.현행이_미정이면_공고_후보를_모두_비추고_정해지면_그_공고만_비춘다
 ///
-/// C# 이 먼저 보는 `NoticeGroups.현행공고` 가 비었다는 줄은 옮기지 못했다 — 그 SQL 은 크레이트 안(`pub(crate)`)이다.
+/// `NoticeGroups.현행공고` 가 비었다는 줄은 보지 않는다 — 그 SQL 은 크레이트 안(`pub(crate)`)이다.
 /// 비추는 자리(`place`)가 같은 규칙 위에 서므로 아래 단언이 그것을 간접으로 지킨다.
 #[test]
 fn 현행이_미정이면_공고_후보를_모두_비추고_정해지면_그_공고만_비춘다() {
@@ -789,7 +700,6 @@ fn 현행이_미정이면_공고_후보를_모두_비추고_정해지면_그_공
     );
 }
 
-/// C# MirrorTests.새_차수는_가장_늦은_차수와_견주고_칸은_저장한_뒤의_계약면과_같은_표기다
 #[test]
 fn 새_차수는_가장_늦은_차수와_견주고_칸은_저장한_뒤의_계약면과_같은_표기다() {
     let h = Harness::new("mirror-next-round");
@@ -906,7 +816,6 @@ fn 새_차수는_가장_늦은_차수와_견주고_칸은_저장한_뒤의_계�
     assert_eq!(rounds, vec![("00", "stored"), ("01", "current")]);
 }
 
-/// C# MirrorTests.옛_차수를_다시_비추면_더_늦은_차수가_아니라_그_차수와_견준다
 #[test]
 fn 옛_차수를_다시_비추면_더_늦은_차수가_아니라_그_차수와_견준다() {
     let h = Harness::new("mirror-old-round");
@@ -949,7 +858,6 @@ fn 옛_차수를_다시_비추면_더_늦은_차수가_아니라_그_차수와_�
     assert_eq!(rounds, vec![("00", "current"), ("01", "stored")]);
 }
 
-/// C# MirrorTests.사람이_고친_칸의_아래_값이_바뀌면_검토_대기로_비추고_창의_가져오기는_고른_칸만_복원한다
 #[test]
 fn 사람이_고친_칸의_아래_값이_바뀌면_검토_대기로_비추고_창의_가져오기는_고른_칸만_복원한다() {
     let h = Harness::new("mirror-override");
@@ -1010,7 +918,7 @@ fn 사람이_고친_칸의_아래_값이_바뀌면_검토_대기로_비추고_�
         .unwrap();
     assert!(matches!(stored, SaveResult::Stored(_)));
     assert!(matches!(replayed, SaveResult::Replayed(_)));
-    // C# 은 두 영수증을 같은 옵션으로 직렬화해 견준다. Rust 의 처음 저장은 다리 꼴(연결 칸이 camelCase)이고 재전송은 적어 둔
+    // 처음 저장은 다리 꼴(연결 칸이 camelCase)이고 재전송은 적어 둔
     // 글 그대로(PascalCase)라, 연결 칸의 이름 첫 글자만 맞춰 견준다 — 값은 그대로 견준다.
     let mut replayed_value = replayed.to_value();
     for link in replayed_value["links"].as_array_mut().unwrap() {
@@ -1045,7 +953,6 @@ fn 사람이_고친_칸의_아래_값이_바뀌면_검토_대기로_비추고_�
     assert_eq!(count(&read, "erp_capture"), 2);
 }
 
-/// C# MirrorTests.바뀌는_값은_늘_적용하고_빈_값으로_지우는_변경은_고를_때만_비운다
 #[test]
 fn 바뀌는_값은_늘_적용하고_빈_값으로_지우는_변경은_고를_때만_비운다() {
     let h = Harness::new("mirror-wipe");
@@ -1109,7 +1016,6 @@ fn 바뀌는_값은_늘_적용하고_빈_값으로_지우는_변경은_고를_�
     assert_eq!((title.as_str(), date.as_str()), ("", "2026/10/02"));
 }
 
-/// C# MirrorTests.기본_선택은_고를_것이_있는_충돌마다_빠짐없이_하나씩_낸다
 #[test]
 fn 기본_선택은_고를_것이_있는_충돌마다_빠짐없이_하나씩_낸다() {
     let h = Harness::new("mirror-default-choices");
@@ -1150,7 +1056,6 @@ fn 기본_선택은_고를_것이_있는_충돌마다_빠짐없이_하나씩_낸
     }
 }
 
-/// C# MirrorTests.화면에_없는_행은_그대로_두는_것이_기본이고_고르면_지우며_계약_총액이_맞는지_미리_알린다
 #[test]
 fn 화면에_없는_행은_그대로_두는_것이_기본이고_고르면_지우며_계약_총액이_맞는지_미리_알린다() {
     let h = Harness::new("mirror-missing");
@@ -1223,7 +1128,6 @@ fn 화면에_없는_행은_그대로_두는_것이_기본이고_고르면_지우
     );
 }
 
-/// C# MirrorTests.작업자료의_줄과_짝이_없는_화면의_줄은_새_줄로_가져온다
 #[test]
 fn 작업자료의_줄과_짝이_없는_화면의_줄은_새_줄로_가져온다() {
     let h = Harness::new("mirror-new-rows");
@@ -1281,7 +1185,6 @@ fn 작업자료의_줄과_짝이_없는_화면의_줄은_새_줄로_가져온다
     );
 }
 
-/// C# MirrorTests.수집_규칙에_없는_화면은_투영하지_못하고_까닭을_던진다
 #[test]
 fn 수집_규칙에_없는_화면은_투영하지_못하고_까닭을_던진다() {
     let h = Harness::new("mirror-unknown");
@@ -1312,7 +1215,6 @@ fn refs<'a>(all: &'a [(String, Vec<String>)], column: &str) -> Vec<&'a str> {
         .collect()
 }
 
-/// C# MirrorTests.면_열의_재료는_열_정의에서_끌어낸다
 #[test]
 fn 면_열의_재료는_열_정의에서_끌어낸다() {
     let contract = references("contract");
@@ -1350,7 +1252,6 @@ fn screen_row(group: &str, label: &str, text: &str, source: &str) -> ScreenRow {
     }
 }
 
-/// C# MirrorTests.칸마다_채우는_화면의_자리와_이름표를_잇고_화면_표기는_보이는_글이_다를_때만_곁에_둔다
 #[test]
 fn 칸마다_채우는_화면의_자리와_이름표를_잇고_화면_표기는_보이는_글이_다를_때만_곁에_둔다() {
     let h = Harness::new("mirror-sources");
@@ -1440,7 +1341,7 @@ fn 칸마다_채우는_화면의_자리와_이름표를_잇고_화면_표기는_
         "screenRows": screen.iter().map(ScreenRow::to_value).collect::<Vec<_>>(),
     });
     assert_eq!(mirror::screen_rows(&tab), screen);
-    assert_eq!(mirror::export(&tab), None); // 옛 확장은 내보내기 결과를 싣지 않는다.
+    assert_eq!(mirror::export(&tab), None); // 내보내기를 부르지 않은 탭은 그 결과를 싣지 않는다.
     assert!(mirror::points(
         "table:contract_item",
         "table:contract_item:2"
@@ -1453,7 +1354,6 @@ fn 칸마다_채우는_화면의_자리와_이름표를_잇고_화면_표기는_
 }
 
 /// 탭 보고가 홈의 파일(`ExtensionRelay`)로 건너오는 길은 옮기지 않았다 — 탭 하나의 `export` 를 읽는 모양 검사만 옮긴다.
-/// C# MirrorTests.앱이_부른_내보내기의_결과는_탭_보고에_실려_그대로_건너오고_모양이_틀리면_모르는_것으로_둔다 (Mirror.Export 쪽)
 #[test]
 fn 앱이_부른_내보내기의_결과는_탭_보고에_실려_그대로_건너오고_모양이_틀리면_모르는_것으로_둔다() {
     let tab = json!({ "tabId": 1, "state": "unsupported",
@@ -1635,10 +1535,9 @@ fn insert_old_mapping(h: &Harness, node: &Value) {
         .unwrap();
 }
 
-/// C# ScreensTests.읽지_못하는_매핑_글은_한국어_사유로_거절한다
 #[test]
 fn 읽지_못하는_매핑_글은_한국어_사유로_거절한다() {
-    // 매핑 편집기의 저장·샘플 검증·활성화가 .NET 의 영어 예외 대신 이 사유를 본다.
+    // 매핑 편집기의 저장·샘플 검증·활성화가 영어 예외 글 대신 이 사유를 본다.
     const BROKEN: &str = "매핑 JSON 형식이 올바르지 않습니다.";
     assert_eq!(
         BROKEN,
@@ -1677,9 +1576,8 @@ fn 읽지_못하는_매핑_글은_한국어_사유로_거절한다() {
     );
 }
 
-/// C# ScreensTests.허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화면마다_프로필_하나다
 #[test]
-fn 허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화면마다_프로필_하나다() {
+fn 허용_목록은_기본_매핑에서_화면을_단_여덟_프로필이고_화면마다_프로필_하나다() {
     let defaults = mapping::defaults();
     let mut listed: Vec<(String, String)> = screens::supported(&defaults)
         .map(|p| {
@@ -1692,6 +1590,7 @@ fn 허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화
     listed.sort();
     let expected: Vec<(String, String)> = [
         ("01112", "g2b-request-b-v1"),
+        ("01114", "g2b-request-goods-v1"),
         ("01117", "g2b-request-v1"),
         ("01179", "g2b-notice-a-v1"),
         ("01181", "g2b-notice-a-service-v1"),
@@ -1717,7 +1616,7 @@ fn 허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화
         .collect();
     codes.sort_unstable();
     codes.dedup();
-    assert_eq!(7, codes.len());
+    assert_eq!(8, codes.len());
     assert_eq!(
         Some("g2b-contract-v1"),
         screens::profile_for(&defaults, Some("01579")).map(|p| p.id())
@@ -1726,7 +1625,6 @@ fn 허용_목록은_기본_매핑에서_화면을_단_일곱_프로필이고_화
     assert!(screens::profile_for(&defaults, None).is_none());
 }
 
-/// C# ScreensTests.화면과_고유키는_편집본이_바꿀_수_없다
 #[test]
 fn 화면과_고유키는_편집본이_바꿀_수_없다() {
     let edit = |change: &dyn Fn(&mut MappingProfile)| -> MappingSet {
@@ -1784,9 +1682,8 @@ fn 화면과_고유키는_편집본이_바꿀_수_없다() {
     mapping::validate(&edit(&|p| p.heading = Some("다른 제목".into()))).unwrap();
 }
 
-/// C# ScreensTests.화면을_적기_전에_저장한_매핑은_기본의_화면을_얻고_고유키는_얻지_않는다
 #[test]
-fn 화면을_적기_전에_저장한_매핑은_기본의_화면을_얻고_고유키는_얻지_않는다() {
+fn 옛_매핑은_기본의_화면과_현재_이름을_얻고_고유키는_얻지_않는다() {
     let mut node = defaults_node();
     for profile in node["profiles"].as_array_mut().unwrap() {
         profile.as_object_mut().unwrap().remove("screen");
@@ -1803,9 +1700,55 @@ fn 화면을_적기_전에_저장한_매핑은_기본의_화면을_얻고_고유
         "화면 번호와 고유키는 바꿀 수 없습니다.",
         reason(mapping::parse(&node_text(&node)))
     );
+
+    let mut node = defaults_node();
+    for (id, previous) in [
+        ("g2b-request-v1", "조달요구 접수(목록형)"),
+        ("g2b-request-b-v1", "조달요구 접수 상세(일반용역)"),
+        ("g2b-notice-a-v1", "입찰공고 상세"),
+        ("g2b-notice-a-service-v1", "입찰공고 상세(일반용역)"),
+        ("g2b-notice-b-v1", "입찰공고상세조회(통합)"),
+        ("g2b-contract-v1", "계약 상세"),
+    ] {
+        profile_node(&mut node, id)["screen"]["name"] = json!(previous);
+    }
+    assert_eq!(
+        mapping::revision(&mapping::defaults()),
+        mapping::revision(&mapping::parse(&node_text(&node)).unwrap())
+    );
+    let h = Harness::new("screen-names");
+    profile_node(&mut node, "g2b-notice-a-v1")["heading"] = json!("고친 제목");
+    insert_old_mapping(&h, &node);
+    let active = MappingStore::new(&h.db, &h.env).active().unwrap();
+    assert_eq!(
+        Some("고친 제목"),
+        active
+            .profile("g2b-notice-a-v1")
+            .unwrap()
+            .heading
+            .as_deref()
+    );
+    for p in screens::supported(&active) {
+        assert_eq!(
+            mapping::defaults().profile(p.id()).unwrap().screen,
+            p.screen
+        );
+    }
+
+    // 이전 이름이어도 번호가 다르거나 이름이 임의 값이면 고쳐서 받아들이지 않는다.
+    profile_node(&mut node, "g2b-notice-a-v1")["screen"]["code"] = json!("01175");
+    assert_eq!(
+        "화면 번호와 고유키는 바꿀 수 없습니다.",
+        reason(mapping::read(&node_text(&node)))
+    );
+    profile_node(&mut node, "g2b-notice-a-v1")["screen"] =
+        json!({"code": "01179", "name": "임의 화면"});
+    assert_eq!(
+        "화면 번호와 고유키는 바꿀 수 없습니다.",
+        reason(mapping::parse(&node_text(&node)))
+    );
 }
 
-/// C# ScreensTests.프로필이_더해지기_전에_저장한_매핑은_빠진_프로필을_기본에서_얻고_고친_프로필은_그대로다
 #[test]
 fn 프로필이_더해지기_전에_저장한_매핑은_빠진_프로필을_기본에서_얻고_고친_프로필은_그대로다() {
     // 프로필 수가 기본과 다르면 검증이 거절한다 — 채우지 않으면 작업자료에 저장·활성화한 편집본을 읽는 수집이 통째로 멈춘다.
@@ -1849,7 +1792,6 @@ fn 프로필이_더해지기_전에_저장한_매핑은_빠진_프로필을_기�
     );
 }
 
-/// C# ScreensTests.기본에서_거둔_필드가_남은_편집본은_읽을_때_그_필드만_떨구고_새로_저장하는_길은_거절한다
 #[test]
 fn 기본에서_거둔_필드가_남은_편집본은_읽을_때_그_필드만_떨구고_새로_저장하는_길은_거절한다() {
     // 뜻이 확정되지 않아 기본 매핑에서 뺀 필드(ADR-043)가 거두기 전에 활성화한 편집본에 남아 있다 — 머리 필드·표 필드·그것만 걸던 선택자.
@@ -1892,7 +1834,6 @@ fn 기본에서_거둔_필드가_남은_편집본은_읽을_때_그_필드만_�
     );
 }
 
-/// C# ScreensTests.메뉴_경로에서_비지_않은_가장_깊은_단을_화면의_번호로_본다
 #[test]
 fn 메뉴_경로에서_비지_않은_가장_깊은_단을_화면의_번호로_본다() {
     assert_eq!(
@@ -1928,7 +1869,6 @@ fn 메뉴_경로에서_비지_않은_가장_깊은_단을_화면의_번호로_�
     assert_eq!(screens::leaf(&json!("pointInfo")), None);
 }
 
-/// C# ScreensTests.파일은_번호가_없거나_목록에_없거나_그_화면의_프로필이_아니면_거절한다
 #[test]
 fn 파일은_번호가_없거나_목록에_없거나_그_화면의_프로필이_아니면_거절한다() {
     let t = ScreensHarness::new();
@@ -1945,13 +1885,6 @@ fn 파일은_번호가_없거나_목록에_없거나_그_화면의_프로필이_
         "메뉴 01175 화면은 수집하지 않습니다.",
         reason(t.inspect(&request_file(
             &[("depth1", "01001"), ("depth2", "01175")],
-            "g2b-request-v1"
-        )))
-    );
-    assert_eq!(
-        "메뉴 01114 화면은 수집하지 않습니다.",
-        reason(t.inspect(&request_file(
-            &[("depth1", "01001"), ("depth2", "01114")],
             "g2b-request-v1"
         )))
     );
@@ -1981,12 +1914,10 @@ fn 파일은_번호가_없거나_목록에_없거나_그_화면의_프로필이_
     );
 }
 
-/// C# ScreensTests.실제_화면은_확장이_읽은_번호로만_가리고_저장과_창의_투영도_같은_문을_지난다
 #[test]
 fn 실제_화면은_확장이_읽은_번호로만_가리고_저장과_창의_투영도_같은_문을_지난다() {
     let t = ScreensHarness::new();
-    const UNREAD: &str =
-        "화면 번호를 읽지 못했습니다. 접수·공고·계약 상세 화면에서 다시 읽어 주세요.";
+    const UNREAD: &str = "화면 번호를 읽지 못했습니다. 접수·공고·계약서 화면에서 다시 읽어 주세요.";
     assert_eq!(
         UNREAD,
         reason(t.inspect(&notice_live(None, "g2b-notice-a-v1")))
@@ -2037,7 +1968,6 @@ fn 실제_화면은_확장이_읽은_번호로만_가리고_저장과_창의_투
     }
 }
 
-/// C# ScreensTests.통합_공고_상세는_공고_B_로_읽고_비어_온_기초금액_표는_걷지_않은_값이다
 #[test]
 fn 통합_공고_상세는_공고_b_로_읽고_비어_온_기초금액_표는_걷지_않은_값이다() {
     // 메뉴 01196 — 번호와 차수가 한 칸(「본번호 - 차수」)에 온다. 수의시담은 기초금액 표가 비어 온다.
@@ -2092,7 +2022,6 @@ fn 통합_공고_상세는_공고_b_로_읽고_비어_온_기초금액_표는_�
     );
 }
 
-/// C# ScreensTests.변경계약서_작성_화면은_품목_표의_번호로_그_차수의_계약이고_업체는_바뀐_뒤의_표만_읽는다
 #[test]
 fn 변경계약서_작성_화면은_품목_표의_번호로_그_차수의_계약이고_업체는_바뀐_뒤의_표만_읽는다() {
     // 메뉴 01608 — 서명 전에 쓰는 화면이지만 읽은 값은 그 차수의 계약으로 담는다. 계약일은 이 화면에 없어 걷지 않는다.
@@ -2141,7 +2070,6 @@ fn 변경계약서_작성_화면은_품목_표의_번호로_그_차수의_계약
     assert!(again.unmatched.is_empty());
 }
 
-/// C# ScreensTests.일반용역_접수_상세는_접수_B_로_읽고_다른_프로필로_열면_맞는_프로필을_알려_준다
 #[test]
 fn 일반용역_접수_상세는_접수_b_로_읽고_다른_프로필로_열면_맞는_프로필을_알려_준다() {
     // 메뉴 01112 — 번호·차수가 머리에 있고 품목은 gvDmndItem 에 온다. 그 화면이 오기 전에는 접수 B 가 받는 화면이 없었다.
@@ -2181,7 +2109,45 @@ fn 일반용역_접수_상세는_접수_b_로_읽고_다른_프로필로_열면_
     );
 }
 
-/// C# ScreensTests.일반용역_공고_상세는_공고_A_의_칸으로_읽고_미리보기가_한_벌_더_실은_첨부는_하나로_본다
+#[test]
+fn 물품_접수_상세는_접수_b_의_칸을_옮긴_프로필로_읽고_다른_프로필로_열면_맞는_프로필을_알려_준다() {
+    // 메뉴 01114 — 머리는 01112 와 같은 고유키다. 화면 하나에 프로필 하나라 접수 B 의 칸을 새 프로필로 옮겼다.
+    let t = ScreensHarness::new();
+    let file = |profile: &str| {
+        file_input(
+            profile,
+            json!({
+                "pointInfo": {
+                    "depth1": "01001", "depth2": "01114", "ctrtDmndRcptNo": "RC014", "ctrtDmndRcptOrd": "000",
+                    "ctrtDmndBizNm": "시험 물품", "wrtYmd": "20261001", "stdCtrtMthdCd": "계030003",
+                },
+                "tables": { "mf_wfm_container_gvDmndItem": [{
+                    "ctrtDmndRcptNo": "RC014", "ctrtDmndRcptOrd": "000", "ctrtDmndRcptItemSqno": 1, "dtlsPrnm": "시험 물품",
+                    "ctrtDmndQty": 3, "ctrtDmndUprc": 1000, "devyCndtCd": "인010001" }] },
+            }),
+        )
+    };
+    let preview = t.inspect(&file("g2b-request-goods-v1")).unwrap();
+    assert_eq!("RC014-000", preview.entity);
+    assert_eq!(1, preview.item_count);
+    assert_eq!(
+        Some("제한경쟁"),
+        preview.document.rows[0].value("contract_method")
+    );
+    let item = single(
+        preview
+            .document
+            .rows
+            .iter()
+            .filter(|r| r.table == "request_item"),
+    );
+    assert_eq!(Some("납품장소도"), item.value("delivery_terms"));
+    assert_eq!(
+        "접수 화면(메뉴 01114)의 JSON 입니다. 접수 프로필(g2b-request-goods-v1)로 여세요.",
+        reason(t.inspect(&file("g2b-request-b-v1")))
+    );
+}
+
 #[test]
 fn 일반용역_공고_상세는_공고_a_의_칸으로_읽고_미리보기가_한_벌_더_실은_첨부는_하나로_본다() {
     // 메뉴 01181 — 물품 공고 상세(01179)와 같은 칸이다. 「미리보기」 창이 같은 첨부 표를 한 벌 더 싣고 빈 첨부 표가 하나 더 온다.
@@ -2271,19 +2237,16 @@ fn contract_trait_names(profile: &str) {
     assert_eq!("0005 (명칭 미확정)", convert("0005", "ctrtChrsSeCd"));
 }
 
-/// C# ScreensTests.계약특성과_계약보증서_제출방법은_사람이_화면에서_확인한_명칭으로_담는다 (g2b-contract-v1)
 #[test]
 fn 계약특성과_계약보증서_제출방법은_사람이_화면에서_확인한_명칭으로_담는다_계약() {
     contract_trait_names("g2b-contract-v1");
 }
 
-/// C# ScreensTests.계약특성과_계약보증서_제출방법은_사람이_화면에서_확인한_명칭으로_담는다 (g2b-contract-change-v1)
 #[test]
 fn 계약특성과_계약보증서_제출방법은_사람이_화면에서_확인한_명칭으로_담는다_변경계약() {
     contract_trait_names("g2b-contract-change-v1");
 }
 
-/// C# ScreensTests.계약특성_코드_사전은_계약_프로필_모두가_같은_것을_쓴다
 #[test]
 fn 계약특성_코드_사전은_계약_프로필_모두가_같은_것을_쓴다() {
     let defaults = mapping::defaults();
@@ -2303,40 +2266,6 @@ fn 계약특성_코드_사전은_계약_프로필_모두가_같은_것을_쓴다
     assert_eq!(1, distinct.len());
 }
 
-/// C# ScreensTests.일반용역_화면이_오기_전에_저장한_매핑은_새_공고_프로필과_접수_B_의_화면을_기본에서_얻는다
-#[test]
-fn 일반용역_화면이_오기_전에_저장한_매핑은_새_공고_프로필과_접수_b_의_화면을_기본에서_얻는다() {
-    const ADDED: &str = "g2b-notice-a-service-v1";
-    let mut node = defaults_node();
-    node["profiles"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|p| p["id"] != ADDED);
-    profile_node(&mut node, "g2b-request-b-v1")
-        .as_object_mut()
-        .unwrap()
-        .remove("screen");
-    let parsed = mapping::parse(&node_text(&node)).unwrap();
-    let find = |id: &str| parsed.profiles_iter().find(|p| p.id() == id).unwrap();
-    assert_eq!(
-        profile_hash(&default_profile(ADDED)),
-        profile_hash(find(ADDED))
-    );
-    assert_eq!(
-        Some(ADDED),
-        screens::profile_for(&parsed, Some("01181")).map(|p| p.id())
-    );
-    assert_eq!(
-        Some("g2b-request-b-v1"),
-        screens::profile_for(&parsed, Some("01112")).map(|p| p.id())
-    );
-    assert_eq!(
-        mapping::revision(&mapping::defaults()),
-        mapping::revision(&parsed)
-    );
-}
-
-/// C# ScreensTests.확장은_인사의_매핑에서_목록을_받고_스냅샷의_화면_번호는_모르는_칸이_아니다
 #[test]
 fn 확장은_인사의_매핑에서_목록을_받고_스냅샷의_화면_번호는_모르는_칸이_아니다() {
     let t = ScreensHarness::new();
@@ -2366,6 +2295,7 @@ fn 확장은_인사의_매핑에서_목록을_받고_스냅샷의_화면_번호�
     listed.sort();
     let expected: Vec<(String, String)> = [
         ("01112", "g2b-request-b-v1"),
+        ("01114", "g2b-request-goods-v1"),
         ("01117", "g2b-request-v1"),
         ("01179", "g2b-notice-a-v1"),
         ("01181", "g2b-notice-a-service-v1"),
@@ -2379,24 +2309,22 @@ fn 확장은_인사의_매핑에서_목록을_받고_스냅샷의_화면_번호�
     assert_eq!(expected, listed);
 
     let refused = call(
-        "inspect",
-        json!({ "datasetId": t.dataset, "snapshot": notice_live(Some("01175"), "g2b-notice-a-v1").to_value() }),
+        "document",
+        json!({ "datasetId": t.dataset, "op": "check", "snapshot": notice_live(Some("01175"), "g2b-notice-a-v1").to_value() }),
     );
-    assert_eq!(refused["ok"], json!(false));
+    assert_eq!(refused["result"]["state"], json!("blocked"));
     assert_eq!(
-        refused["error"]["message"],
+        refused["result"]["reason"],
         json!("메뉴 01175 화면은 수집하지 않습니다.")
     );
-    assert_eq!(
-        call(
-            "inspect",
-            json!({ "datasetId": t.dataset, "snapshot": notice_live(Some("01179"), "g2b-notice-a-v1").to_value() })
-        )["ok"],
-        json!(true)
+    let checked = call(
+        "document",
+        json!({ "datasetId": t.dataset, "op": "check", "snapshot": notice_live(Some("01179"), "g2b-notice-a-v1").to_value() }),
     );
+    assert_eq!(checked["ok"], json!(true));
+    assert_ne!(checked["result"]["state"], json!("blocked"));
 }
 
-/// C# ScreensTests.수집_이력은_화면_번호를_적어_두고_재검토는_그_번호로_가린다
 #[test]
 fn 수집_이력은_화면_번호를_적어_두고_재검토는_그_번호로_가린다() {
     // 저장은 걸러 담은 자료만 남겨 메뉴 경로가 지워진다 — 그래서 읽은 화면의 번호를 이력에 함께 적는다.
@@ -2456,7 +2384,6 @@ fn 수집_이력은_화면_번호를_적어_두고_재검토는_그_번호로_�
     );
 }
 
-/// C# ScreensTests.화면_번호가_없는_입력은_예전과_같은_해시를_낸다
 #[test]
 fn 화면_번호가_없는_입력은_예전과_같은_해시를_낸다() {
     // 재전송 영수증(request_hash)과 baseToken 이 입력의 해시를 쓴다 — 번호 칸이 null 로 실리면 판을 올린 뒤
@@ -2533,9 +2460,8 @@ fn fake(
     .unwrap();
 }
 
-/// C# CaptureLogTests.오늘_것만_종류와_결과로_가르고_마지막은_오늘이_아니어도_낸다
 ///
-/// C# 은 `DateTime.Now` 꼴의 로컬 시각을 이 기계의 시간대로 읽었다 — 여기서는 한국 표준시(+9)로 못 박고, 경계(어제 자정
+/// 시각은 한국 표준시(+9)로 못 박고, 경계(어제 자정
 /// 1초 전·오늘 자정 30초 뒤)를 같은 방식으로 세운다.
 #[test]
 fn 오늘_것만_종류와_결과로_가르고_마지막은_오늘이_아니어도_낸다() {
@@ -2673,3 +2599,682 @@ fn 오늘_것만_종류와_결과로_가르고_마지막은_오늘이_아니어�
     let viewer = capture_log::read(&Database::new(&h.path, Access::Read), now, &ZONE).unwrap();
     assert_eq!(3, viewer.entries.len());
 }
+
+// ── 문서 만들기 패널(ADR-045) ───────────────────────────────
+
+const DOCUMENT_REQUEST: &str = "00000000-0000-4000-8000-0000000000d0";
+
+/// 패널이 호스트에 보내는 `document` 한 번 — 답 전체(봉투째).
+fn document_reply(h: &Harness, home: &Pointing, op: &str, extra: Value) -> Value {
+    let mut params = json!({ "datasetId": h.dataset(), "op": op });
+    params
+        .as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    ErpCapture::new(&h.path, &h.env)
+        .with_destination(home)
+        .dispatch(
+            &json!({ "protocolVersion": 2, "requestId": DOCUMENT_REQUEST, "method": "document", "params": params }),
+            false,
+        )
+}
+
+fn document(h: &Harness, home: &Pointing, op: &str, extra: Value) -> Value {
+    let reply = document_reply(h, home, op, extra);
+    assert_eq!(reply["ok"], true, "{reply}");
+    reply["result"].clone()
+}
+
+fn check(h: &Harness, home: &Pointing, input: &CaptureInput) -> Value {
+    document(h, home, "check", json!({ "snapshot": input.to_value() }))
+}
+
+fn store(h: &Harness, home: &Pointing, input: &CaptureInput) -> Value {
+    document(h, home, "save", json!({ "snapshot": input.to_value() }))
+}
+
+fn read_document(h: &Harness, home: &Pointing, entity: &str, entity_type: &str) -> Value {
+    document(
+        h,
+        home,
+        "read",
+        json!({ "entity": entity, "entityType": entity_type }),
+    )
+}
+
+/// 쪽지가 이 작업자료를 가리키는 하네스.
+fn pointed(name: &str) -> (Harness, Pointing) {
+    let h = Harness::new(name);
+    let home = Pointing::none();
+    home.write_config(&h.path, &h.dataset());
+    (h, home)
+}
+
+fn sample_contract() -> CaptureInput {
+    with_staff(
+        &contract(
+            "00",
+            "합성 음향설비 구매",
+            "20260914",
+            &[(1, 6, 2_000_000), (2, 1, 18_400_000)],
+        ),
+        "홍길동",
+    )
+}
+
+fn keys(row: &Value) -> Vec<String> {
+    row.as_object().unwrap().keys().cloned().collect()
+}
+
+/// 줄의 값이 모두 글인가 — 빈 값이 null 로 새면 받는 쪽의 빈 값 경고가 죽는다.
+fn all_text(row: &Value) -> bool {
+    row.as_object().unwrap().values().all(Value::is_string)
+}
+
+fn auto_preferences() -> AutoCapturePreferences {
+    AutoCapturePreferences { enabled: true }
+}
+
+#[test]
+fn 문서_패널은_새_건을_다르다고_하고_저장한_뒤에는_같다고_한다() {
+    let (h, home) = pointed("document-new");
+    let c = h.read();
+    let input = sample_contract();
+
+    let first = check(&h, &home, &input);
+    assert_eq!(first["state"], "differs");
+    assert_eq!(first["isNew"], true);
+    assert_eq!(first["entity"], "R26TA00000001-00");
+    assert_eq!(first["entityType"], "contract");
+    assert!(first["changedCount"].as_u64().unwrap() > 0);
+    assert!(first.get("reason").is_none());
+    // 무엇이 다른지 — 앞에서 스무 개까지, 이름표와 값은 모두 글이다(빈 값은 빈 글).
+    let listed = first["changes"].as_array().unwrap();
+    assert!(!listed.is_empty() && listed.len() <= 20, "{listed:?}");
+    assert!(listed.len() as u64 <= first["changedCount"].as_u64().unwrap());
+    assert!(
+        listed
+            .iter()
+            .all(|ch| keys(ch) == ["label", "before", "after"] && all_text(ch)),
+        "{listed:?}"
+    );
+    assert!(
+        listed
+            .contains(&json!({ "label": "계약건명", "before": "", "after": "합성 음향설비 구매" })),
+        "{listed:?}"
+    );
+    assert_eq!(count(&c, "erp_capture"), 0); // 묻기만 하고 쓰지 않는다.
+
+    let saved = store(&h, &home, &input);
+    assert_eq!(saved["saved"], true);
+    assert_eq!(saved["state"], "same");
+    assert_eq!(saved["isNew"], false);
+    assert_eq!(saved["changedCount"], 0);
+    assert_eq!(saved["changes"], json!([]));
+    assert_eq!(count(&c, "erp_capture"), 1);
+
+    // 같은 화면이면 다시 쓰지 않는다.
+    let again = store(&h, &home, &input);
+    assert_eq!(
+        (&again["saved"], &again["state"]),
+        (&json!(false), &json!("same"))
+    );
+    assert_eq!(count(&c, "erp_capture"), 1);
+    assert_eq!(check(&h, &home, &input)["state"], "same");
+
+    // 자동 수집과 한 판단이다 — 패널이 같다고 한 화면을 자동 수집도 같다고 한다.
+    let now = 1_800_000_000_000_i64;
+    let mut automatic = AutoCapture::new(&h.db, &home, &h.env);
+    assert_eq!(
+        state_of(automatic.try_save(
+            &auto_tab(&input, &h.dataset(), now, TabOptions::default()),
+            &auto_preferences(),
+            "홍길동",
+            now,
+            None
+        )),
+        "unchanged"
+    );
+
+    // 새 차수는 새 것이다.
+    let next = contract(
+        "01",
+        "합성 음향설비 구매",
+        "20260914",
+        &[(1, 6, 2_000_000), (2, 1, 18_400_000)],
+    );
+    let round = check(&h, &home, &next);
+    assert_eq!(
+        (&round["state"], &round["isNew"]),
+        (&json!("differs"), &json!(true))
+    );
+}
+
+#[test]
+fn 문서_패널의_저장은_사람이_고친_칸과_화면에_빈_칸을_지키고_읽기에_그대로_보인다() {
+    let (h, home) = pointed("document-keep");
+    let input = sample_contract();
+    store(&h, &home, &input);
+    Store::new(Database::new(&h.path, Access::Write), &h.env)
+        .set_override(
+            &EntityRef::new("contract", "R26TA00000001", "00"),
+            "계약건명",
+            "사람 정정",
+        )
+        .unwrap();
+
+    // 화면이 비워 보낸 칸만 다르면 저장된 것과 같다 — 있던 값을 지우지 않는다.
+    let blank = with_data(&input, |data| data["pointInfo"]["ctrtGtnrt"] = json!(""));
+    assert_eq!(check(&h, &home, &blank)["state"], "same");
+
+    // 덮개 아래 값이 바뀌어도 덮개는 지킨다.
+    let renamed = with_data(&blank, |data| {
+        data["pointInfo"]["ctrtNm"] = json!("바뀐 합성 건명");
+    });
+    let before = check(&h, &home, &renamed);
+    assert_eq!(before["state"], "differs");
+    assert_eq!(before["isNew"], false);
+    // 다른 것은 건명 하나 — 창이 같은 칸에 다는 면 열 이름으로, 값은 그 면 열의 표기로. 지키는 덮개 · 화면에 빈 칸은
+    // 바뀌지 않으므로 싣지 않는다.
+    assert_eq!(
+        before["changes"],
+        json!([{ "label": "계약건명", "before": "합성 음향설비 구매", "after": "바뀐 합성 건명" }])
+    );
+    assert_eq!(before["changedCount"], 1);
+    let saved = store(&h, &home, &renamed);
+    assert_eq!(
+        (&saved["saved"], &saved["state"]),
+        (&json!(true), &json!("same"))
+    );
+    let c = h.read();
+    assert_eq!(text_of(&c, "SELECT title FROM contract"), "바뀐 합성 건명");
+    assert_eq!(text_of(&c, "SELECT value FROM field_override"), "사람 정정");
+
+    // 통합 뷰의 흐름식이 면 뷰를 읽으므로 덮개와 표기가 그대로 온다(공고 · 접수가 없어 건명은 계약건명이다).
+    let read = read_document(&h, &home, "R26TA00000001-00", "contract");
+    assert_eq!(read["values"]["건명"], "사람 정정");
+    assert_eq!(read["values"]["계약보증금"], "8,094,520원");
+}
+
+/// 면 뷰의 한 줄을 열 이름 → 값(글)으로.
+fn face_values(c: &Connection, sql: &str) -> HashMap<String, String> {
+    let mut statement = c.prepare(sql).unwrap();
+    let names: Vec<String> = statement.column_names().map(str::to_string).collect();
+    statement
+        .query_row([], |r| {
+            Ok(names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (n.clone(), cell(r.get_ref(i).unwrap())))
+                .collect())
+        })
+        .unwrap()
+}
+
+#[test]
+fn 문서_패널의_다른_칸은_면_뷰의_표기와_이름으로_보인다() {
+    let (h, home) = pointed("document-notation");
+    store(&h, &home, &sample_contract());
+
+    // 보증금 · 계약일자 · 1번 품목의 수량과 금액이 바뀐 화면.
+    let changed = with_data(
+        &contract(
+            "00",
+            "합성 음향설비 구매",
+            "20261030",
+            &[(1, 7, 2_000_000), (2, 1, 18_400_000)],
+        ),
+        |data| data["pointInfo"]["ctrtGrnteAmt"] = json!("9123450"),
+    );
+    let before = check(&h, &home, &changed);
+    assert_eq!(before["state"], "differs", "{before}");
+    let listed = before["changes"].as_array().unwrap().clone();
+    // 금액은 자릿점, 날짜는 YYYY/MM/DD, 품목 칸은 품목 뷰의 열 이름 — 업무 표의 글(9123450 · 2026-10-30 · quantity)이
+    // 새지 않는다.
+    for expected in [
+        json!({ "label": "계약보증금(원)", "before": "8,094,520", "after": "9,123,450" }),
+        json!({ "label": "계약일자", "before": "2026/09/14", "after": "2026/10/30" }),
+        json!({ "label": "품목 1 · 수량", "before": "6", "after": "7" }),
+        json!({ "label": "품목 1 · 금액", "before": "12,000,000", "after": "14,000,000" }),
+    ] {
+        assert!(listed.contains(&expected), "{expected} 가 없다: {listed:?}");
+    }
+
+    // 보장 — 저장한 뒤 면 뷰가 그 칸에 내는 글이 패널이 미리 보인 `after` 와 바이트까지 같다.
+    let saved = store(&h, &home, &changed);
+    assert_eq!(saved["saved"], true, "{saved}");
+    let c = h.read();
+    let head = face_values(&c, "SELECT * FROM v_계약");
+    let line = face_values(&c, "SELECT * FROM v_계약품목 WHERE 순번 = 1");
+    for ch in &listed {
+        let label = ch["label"].as_str().unwrap();
+        let shown = match label.strip_prefix("품목 1 · ") {
+            Some(column) => &line[column],
+            None => &head[label],
+        };
+        assert_eq!(ch["after"].as_str().unwrap(), shown, "{label}");
+    }
+}
+
+#[test]
+fn 문서_패널은_저장하지_못하는_화면의_까닭을_싣는다() {
+    let (h, home) = pointed("document-blocked");
+    let c = h.write();
+    let input = sample_contract();
+
+    // 수집 규칙이 바뀐 화면은 짝짓지도 못한다.
+    let old_rule = CaptureInput {
+        mapping_revision: Some("old".into()),
+        ..input.clone()
+    };
+    let stale = check(&h, &home, &old_rule);
+    assert_eq!(stale["state"], "blocked");
+    assert_eq!(stale["reason"], "수집 규칙이 바뀌었습니다. 다시 확인하세요.");
+    assert_eq!(stale["entity"], Value::Null);
+    assert_eq!(stale["changes"], json!([]));
+    let refused = store(&h, &home, &old_rule);
+    assert_eq!(
+        (&refused["state"], &refused["saved"]),
+        (&json!("blocked"), &json!(false))
+    );
+
+    // 수집이 모르는 품목 줄이 이미 있으면 화면의 줄은 대응을 고르지 않은 채 새 줄이 되고(자동 수집과 같다), 그러면 총액이
+    // 맞지 않아 저장이 거절된다. 묻기(check)는 저장해 보지 않으므로 다르다고만 한다.
+    c.execute_batch(
+        "INSERT INTO contract_series(contract_base) VALUES('R26TA00000001');
+         INSERT INTO contract(contract_base,seq,amount,updated_at) VALUES('R26TA00000001','00','30400000','before');
+         INSERT INTO contract_item(contract_base,seq,line_no,item_name,quantity,unit_price,amount)
+             VALUES('R26TA00000001','00',1,'손으로 넣은 품목',1,'30400000','30400000');",
+    )
+    .unwrap();
+    let pending = check(&h, &home, &input);
+    assert_eq!(pending["state"], "differs");
+    assert_eq!(pending["isNew"], false);
+    let blocked = store(&h, &home, &input);
+    assert_eq!(blocked["state"], "blocked");
+    assert_eq!(blocked["saved"], false);
+    assert_eq!(blocked["entity"], "R26TA00000001-00");
+    // 거절된 저장도 무엇이 다른지 싣는다 — 짝짓지 못한 품목 줄은 창의 표 이름과 줄 번호를 단다.
+    let refused = blocked["changes"].as_array().unwrap();
+    assert!(!refused.is_empty(), "{blocked}");
+    assert!(refused.iter().all(all_text), "{refused:?}");
+    let reason = blocked["reason"].as_str().unwrap().to_string();
+    assert!(reason.contains("계약 총액이 다릅니다"), "{reason}");
+    assert_eq!(count(&c, "erp_capture"), 0);
+    assert_eq!(count(&c, "contract_item"), 1);
+    // 자동 수집도 같은 글로 멈춘다.
+    let now = 1_800_000_000_000_i64;
+    let held = AutoCapture::new(&h.db, &home, &h.env)
+        .try_save(
+            &auto_tab(&input, &h.dataset(), now, TabOptions::default()),
+            &auto_preferences(),
+            "홍길동",
+            now,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        (held.state.as_str(), held.message.as_str()),
+        ("hold", reason.as_str())
+    );
+
+    // 모르는 op · 모르는 종류 · 차수 없는 번호는 요청 오류다.
+    for (op, extra) in [
+        ("print", json!({})),
+        (
+            "read",
+            json!({ "entity": "R26TA00000001-00", "entityType": "plan" }),
+        ),
+        (
+            "read",
+            json!({ "entity": "R26TA0000000100", "entityType": "contract" }),
+        ),
+    ] {
+        let reply = document_reply(&h, &home, op, extra);
+        assert_eq!(reply["ok"], false, "{reply}");
+    }
+}
+
+/// 접수 → 공고 → 계약의 사슬. 접수와 공고는 명시 참조를 단 채 들이고, 계약은 패널로 저장한다(저장이 연결을 다시 짓는다).
+/// `others` 는 같은 공고를 가리키는 계약을 더 넣는다.
+fn chain(h: &Harness, home: &Pointing, others: &[&str]) {
+    let c = h.write();
+    c.execute_batch(
+        "INSERT INTO request_series(request_base) VALUES('RC001');
+         INSERT INTO request(request_base,seq,title,updated_at) VALUES('RC001','000','합성 접수','before');
+         INSERT INTO request_item(request_base,seq,line_no,item_name,ref_request_base,ref_request_seq,ref_request_item)
+             VALUES('RC001','000',1,'합성 품목','RC001','000','001');
+         INSERT INTO notice_group(group_base) VALUES('R26BK00000001');
+         INSERT INTO notice_series(notice_base,group_base) VALUES('R26BK00000001','R26BK00000001');
+         INSERT INTO notice(notice_base,seq,title,updated_at) VALUES('R26BK00000001','000','합성 공고','before');
+         INSERT INTO notice_item(notice_base,seq,line_no,ref_request_base,ref_request_seq,ref_request_item)
+             VALUES('R26BK00000001','000',1,'RC001','000','001');",
+    )
+    .unwrap();
+    for other in others {
+        c.execute(
+            "INSERT INTO contract_series(contract_base) VALUES(?1)",
+            [other],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO contract(contract_base,seq,title,ref_notice_base,updated_at) VALUES(?1,'00','다른 합성 계약','R26BK00000001','before')",
+            [other],
+        )
+        .unwrap();
+    }
+    assert_eq!(store(h, home, &sample_contract())["saved"], true);
+}
+
+/// exe 에 실린 통합 뷰의 열 이름들, 차례대로.
+fn builtin_columns() -> Vec<String> {
+    let package: Value = serde_json::from_str(pclm_core::storage::store::builtin_view_package())
+        .unwrap();
+    package["views"][0]["definition"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn 문서_패널의_읽기는_exe_에_실린_통합_뷰의_한_줄이다() {
+    let (h, home) = pointed("document-read");
+    chain(&h, &home, &[]);
+    // 작업자료에 「문서 서식」 줄이 없으면 exe 의 정의를 셈하고, 깔린 u_* 는 읽지 않는다.
+    h.write()
+        .execute_batch("DELETE FROM user_view; DROP VIEW IF EXISTS \"u_문서 서식\";")
+        .unwrap();
+
+    let read = read_document(&h, &home, "R26TA00000001-00", "contract");
+    assert_eq!(read["entityType"], "contract");
+    assert_eq!(read["entity"], "R26TA0000000100"); // 탭의 번호를 면 뷰의 꼴로
+    assert_eq!(keys(&read["values"]), builtin_columns());
+    assert!(all_text(&read["values"])); // 빈 값은 빈 글이다.
+    let v = &read["values"];
+    assert_eq!(v["계약번호"], "R26TA0000000100");
+    assert_eq!(v["계약금액"], "30,400,000원");
+    assert_eq!(v["계약금액_한글"], "삼천사십만");
+    assert_eq!(v["입찰공고번호"], "R26BK00000001-000");
+    assert_eq!(v["공고명"], "합성 공고");
+    assert_eq!(v["건명"], "합성 공고");
+    // 계약 품목이 먼저다 — 서로 다르면 「첫 품명 외 n건」.
+    assert_eq!(v["세부품명"], "시험 품목 1 외 1건");
+    assert_eq!(v["납품기한"], "");
+    assert_eq!(v["계약보증금납부기한"], official_day(&h, "+10 days"));
+    assert_eq!(read["rows"], 1);
+    assert_eq!(read["older"], false);
+    assert_eq!(
+        read["caseKeys"],
+        json!(["request:RC001", "notice:R26BK00000001", "contract:R26TA00000001"])
+    );
+
+    // 접수 탭에서도 같은 사슬의 같은 줄이다.
+    let from_request = read_document(&h, &home, "RC001-000", "request");
+    assert_eq!(from_request["values"], read["values"]);
+    assert_eq!(from_request["caseKeys"], read["caseKeys"]);
+
+    // 품목 납품기한은 가장 늦은 날, 날짜가 아닌 글이 섞이면 모두 같을 때만 그 값이다.
+    let c = h.write();
+    c.execute_batch("UPDATE contract_item SET delivery_due = CASE line_no WHEN 1 THEN '2027-03-31' ELSE '2026-12-01' END;")
+        .unwrap();
+    let due_of = || read_document(&h, &home, "R26TA00000001-00", "contract")["values"]["납품기한"].clone();
+    assert_eq!(due_of(), "2027. 3. 31.");
+    c.execute_batch("UPDATE contract_item SET delivery_due = '수시 납품' WHERE line_no = 1;")
+        .unwrap();
+    assert_eq!(due_of(), "");
+    c.execute_batch("UPDATE contract_item SET delivery_due = '수시 납품', item_name = '시험 품목';")
+        .unwrap();
+    assert_eq!(due_of(), "수시 납품");
+    // 품명이 모두 같으면 그 품명이다.
+    assert_eq!(
+        read_document(&h, &home, "R26TA00000001-00", "contract")["values"]["세부품명"],
+        "시험 품목"
+    );
+
+    // 쌓이지 않은 건은 null — 짐작해 채우지 않는다.
+    assert_eq!(
+        read_document(&h, &home, "R26TA00000009-00", "contract"),
+        Value::Null
+    );
+}
+
+/// 사람이 「문서 서식」 을 고쳐 저장하면 패널의 읽기가 그 정의를 셈한다(ADR-052). 나중에 깨진 식의 열은 빈 글이고, 다른 열은
+/// 그대로다 — 식 하나가 읽기 전체를 막지 않는다.
+#[test]
+fn 문서_패널의_읽기는_사람이_고친_문서_서식을_셈한다() {
+    let (h, home) = pointed("document-edited");
+    chain(&h, &home, &[]);
+    let s = Store::new(Database::new(&h.path, Access::Write), &h.env);
+    let view = s
+        .user_views()
+        .unwrap()
+        .into_iter()
+        .find(|v| v.id == DOCUMENT_VIEW_ID)
+        .unwrap();
+    let mut definition = view.definition.clone();
+    let set = |definition: &mut Value, name: &str, sql: &str| {
+        let columns = definition["columns"].as_array_mut().unwrap();
+        let column = columns.iter_mut().find(|c| c["name"] == name).unwrap();
+        column["formula"] = json!({ "version": 2, "source": "sql", "sql": sql });
+    };
+    set(&mut definition, "건명", "SELECT '사람이 고친 건명'");
+    s.save_user_view(
+        &json!({ "name": view.name, "definition": definition }).to_string(),
+        Some(DOCUMENT_VIEW_ID),
+    )
+    .unwrap();
+    let v = read_document(&h, &home, "R26TA00000001-00", "contract")["values"].clone();
+    assert_eq!(v["건명"], "사람이 고친 건명");
+    assert_eq!(v["계약금액"], "30,400,000원");
+
+    // 저장한 뒤에 깨진 식(저장은 깨진 식을 받지 않으므로 표에 바로 쓴다).
+    set(&mut definition, "계약금액", "SELECT 없는_열");
+    h.write()
+        .execute(
+            "UPDATE user_view SET definition = ?1 WHERE id = ?2",
+            params![definition.to_string(), DOCUMENT_VIEW_ID],
+        )
+        .unwrap();
+    let read = read_document(&h, &home, "R26TA00000001-00", "contract");
+    let v = &read["values"];
+    assert_eq!(keys(v), builtin_columns());
+    assert!(all_text(v));
+    assert_eq!(v["계약금액"], "");
+    assert_eq!(v["건명"], "사람이 고친 건명");
+    assert_eq!(v["계약번호"], "R26TA0000000100");
+}
+
+/// SQLite 가 보는 오늘(`date('now', 'localtime', shift)`)의 (년, 월, 일).
+fn today_parts(h: &Harness, shift: &str) -> (u32, u32, u32) {
+    let day: String = h
+        .read()
+        .query_row("SELECT date('now', 'localtime', ?1)", [shift], |r| r.get(0))
+        .unwrap();
+    let mut parts = day.split('-').map(|p| p.parse::<u32>().unwrap());
+    (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap())
+}
+
+/// 오늘에서 `shift` 만큼 옮긴 날의 공문서 표기 `2026. 1. 5.`.
+fn official_day(h: &Harness, shift: &str) -> String {
+    let (y, m, d) = today_parts(h, shift);
+    format!("{y}. {m}. {d}.")
+}
+
+/// 엔진이 문서에 넣을 때 꾸미던 글(옛 `pclm-doc-engine` `values::resolve` — 「원」 · 공문서 날짜 · 파생 값)을 이제 뷰가
+/// 낸다. 기대값은 그 엔진 시험의 기대값이다(새 구현의 출력에서 베끼지 않았다) — 문서에 찍히는 글이 바이트까지 같아야 한다.
+#[test]
+fn 문서_패널의_읽기는_옛_엔진이_문서에_넣던_글_그대로다() {
+    let (h, home) = pointed("document-decorated");
+    chain(&h, &home, &[]);
+    h.write()
+        .execute_batch(
+            "UPDATE notice SET estimated_price = '24545454', project_amount = '별도 공지',
+                 posted_at = '2026-10-20 09:30:00';
+             INSERT INTO notice_schedule (notice_base, seq, line_no, name, starts_at, ends_at)
+                 VALUES ('R26BK00000001', '000', 1, '개찰', '2026-10-27 10:00:15', NULL);
+             UPDATE contract SET amount = '114500', guarantee_amount = ' ';
+             UPDATE contract_item SET delivery_due = '수시 납품', item_name = '시험 품목';",
+        )
+        .unwrap();
+
+    let v = read_document(&h, &home, "R26TA00000001-00", "contract")["values"].clone();
+    for (name, text) in [
+        ("추정가격", "24,545,454원"),
+        ("계약금액", "114,500원"),
+        ("계약금액_한글", "일십일만사천오백"),
+        ("추정가격_한글", "이천사백오십사만오천사백오십사"),
+        ("게시일시", "2026. 10. 20. 09:30"),
+        ("게시일", "2026. 10. 20."),
+        ("개찰일시", "2026. 10. 27. 10:00"), // 초는 찍지 않는다(ADR-053)
+        ("공고일시_년월일", "2026년 10월 20일"),
+        ("납품기한", "수시 납품"), // 날짜가 아닌 글은 그대로
+    ] {
+        assert_eq!(v[name], text, "{name}");
+    }
+    // 수로 읽히지 않는 금액 글은 빈 글이다(ADR-053 — 옛 원표기는 원문을 그대로 냈다).
+    assert_eq!(v["사업예산"], "");
+    // 빈 값은 계속 없는 값이다(엔진이 공백뿐인 글을 걷는다).
+    assert_eq!(v["계약보증금"].as_str().map(str::trim), Some(""));
+    // 쓰는 날 — 옛 엔진은 패널이 넘긴 오늘을, 이제 뷰는 호스트가 읽는 날을 쓴다.
+    let (y, m, d) = today_parts(&h, "+0 days");
+    assert_eq!(v["오늘_년월일"], format!("{y}년 {m}월 {d}일").as_str());
+    assert_eq!(v["오늘_년월"], format!("{y}. {m}.").as_str());
+    assert_eq!(v["계약보증금납부기한"], official_day(&h, "+10 days"));
+
+    // 날짜 · 금액이 비면 파생 값도 빈 글이다(그 칸은 【확인 필요】).
+    h.write()
+        .execute_batch("UPDATE notice SET estimated_price = NULL, posted_at = NULL;")
+        .unwrap();
+    let v = read_document(&h, &home, "R26TA00000001-00", "contract")["values"].clone();
+    for name in ["추정가격", "추정가격_한글", "게시일", "게시일시", "공고일시_년월일"] {
+        assert_eq!(v[name], "", "{name}");
+    }
+    assert!(all_text(&v));
+
+    // 시각 없는 날짜 — 일시 열은 00:00 을 찍는다(ADR-053).
+    h.write()
+        .execute_batch("UPDATE notice SET posted_at = '2026-01-01';")
+        .unwrap();
+    let v = read_document(&h, &home, "R26TA00000001-00", "contract")["values"].clone();
+    assert_eq!(v["게시일"], "2026. 1. 1.");
+    assert_eq!(v["게시일시"], "2026. 1. 1. 00:00");
+    assert_eq!(v["공고일시_년월일"], "2026년 1월 1일");
+}
+
+#[test]
+fn 문서_패널은_계약이_여럿인_공고에서_계약을_고르지_않는다() {
+    let (h, home) = pointed("document-many");
+    chain(&h, &home, &["R26TA00000002"]);
+
+    let from_notice = read_document(&h, &home, "R26BK00000001-000", "notice");
+    assert_eq!(from_notice["rows"], 2);
+    let v = &from_notice["values"];
+    assert_eq!(v["입찰공고번호"], "R26BK00000001-000");
+    assert_eq!(v["조달요구번호"], read_document(&h, &home, "RC001-000", "request")["values"]["조달요구번호"]);
+    // 줄마다 다른 칸(계약 쪽)은 비운다.
+    assert_eq!(v["계약번호"], "");
+    assert_eq!(v["단계"], "계약");
+
+    // 계약 탭은 제 계약이다.
+    let from_contract = read_document(&h, &home, "R26TA00000001-00", "contract");
+    assert_eq!(from_contract["rows"], 1);
+    assert_eq!(from_contract["values"]["계약번호"], "R26TA0000000100");
+    assert_eq!(from_contract["values"]["입찰공고번호"], "R26BK00000001-000");
+}
+
+#[test]
+fn 문서_패널은_공고_탭의_공고를_읽는다_재공고로_번호가_둘이어도() {
+    let (h, home) = pointed("document-rebid");
+    // 한 건에 공고번호가 둘 — 유찰된 공고와 그것을 대체한 재공고. 건의 현행 공고는 재공고다.
+    h.write()
+        .execute_batch(
+            "INSERT INTO notice_group(group_base) VALUES('R26BK00000001');
+             INSERT INTO notice_series(notice_base,group_base) VALUES('R26BK00000001','R26BK00000001'),('R26BK00000002','R26BK00000001');
+             INSERT INTO notice(notice_base,seq,title,updated_at) VALUES
+                 ('R26BK00000001','000','유찰된 합성 공고','before'),
+                 ('R26BK00000002','000','옛 차수의 재공고','before'),
+                 ('R26BK00000002','001','다시 낸 합성 공고','before');
+             INSERT INTO notice_item(notice_base,seq,line_no,item_name,delivery_due) VALUES
+                 ('R26BK00000001','000',1,'유찰 품목','2026-12-01'),
+                 ('R26BK00000002','001',1,'다시 낸 품목','2027-01-15'),
+                 ('R26BK00000002','001',2,'다시 낸 다른 품목','2027-02-28');
+             INSERT INTO notice_relation(notice_base,seq,line_no,related,related_base,related_seq)
+                 VALUES('R26BK00000002','001',1,'R26BK00000001-000','R26BK00000001','000');",
+        )
+        .unwrap();
+
+    // 옛 공고 탭은 옛 공고의 값 — 품목(세부품명 · 납품기한)도 그 공고의 것이다.
+    let old = read_document(&h, &home, "R26BK00000001-000", "notice");
+    let v = &old["values"];
+    assert_eq!(v["입찰공고번호"], "R26BK00000001-000");
+    assert_eq!(v["공고명"], "유찰된 합성 공고");
+    assert_eq!(v["세부품명"], "유찰 품목");
+    assert_eq!(v["납품기한"], "2026. 12. 1.");
+    assert_eq!(old["older"], false);
+    assert_eq!(old["caseKeys"], json!(["notice:R26BK00000001"]));
+
+    let current = read_document(&h, &home, "R26BK00000002-001", "notice");
+    let v = &current["values"];
+    assert_eq!(v["입찰공고번호"], "R26BK00000002-001");
+    assert_eq!(v["공고명"], "다시 낸 합성 공고");
+    assert_eq!(v["세부품명"], "다시 낸 품목 외 1건");
+    assert_eq!(v["납품기한"], "2027. 2. 28.");
+    assert_eq!(current["caseKeys"], old["caseKeys"]);
+    // 공고서는 「외 n건」을 쓰지 않고 품목을 모두 나열한다. 하나로 정할 수 없는 줄(번호 · 수량이 빈 줄)이 있으면 그 열 전체가 빈 글이다.
+    assert_eq!(v["세부품명_목록"], "다시 낸 품목, 다시 낸 다른 품목");
+    assert_eq!(v["세부품명_번호목록"], "");
+    assert_eq!(v["세부품명_수량목록"], "");
+    // 같은 (품명, 번호) 의 줄은 한 항목으로 묶어 수량을 더하고, 첫 순번 차례로 잇는다.
+    h.write()
+        .execute_batch(
+            "UPDATE notice_item SET detail_item_number = CASE line_no WHEN 1 THEN '0000000001' ELSE '0000000002' END,
+                 quantity = CASE line_no WHEN 1 THEN 3 ELSE 5 END, unit = CASE line_no WHEN 1 THEN '개' ELSE '대' END
+                 WHERE notice_base = 'R26BK00000002';
+             INSERT INTO notice_item(notice_base,seq,line_no,item_name,detail_item_number,quantity,unit)
+                 VALUES('R26BK00000002','001',3,'다시 낸 품목','0000000001',4,'개');",
+        )
+        .unwrap();
+    let lists = || read_document(&h, &home, "R26BK00000002-001", "notice")["values"].clone();
+    let v = lists();
+    assert_eq!(v["세부품명_목록"], "다시 낸 품목, 다시 낸 다른 품목");
+    assert_eq!(v["세부품명_번호목록"], "다시 낸 품목(0000000001), 다시 낸 다른 품목(0000000002)");
+    assert_eq!(v["세부품명_수량목록"], "다시 낸 품목 / 7 개, 다시 낸 다른 품목 / 5 대");
+    // 묶음 안에서 단위가 갈리면 수량목록만 빈 글이다.
+    h.write()
+        .execute_batch("UPDATE notice_item SET unit = '상자' WHERE notice_base = 'R26BK00000002' AND line_no = 3;")
+        .unwrap();
+    let v = lists();
+    assert_eq!(v["세부품명_수량목록"], "");
+    assert_eq!(v["세부품명_번호목록"], "다시 낸 품목(0000000001), 다시 낸 다른 품목(0000000002)");
+    assert!(all_text(&v));
+    // 품목이 하나면 수량목록은 「세부품명 / 수량 단위」 와 같은 글이다.
+    h.write()
+        .execute_batch("UPDATE notice_item SET quantity = 12, unit = '개' WHERE notice_base = 'R26BK00000001';")
+        .unwrap();
+    let v = read_document(&h, &home, "R26BK00000001-000", "notice")["values"].clone();
+    assert_eq!(v["세부품명_목록"], "유찰 품목");
+    assert_eq!(v["세부품명_수량목록"], "유찰 품목 / 12 개");
+    assert_eq!(
+        v["세부품명_수량목록"].as_str().unwrap(),
+        format!("{} / {} {}", v["세부품명"].as_str().unwrap(), v["수량"].as_str().unwrap(), v["단위"].as_str().unwrap())
+    );
+
+    // 같은 공고번호의 옛 차수 탭은 옛 차수라고 알리고, 값은 최신 차수다.
+    let older = read_document(&h, &home, "R26BK00000002-000", "notice");
+    assert_eq!(older["older"], true);
+    assert_eq!(older["values"]["공고명"], "다시 낸 합성 공고");
+
+    // 창의 통합 · 맞춤 뷰는 건의 현행 공고 그대로다.
+    let c = h.read();
+    assert_eq!(
+        text_of(&c, "SELECT 입찰공고번호 FROM v_통합"),
+        "R26BK00000002-001"
+    );
+    assert_eq!(
+        text_of(&c, "SELECT 공고명 FROM \"u_문서 서식\""),
+        "다시 낸 합성 공고"
+    );
+}
+

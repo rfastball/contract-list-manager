@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>가짜 나라장터 — 개발용</title>
+<style>
+  body { margin: 0; font: 14px/1.5 sans-serif; color: #1f2933; background: #f4f6f8; }
+  nav { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+        padding: 10px 16px; background: #b42318; color: #fff; }
+  nav .banner { font-size: 22px; font-weight: 700; }
+  nav label { display: inline-flex; gap: 6px; align-items: center; }
+  nav input[type="number"] { width: 5em; }
+  #mf_wfm_cntsHeader_spnHeaderTitle { margin: 16px; font-size: 20px; }
+  #mf_wfm_container { margin: 0 16px 32px; }
+  h3 { margin: 20px 0 6px; font-size: 15px; }
+  table { border-collapse: collapse; background: #fff; }
+  th, td { border: 1px solid #cbd2d9; padding: 4px 8px; text-align: left; white-space: nowrap; }
+  th { background: #e4e7eb; font-weight: 600; }
+  .form input { width: 16em; border: 1px solid #9aa5b1; padding: 2px 4px; }
+  .grid { overflow-x: auto; }
+  .processbar { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(0 0 0 / 30%);
+                color: #fff; font-size: 20px; }
+  .processbar[hidden] { display: none; }
+</style>
+</head>
+<body>
+<!-- 조작 띠는 nav 안에 둔다 — 확장의 내보내기는 nav 를 화면으로 보지 않고, 수집은 #mf_wfm_container 안만 본다. 여기 칸에 id 를 달지 않는다. -->
+<nav aria-label="가짜 나라장터 조작">
+  <strong class="banner">가짜 나라장터 — 개발용</strong>
+  <span>확장 개발용 가짜 페이지입니다. 실제 나라장터가 아니며 값은 모두 지어낸 것입니다.</span>
+  <label>화면 <select data-control="screen"></select></label>
+  <button type="button" data-control="seq">차수 +1</button>
+  <label><input type="checkbox" data-control="loading"> 로딩 표시</label>
+  <label>품목 줄 수 <input type="number" min="0" max="500" data-control="rows"></label>
+</nav>
+<h2 id="mf_wfm_cntsHeader_spnHeaderTitle"></h2>
+<div id="mf_wfm_container"></div>
+<div id="__processbarIFrame" class="processbar" hidden>불러오는 중…</div>
+<script>
+// 자료(data.json)로 화면을 그리고, 확장이 읽는 나라장터의 함수 둘(com.gfnGetMenuNo · $p.getComponentById)만 흉내 낸다.
+// frontend/src/FakeG2b.test.ts 가 이 스크립트를 jsdom 에서 진짜 capture.js 와 함께 돌린다.
+const area = document.getElementById("mf_wfm_container");
+const control = name => document.querySelector(`nav [data-control="${name}"]`);
+const state = { data: null, code: "", rows: null, bumps: {} };
+let raws = new Map(), grids = new Map();
+const edited = new WeakSet();
+
+// 차수 +1 — 끝의 숫자를 자리 수를 지켜 하나 올린다("000" → "001", "R26TA00000001-00" → "R26TA00000001-01").
+const bump = (v, n) => typeof v === "number" ? v + n
+  : String(v).replace(/\d+$/, d => String(Number(d) + n).padStart(d.length, "0"));
+// 품목 줄 수만큼 행을 돌려 쓰고, 순번 열은 줄 차례로 다시 단다(자리 수 · 수/글 꼴은 첫 행을 따른다).
+const resize = (table, count) => Array.from({ length: count }, (_, i) => {
+  const row = { ...table.rows[i % table.rows.length] };
+  for (const k of table.ordinal || [])
+    row[k] = typeof row[k] === "number" ? i + 1 : String(i + 1).padStart(String(table.rows[0][k]).length, "0");
+  return row;
+});
+
+function render() {
+  const screen = state.data.screens.find(s => s.code === state.code);
+  const n = state.bumps[screen.code] || 0;
+  const seq = (k, v) => n && screen.seqKeys.includes(k) ? bump(v, n) : v;
+  raws = new Map(); grids = new Map();
+  area.replaceChildren();
+  document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle").textContent = screen.title;
+  const heading = text => area.appendChild(Object.assign(document.createElement("h3"), { textContent: text }));
+  for (const section of screen.sections) {
+    heading(section.heading);
+    const body = area.appendChild(Object.assign(document.createElement("table"), { className: "form" })).createTBody();
+    for (let i = 0; i < section.fields.length; i += 2) {
+      const tr = body.insertRow();
+      for (const [key, label, raw, shown] of section.fields.slice(i, i + 2)) {
+        tr.appendChild(Object.assign(document.createElement("th"), { textContent: label }));
+        const input = Object.assign(document.createElement("input"), { id: "mf_wfm_container_" + key, title: label });
+        const value = seq(key, raw);
+        input.value = n && screen.seqKeys.includes(key) ? value : shown ?? raw;
+        input.addEventListener("input", () => edited.add(input));
+        raws.set(input, value);
+        tr.insertCell().appendChild(input);
+      }
+    }
+  }
+  for (const table of screen.tables) {
+    heading(table.heading);
+    let rows = table.items && state.rows !== null ? resize(table, state.rows) : table.rows.map(r => ({ ...r }));
+    rows = rows.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, seq(k, v)])));
+    const box = area.appendChild(Object.assign(document.createElement("div"), { id: table.id, className: "grid" }));
+    grids.set(box, rows);
+    const columns = [...new Set(table.rows.flatMap(Object.keys))];
+    const grid = box.appendChild(document.createElement("table"));
+    const head = grid.createTHead().insertRow();
+    for (const c of columns) head.appendChild(Object.assign(document.createElement("th"), { textContent: c }));
+    const body = grid.createTBody();
+    for (const r of rows) {
+      const tr = body.insertRow();
+      for (const c of columns) tr.insertCell().textContent = r[c] ?? "";
+    }
+  }
+  control("screen").value = screen.code;
+  control("rows").value = String(state.rows ?? screen.tables.find(t => t.items)?.rows.length ?? "");
+  control("seq").disabled = !screen.seqKeys.length;
+}
+
+function show(code) {
+  state.code = code;
+  // 나라장터는 화면을 새로 고침 없이 갈고 주소 상태에 메뉴 번호를 둔다 — capture.js 가 그 둘째 길로도 읽는다.
+  history.replaceState({ ...(history.state || {}), data: { menuNo: code } }, "");
+  render();
+}
+
+window.com = { gfnGetMenuNo: () => state.code };
+window.$p = {
+  getComponentById(id) {
+    const e = document.getElementById(id);
+    if (!e || !area.contains(e)) return null;
+    if (grids.has(e)) { const rows = grids.get(e); return { getDataList: () => ({ getAllJSON: () => rows.map(r => ({ ...r })) }) }; }
+    // 원값을 주되, 사람이 칸을 고쳤으면 고친 글을 준다 — 앱의 「다릅니다」 단계를 밟아 보려는 것이다.
+    if (raws.has(e)) return { getValue: () => edited.has(e) ? e.value : raws.get(e) };
+    return null;
+  },
+};
+
+control("screen").addEventListener("change", e => show(e.target.value));
+control("seq").addEventListener("click", () => { state.bumps[state.code] = (state.bumps[state.code] || 0) + 1; render(); });
+control("loading").addEventListener("change", e => { document.getElementById("__processbarIFrame").hidden = !e.target.checked; });
+control("rows").addEventListener("change", e => {
+  const n = e.target.value === "" ? NaN : Number(e.target.value);
+  state.rows = Number.isInteger(n) && n >= 0 ? Math.min(n, 500) : null; // 비우면 자료의 줄 수로 돌아간다
+  render();
+});
+
+fetch("data.json").then(r => r.json()).then(data => {
+  state.data = data;
+  for (const s of data.screens)
+    control("screen").appendChild(Object.assign(document.createElement("option"), { value: s.code, textContent: `${s.code} ${s.title}` }));
+  const kept = history.state?.data?.menuNo;
+  show(data.screens.some(s => s.code === kept) ? kept : data.screens[0].code);
+}).catch(e => { area.textContent = "자료를 읽지 못했습니다: " + e.message; });
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-//! 떠 있는 작업자료 창을 앞으로 불러낸다(C# `Pclm.App/Activation.cs`, `Home.ActivationName`).
+//! 떠 있는 작업자료 창을 앞으로 불러낸다.
 //!
 //! 창은 홈마다 하나라(ADR-030) 두 번째로 띄우면 잠금을 얻지 못한다. 그쪽이 이름 붙은 신호를 울리고 조용히 끝나며
 //! (울리기는 다리의 [`pclm_bridge::Os::signal_activation`] — `AllowSetForegroundWindow` 뒤에 울린다), 떠 있는 쪽이 이것으로
@@ -23,7 +23,7 @@ pub struct Activation {
 }
 
 impl Activation {
-    /// 신호를 듣기 시작한다(자동으로 되돌아가는 이벤트, C# `EventResetMode.AutoReset`). `show` 는 듣는 실마리에서 불리므로
+    /// 신호를 듣기 시작한다(자동으로 되돌아가는 이벤트). `show` 는 듣는 실마리에서 불리므로
     /// 부르는 쪽이 창의 차례로 넘긴다. 듣지 못하게 되었으면 `None` — 그러면 두 번째로 띄운 쪽이 「이미 열려 있습니다」 를 알린다.
     pub fn listen(name: &str, show: impl Fn() + Send + 'static) -> Option<Activation> {
         let name = wide(name);

@@ -100,7 +100,7 @@ export function parseFlow(src: string, mode: SyntaxMode = {}): Parsed {
 
   const spans: Parsed["spans"] = [];
   const first = peek();
-  const expected = mode.view ? "시작 데이터가 와야 합니다 — 접수 · 공고 · 계약 · 글자 · 수" : "시작 데이터가 와야 합니다 — 품목 · 연결공고 · 이 행의 열 · 글자 · 수";
+  const expected = mode.view ? "시작 데이터가 와야 합니다 — 접수 · 공고 · 계약 · 오늘 · 글자 · 수" : "시작 데이터가 와야 합니다 — 품목 · 연결공고 · 이 행의 열 · 오늘 · 글자 · 수";
   if (first.t === "eof") fail(expected);
   const source = parseSource();
   spans.push({ from: first.from, to: toks[p - 1].to });
@@ -121,6 +121,7 @@ export function parseFlow(src: string, mode: SyntaxMode = {}): Parsed {
     if (t.t === "num") return { kind: "number", value: Number(t.v) };
     if (t.t !== "word") return fail(expected, t);
     if (!t.quoted && t.v === "품목") return { kind: "items" };
+    if (!t.quoted && t.v === "오늘") return { kind: "today" };
     if (!t.quoted && sources[t.v]) {
       const link = sources[t.v];
       if (peek().t !== "dot") return { kind: "linked", link };
@@ -313,6 +314,7 @@ export function printSource(s: Source, mode: SyntaxMode = {}): string {
     case "field": return ident(s.field);
     case "text": return quote(s.text);
     case "number": return num(s.value);
+    case "today": return "오늘";
     case "linked": return (mode.view ? docWord : linkWord)[s.link] + (s.items ? ".품목" : s.field !== undefined ? `.${ident(s.field)}` : "");
   }
 }

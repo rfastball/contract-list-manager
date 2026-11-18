@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 pub mod store_fixture;
 
-use pclm_core::Env;
+use pclm_core::{Access, Database, Env};
 use pclm_core::storage::schema;
 use rusqlite::Connection;
 
@@ -35,6 +35,22 @@ impl Env for TestEnv {
         self.next.set(n + 1);
         format!("{n:032x}")
     }
+}
+
+/// 생성 경로를 한 번 거친 빈 작업자료를 독립 파일로 뜬다. 생성·판올림 시험은 직접 만든다.
+pub fn workfile(path: &Path, env: &TestEnv) -> Database {
+    static EMPTY: std::sync::OnceLock<(Vec<u8>, u64)> = std::sync::OnceLock::new();
+    let (bytes, next_id) = EMPTY.get_or_init(|| {
+        let temp = Temp::new("workfile-template");
+        let path = temp.path("template.pclm");
+        let env = TestEnv::new();
+        pclm_core::storage::pclm_file::create(&path, "work", &env).unwrap();
+        // create의 마지막 연결이 닫힌 뒤라 WAL까지 본 파일에 반영되어 있다.
+        (std::fs::read(path).unwrap(), env.next.get())
+    });
+    std::fs::write(path, bytes).unwrap();
+    env.next.set(*next_id);
+    Database::new(path, Access::Write)
 }
 
 /// 시험 하나의 폴더. 놓으면 지운다.
@@ -74,7 +90,7 @@ pub fn suffixed(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(text)
 }
 
-/// 접수 → 공고 → 계약 한 줄과 품목·링크·사람 값·덮개·계획(C# `PclmFileTests.채움`, 지어낸 값).
+/// 접수 → 공고 → 계약 한 줄과 품목·링크·사람 값·덮개(지어낸 값).
 pub const FILL: &str = "
 INSERT INTO request_series (request_base) VALUES ('R-1');
 INSERT INTO request (request_base, seq, title, received_on, updated_at)
@@ -102,9 +118,6 @@ INSERT INTO contract_user_field (contract_base, field_name, value, updated_at)
 VALUES ('C-1', '메모', '지어낸 메모', '2026-09-05T09:00:00.0000000Z');
 INSERT INTO field_override (entity_type, base, seq, column_name, value, original, updated_at)
 VALUES ('contract', 'C-1', '0', '계약금액', '1,234', '', '2026-09-05T09:00:00.0000000Z');
-
-INSERT INTO plan (request_number, item_name, quantity, source_name, imported_at)
-VALUES ('P-1', '지어낸 계획 품목', 3, '지어낸 계획.xlsx', '2026-09-06T09:00:00.0000000Z');
 ";
 
 /// 쓰기로 바로 연다(시험이 옛 판 파일을 지을 때). 이 크레이트를 거치지 않는다.
@@ -141,7 +154,7 @@ pub fn legacy_v19(path: &Path, sql: Option<&str>) {
     }
 }
 
-/// 기준선에 단계를 `version` 까지 밟은 옛 파일(C# 시험이 `Schema.Baseline + Steps.Take(..)` 로 짓는 것). 단계마다
+/// 기준선에 단계를 `version` 까지 밟은 옛 파일(기준선 + 앞쪽 단계들). 단계마다
 /// 줄을 끊는다 — 주석 한 줄뿐인 단계 뒤에 붙여 쓰면 다음 문장이 주석에 먹힌다.
 pub fn legacy_at(path: &Path, version: i32, role: &str) {
     let c = raw(path);
@@ -180,13 +193,9 @@ pub fn raw_code(error: &rusqlite::Error) -> Option<i32> {
     }
 }
 
-/// C# `SchemaDump.Of` — 표·색인·방아쇠의 정의 원문과 씨앗 행. DB 마다 새로 뽑히는 값은 자리표로 바꾼다.
+/// 표·색인·방아쇠의 정의 원문과 씨앗 행. DB 마다 새로 뽑히는 값은 자리표로 바꾼다.
 pub fn schema_dump(c: &Connection) -> String {
-    const RANDOM: [(&str, &str); 3] = [
-        ("pclm_file", "dataset_id"),
-        ("pclm_file", "created_at"),
-        ("user_view", "id"),
-    ];
+    const RANDOM: [(&str, &str); 2] = [("pclm_file", "dataset_id"), ("pclm_file", "created_at")];
     let mut text = String::new();
     let definitions: Vec<(String, String, String)> = c
         .prepare(
@@ -264,6 +273,6 @@ fn literal(value: rusqlite::types::Value) -> String {
         Value::Text(s) => format!("'{s}'"),
         Value::Integer(i) => i.to_string(),
         Value::Real(f) => f.to_string(),
-        Value::Blob(_) => "System.Byte[]".into(),
+        Value::Blob(_) => "(바이너리)".into(),
     }
 }

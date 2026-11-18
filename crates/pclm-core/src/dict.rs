@@ -1,8 +1,8 @@
-//! .NET `Dictionary<TKey, TValue>` 의 차례를 그대로 따르는 사전.
+//! 지운 자리를 다시 쓰는 차례를 따르는 사전.
 //!
-//! C# 의 사전은 넣은 차례로 돌지만 **지운 자리를 다음에 넣는 것이 다시 쓴다**(빈자리 목록은 나중에 빈 것부터,
+//! 이 사전은 넣은 차례로 돌지만 **지운 자리를 다음에 넣는 것이 다시 쓴다**(빈자리 목록은 나중에 빈 것부터,
 //! `Clear` 는 처음으로). 뷰 짓기가 이 차례에 기댄다 — `v_맞춤뷰` 의 `CASE` 갈래 차례는 맞춤 뷰를 지어 보며
-//! 넣고 지운 사전을 그대로 돈 것이라, 차례가 갈리면 `sqlite_master` 의 글이 C# 과 갈린다.
+//! 넣고 지운 사전을 그대로 돈 것이라, 차례가 갈리면 `sqlite_master` 의 글이 옛 판이 써 둔 것과 갈린다.
 
 /// 넣은 차례 + 빈자리 다시 쓰기. 열쇠는 `==` 로 견준다(작아서 훑는다).
 #[derive(Clone, Debug, PartialEq)]
@@ -72,7 +72,7 @@ impl<K: PartialEq, V> Dict<K, V> {
         self.len() == 0
     }
 
-    /// C# 의 `foreach` 차례.
+    /// 돌 때의 차례.
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.entries.iter().flatten().map(|(k, v)| (k, v))
     }

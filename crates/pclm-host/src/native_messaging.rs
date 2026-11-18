@@ -1,4 +1,4 @@
-//! Chrome/Edge Native Messaging(C# `Erp/NativeMessaging.cs`) — 4바이트 little-endian 길이 머리와 JSON 몸. stdout 에는
+//! Chrome/Edge Native Messaging — 4바이트 little-endian 길이 머리와 JSON 몸. stdout 에는
 //! 그것만 쓴다. 글의 뜻(깊이 32·겹친 키·Web 직렬화)은 Core 의 [`wire`] 가 쥔다.
 
 use std::io::{self, Read, Write};
@@ -7,12 +7,12 @@ use std::sync::Mutex;
 use pclm_core::erp::wire::{self, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES};
 use serde_json::{Map, Value};
 
-/// 고리가 멈춘 까닭. 둘 다 호스트를 1 로 끝낸다(C# 은 `IOException`·`InvalidDataException` 을 함께 잡는다).
+/// 고리가 멈춘 까닭. 둘 다 호스트를 1 로 끝낸다.
 #[derive(Debug)]
 pub enum Error {
-    /// 끊긴 파이프·중간에 끝난 메시지(C# `EndOfStreamException` 등).
+    /// 끊긴 파이프·중간에 끝난 메시지.
     Io(io::Error),
-    /// 길이 머리가 0 이거나 요청 한도를 넘었다, 또는 답이 응답 한도를 넘었다(C# `InvalidDataException`).
+    /// 길이 머리가 0 이거나 요청 한도를 넘었다, 또는 답이 응답 한도를 넘었다.
     InvalidData(&'static str),
 }
 
@@ -41,7 +41,7 @@ pub fn lock<W>(output: &Mutex<W>) -> std::sync::MutexGuard<'_, W> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// 메시지 고리(C# `NativeMessaging.Run`). 입력이 메시지 경계에서 끝나면 `Ok`. 읽지 못한 글은 `dispatch` 에 넘기지 않고
+/// 메시지 고리. 입력이 메시지 경계에서 끝나면 `Ok`. 읽지 못한 글은 `dispatch` 에 넘기지 않고
 /// `invalid_json` 으로 답한다.
 pub fn run<R: Read, W: Write>(
     mut input: R,
@@ -60,15 +60,23 @@ pub fn run<R: Read, W: Write>(
         }
         let mut payload = vec![0u8; length];
         input.read_exact(&mut payload)?;
-        let response = match wire::parse_message(&payload) {
-            Some(request) => dispatch(&request),
+        let request = wire::parse_message(&payload);
+        let response = match &request {
+            Some(request) => dispatch(request),
             None => invalid_json(),
         };
-        send(output, &response)?;
+        match send(output, &response) {
+            // 요청(저장 등)은 이미 치렀을 수 있다 — 고리를 끊으면 확장은 끊긴 포트만 본다. 실패로 답하고 잇는다.
+            Err(Error::InvalidData(_)) => {
+                let id = request.as_ref().and_then(request_id);
+                send(output, &envelope(id, "invalid_request", "응답이 너무 큽니다."))?;
+            }
+            sent => sent?,
+        }
     }
 }
 
-/// 첫 바이트 — 입력이 끝났으면 `false`(C# `ReadByte() < 0`).
+/// 첫 바이트 — 입력이 끝났으면 `false`.
 fn read_first<R: Read>(input: &mut R, byte: &mut u8) -> io::Result<bool> {
     loop {
         match input.read(std::slice::from_mut(byte)) {
@@ -80,7 +88,7 @@ fn read_first<R: Read>(input: &mut R, byte: &mut u8) -> io::Result<bool> {
     }
 }
 
-/// 메시지 하나를 길이 머리와 함께 쓴다(C# `NativeMessaging.Send`). 응답 한도를 넘으면 쓰지 않고 멈춘다.
+/// 메시지 하나를 길이 머리와 함께 쓴다. 응답 한도를 넘으면 쓰지 않고 [`Error::InvalidData`] 를 낸다.
 pub fn send<W: Write>(output: &Mutex<W>, message: &Value) -> Result<(), Error> {
     let bytes = wire::to_web_json(message).into_bytes();
     if bytes.len() > MAX_RESPONSE_BYTES {
@@ -130,7 +138,7 @@ pub fn status_reply(request_id: Option<&str>, status: &str) -> Value {
     Value::Object(out)
 }
 
-/// `request.TryGetProperty("requestId", out var id) && id.ValueKind == String ? id.GetString() : null`.
+/// 요청의 `requestId` — 글일 때만, 아니면 `None`.
 pub fn request_id(request: &Value) -> Option<&str> {
     request.get("requestId").and_then(Value::as_str)
 }
@@ -232,7 +240,29 @@ mod tests {
     }
 
     #[test]
-    fn 응답_한도를_넘으면_쓰지_않고_멈춘다() {
+    fn 응답이_한도를_넘으면_그_요청에_실패로_답하고_고리를_잇는다() {
+        let input = [
+            frame(br#"{"requestId":"r-1","n":1}"#),
+            frame(br#"{"requestId":"r-2","n":2}"#),
+        ]
+        .concat();
+        let output = Mutex::new(Vec::new());
+        run(&input[..], &output, |request| match request["n"].as_i64() {
+            Some(1) => Value::String("a".repeat(MAX_RESPONSE_BYTES)),
+            _ => serde_json::json!({ "ok": true }),
+        })
+        .unwrap();
+        let replies = replies(&output.into_inner().unwrap());
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0]["ok"], false);
+        assert_eq!(replies[0]["requestId"], "r-1");
+        assert_eq!(replies[0]["error"]["code"], "invalid_request");
+        assert_eq!(replies[0]["error"]["message"], "응답이 너무 큽니다.");
+        assert_eq!(replies[1]["ok"], true);
+    }
+
+    #[test]
+    fn send_는_응답_한도를_넘으면_쓰지_않는다() {
         let output = Mutex::new(Vec::new());
         let big = Value::String("a".repeat(MAX_RESPONSE_BYTES));
         assert!(matches!(send(&output, &big), Err(Error::InvalidData(_))));

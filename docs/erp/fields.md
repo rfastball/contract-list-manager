@@ -4,8 +4,8 @@
 뜻이 확정된 필드는 담고, 담지 않는 것은 개인정보·이미 담은 값의 다른 출처·사람이 뜻이 없다고 확인한 값뿐이다.
 이 표와 기본 매핑(`crates/pclm-core/src/erp/mapping.json`)이 어긋나면 `crates/pclm-core/tests/erp_capture.rs` 의 `registry` 시험이 실패한다.
 
-어떻게 이 상태에 이르렀는지는 연혁으로 남은 [전수 매핑표](json-field-mapping.md)·[확인 질문](json-field-questions.md)·
-[옛 일괄 제외](json-unused-candidates.md)에 있다. 거기 적힌 「미사용」·「보류」 는 지금 상태가 아니다.
+어떻게 이 상태에 이르렀는지는 git 이력에 있다 — 2026-09 의 전수 매핑표 · 확인 질문 · 일괄 제외 검토 · ERP 전환 쟁점 정리(모두 지운 문서)다.
+아래 근거 칸의 「일괄 제외 검토」 · 「쟁점 정리」 는 그 문서들이고, 거기 적힌 「미사용」·「보류」 는 지금 상태가 아니다.
 사람이 화면에서 뜻을 확인하면 그 커밋에서 이 표·매핑·면 뷰·규약 문서를 함께 고친다.
 
 ## 상태
@@ -27,7 +27,7 @@
   로 남고, 같은 ID 원칙으로 따라 바뀐 행은 `같은 ID 원칙(날짜) — <프로필 · 출처> 에서 확정` 으로 남는다.
 
 - **프로필**은 `mapping.json` 의 profile id 다. 전수조사 코퍼스(JSON 15개)는 01117·01179·01196·01579 네 화면의 것이라 그 넷의
-  프로필에 전수 행을 둔다. 같은 꼴을 읽는 다른 프로필(01112·01181·01608·공개 공고 머리글)에는 그 프로필의 매핑에 있거나 그 화면의
+  프로필에 전수 행을 둔다. 같은 꼴을 읽는 다른 프로필(01112·01114·01181·01608·공개 공고 머리글)에는 그 프로필의 매핑에 있거나 그 화면의
   코퍼스에서 관찰을 적은 필드만 둔다 — 화면이 다르면 같은 출처 이름이어도 같은 필드가 있다는 근거가 없다.
 - **출처**는 `pointInfo` 또는 매핑이 쓰는 표 출처 문자열 그대로다(와일드카드 `*_grdFile` 포함). 머리 필드가 `tables.<표>.<행>.<ID>`
   로 표 칸을 읽으면 출처는 그 표다.
@@ -38,20 +38,20 @@
   그날 승인한 매핑에 들었으나 필드별 확인 기록을 문서에서 찾지 못한 것이다.
 - 값·건명·기관·금액·날짜는 적지 않는다. 뜻 칸에는 코드→명칭 쌍만 적는다.
 
-## `g2b-request-v1` — 조달요구 접수(목록형) (01117)
+## `g2b-request-v1` — 계약요청접수상세조회-국방부 (01117)
 
 수집 47 · 제외: 다른 출처 54 · 제외: 뜻 없음 10 · 후보 17
 
 | 프로필 | 출처 | ID | 뜻 | 상태 | 근거 |
 |---|---|---|---|---|---|
-| `g2b-request-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `pointInfo` | `advfGivePsbltyRat` | 선급금 지급가능 비율 | 후보 | ID·표 맥락 · 옛 제외(Q04 「사용하지 않는 값」) |
 | `g2b-request-v1` | `pointInfo` | `advfGivePsbltyYn` | 선급금 지급가능 여부 | 후보 | ID·표 맥락 · 옛 제외(Q04 「사용하지 않는 값」) |
 | `g2b-request-v1` | `pointInfo` | `advfPinfrmPsbltyRat` | 선급금 선고지 가능 비율(%) | 수집 | 사용자 확인 2026-09-27(질문 Q04 부분 확정) |
 | `g2b-request-v1` | `pointInfo` | `advfPinfrmYn` | 선급금 선고지 여부 | 수집 | 사용자 확인 2026-09-27(일괄 답변 7 / R08) |
 | `g2b-request-v1` | `pointInfo` | `albmNopg` | 면수 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-v1` | `pointInfo` | `antcPrcmFee` | 예상 조달수수료 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
-| `g2b-request-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `pointInfo` | `bgtAmt` | 예산금액 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
 | `g2b-request-v1` | `pointInfo` | `clsfCrtrBidYn` | 분류별 입찰 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-request-v1` | `pointInfo` | `ctrtDmndAmt` | 계약요청 품목금액 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
@@ -59,8 +59,8 @@
 | `g2b-request-v1` | `pointInfo` | `ctrtDmndQty` | 계약요청 품목수량 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-v1` | `pointInfo` | `ctrtDmndUprc` | 계약요청 품목단가 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-v1` | `pointInfo` | `ctrtTyCd` | 계약구분(계120001 → 총액계약) | 수집 | 사용자 확인 2026-09-27(일괄 답변 10 / R11) |
-| `g2b-request-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-request-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `pointInfo` | `devyCndtCd` | 인도조건 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-v1` | `pointInfo` | `dlvgdsPlacNm` | 납품장소 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-v1` | `pointInfo` | `dlvgdsTermNody` | 납품일수 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · mf_wfm_container_gridView 에서 확정 |
@@ -98,7 +98,7 @@
 | `g2b-request-v1` | `pointInfo` | `totlPymtAmt` | 품대 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
 | `g2b-request-v1` | `pointInfo` | `tpSrngTrgtYn` | 심사대상 여부(약어 미확정) | 후보 | ID·표 맥락 |
 | `g2b-request-v1` | `pointInfo` | `wrtYmd` | 접수일 | 수집 | 사용자 확인 2026-09-27(질문 Q07 부분 확정) |
-| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `albmNopg` | 면수 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `ctrtDmndAmt` | 계약요청 품목금액 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `ctrtDmndQty` | 계약요청 품목수량 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -131,17 +131,17 @@
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `ndfsPrcmPlanChgOrd` | 국방 조달계획 변경차수 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `ndfsPrcmPlanDlvgdsSqno` | 국방 조달계획 납품순번 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `ndpfExpndDmndNoVal` | 국방 지출요청번호 후보 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `qtyUntNm` | 수량단위명 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridViewExcel` | `rtrcnYn` | 취소 여부 | 제외: 다른 출처 | mf_wfm_container_gridView 와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `albmNopg` | 면수 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndAmt` | 계약요청 품목금액 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndQty` | 계약요청 품목수량 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ctrtDmndUprc` | 계약요청 품목단가 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `devyCndtCd` | 인도조건 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `devyCndtNm` | 인도조건 | 제외: 다른 출처 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) — 같은 뜻 devyCndtCd 를 수집 |
@@ -168,12 +168,12 @@
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ndfsPrcmPlanChgOrd` | 국방 조달계획 변경차수 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ndfsPrcmPlanDlvgdsSqno` | 국방 조달계획 납품순번 | 후보 | ID·표 맥락 |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `ndpfExpndDmndNoVal` | 국방 지출요청번호 후보 | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `qtyUntNm` | 수량단위명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
-| `g2b-request-v1` | `mf_wfm_container_gridView` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-request-v1` | `mf_wfm_container_gridView` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-request-v1` | `mf_wfm_container_gridView` | `rtrcnYn` | 취소 여부 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 
-## `g2b-request-b-v1` — 조달요구 접수 상세(일반용역) (01112)
+## `g2b-request-b-v1` — 계약요청접수상세조회-일반용역 (01112)
 
 수집 48 · 제외: 다른 출처 17 · 제외: 뜻 없음 30 · 후보 2
 
@@ -200,9 +200,9 @@
 | `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ndfsIvtrNo` | 재고번호 | 수집 | 사용자 확인 2026-10-15(같은 ID 원칙 — 일반용역에서는 늘 비어 있음) |
 | `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ndfsItemSpecNo` | 규격번호 | 수집 | 사용자 확인 2026-10-15(같은 ID 원칙 — 일반용역에서는 늘 비어 있음) |
 | `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ndpfExpndDmndNoVal` | 국방 지출요청번호 후보 | 후보 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답 「모름」) |
-| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-request-b-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-request-b-v1` | `pointInfo` | `devyCndtCd` | 인도조건 코드 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-request-b-v1` | `pointInfo` | `devyCndtNm` | 인도조건 명칭 | 후보 | 일반용역 코퍼스 2026-10-15 같은 행 코드·명칭 쌍 · 접수 전체 값인지 선택 품목 값인지 미확인 |
 | `g2b-request-b-v1` | `pointInfo` | `ctrtDmndBizNm` | 계약요청 사업명(요청명) | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -226,8 +226,8 @@
 | `g2b-request-b-v1` | `pointInfo` | `dmndInstBizPicNm` | 수요기관 업무담당자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-b-v1` | `pointInfo` | `dmndInstBizPicTlphNo` | 수요기관 업무담당자 전화번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-request-b-v1` | `pointInfo` | `dmndInstPicFaxNo` | 수요기관 담당자 팩스번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-request-b-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-request-b-v1` | `pointInfo` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-request-b-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-request-b-v1` | `pointInfo` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-request-b-v1` | `pointInfo` | `albmNopg` | 면수 | 제외: 다른 출처 | 같은 문서에서 수집하는 칸과 같은 값(코퍼스 대조 2026-10-15) |
 | `g2b-request-b-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · pointInfo 에서 확인 |
 | `g2b-request-b-v1` | `pointInfo` | `ctrtDmndAmt` | 계약요청 품목금액 | 제외: 다른 출처 | 같은 문서에서 수집하는 칸과 같은 값(코퍼스 대조 2026-10-15) |
@@ -277,18 +277,73 @@
 | `g2b-request-b-v1` | `mf_wfm_container_wfRfpDtl_grdPrpsDmndInfoView` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-contract-v1 · mf_wfm_container_grdEtpsLst 에서 확인 |
 | `g2b-request-b-v1` | `mf_wfm_container_wfRfpDtl_grdPrpsDmndInfoView` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · mf_wfm_container_gridViewExcel 에서 확인 |
 
-## `g2b-notice-a-v1` — 입찰공고 상세 (01179)
+## `g2b-request-goods-v1` — 계약요청접수상세조회-물품 (01114)
+
+수집 48
+
+| 프로필 | 출처 | ID | 뜻 | 상태 | 근거 |
+|---|---|---|---|---|---|
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ndfsPrcmDmndNo` | 국방 조달요구번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ndfsPrcmCtrtPlanYear` | 국방 조달계획연도 후보 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ndfsPrcmPlanChgOrd` | 국방 조달계획 변경차수 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `dtlsPrnmNo` | 세부품명번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `itemIdnfNo` | 물품식별번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `dtlsPrnm` | 세부품명 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `rtrcnYn` | 취소 여부 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `itemIdnfNm` | 물품식별명/규격 표시 후보 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndUprc` | 계약요청 품목단가 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndQty` | 계약요청 품목수량 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndAmt` | 계약요청 품목금액 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `qtyUntNm` | 수량단위명 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `albmNopg` | 면수 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `devyCndtCd` | 인도조건 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `dlvgdsTermNody` | 납품일수 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `dlvgdsTermDt` | 납품기한 날짜 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `dlvgdsPlacNm` | 납품장소 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ndfsIvtrNo` | 재고번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ndfsItemSpecNo` | 규격번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `ctrtDmndBizNm` | 계약요청 사업명(요청명) | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `wrtYmd` | 접수일 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `prcmBsneSeNm` | 조달업무구분명 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `lcrtTyCd` | 계약법 구분(계040001 → 국가계약법, 계040002 → 지방계약법) | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `stdCtrtMthdCd` | 계약방법 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `ctrtTyCd` | 계약구분(계120001 → 총액계약) | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `scsbdMthdCd` | 낙찰방법 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmstAcntgNm` | 수요기관 회계구분 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `drpmSbpySeCd` | 지급방법(직130001 → 직불, 직130002 → 대지급) | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `totlPymtAmt` | 품대 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `antcPrcmFee` | 예상 조달수수료 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `bgtAmt` | 예산금액 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `fprdYn` | 외국산 허용 여부 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `rlsYn` | 공개 여부 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `advfPinfrmYn` | 선급금 선고지 여부 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `advfPinfrmPsbltyRat` | 선급금 선고지 가능 비율(%) | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmstNm` | 수요기관명 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmstUntyGrpNo` | 수요기관 통합기관번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmndInstBizPicNm` | 수요기관 업무담당자명 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmndInstBizPicTlphNo` | 수요기관 업무담당자 전화번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `dmndInstPicFaxNo` | 수요기관 담당자 팩스번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `pbancKndCd` | 공고종류 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `pointInfo` | `prspPrce` | 추정가격 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · pointInfo 에서 확정 |
+| `g2b-request-goods-v1` | `mf_wfm_container_gvDmndItem` | `itemClsfNo` | 물품분류번호 | 수집 | 같은 ID 원칙(2026-11-16) — g2b-request-b-v1 · mf_wfm_container_gvDmndItem 에서 확정 |
+
+## `g2b-notice-a-v1` — 입찰공고작성[물품] (01179)
 
 수집 76 · 제외: 다른 출처 20 · 제외: 뜻 없음 31 · 후보 120
 
 | 프로필 | 출처 | ID | 뜻 | 상태 | 근거 |
 |---|---|---|---|---|---|
-| `g2b-notice-a-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `pointInfo` | `aagrSbmsnElctHdwrSeCd` | 서류 전자/수기 제출구분(서류 종류 확인) | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `alotBgtAmt` | 배정예산 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
-| `g2b-notice-a-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `pointInfo` | `atcsCd` | 법령 조항 후보 | 후보 | ID·표 맥락 |
-| `g2b-notice-a-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `pointInfo` | `atrzDt` | 결재일시 후보(게시일시와 구별) | 후보 | ID·표 맥락 · 옛 미사용(Q07) |
 | `g2b-notice-a-v1` | `pointInfo` | `atrzSttsNm` | 결재상태명 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `bdngAmtRangLmtYn` | 투찰금액 범위제한 여부 | 후보 | ID·표 맥락 |
@@ -302,8 +357,8 @@
 | `g2b-notice-a-v1` | `pointInfo` | `bidMthdCd` | 입찰방식(입180002 → 전자입찰) | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-v1` | `pointInfo` | `bidPbancItemSqno` | 입찰공고 품목순번 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-a-v1 · mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List 에서 확정 |
 | `g2b-notice-a-v1` | `pointInfo` | `bidPbancNm` | 입찰공고명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-v1` | `pointInfo` | `bidPbancOrd` | 입찰공고차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-a-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-v1` | `pointInfo` | `bidPbancOrd` | 입찰공고차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-a-v1` | `pointInfo` | `bidPrceEvlRt` | 입찰가격 평가비율 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `bidPrcpLmtYn` | 입찰참가 제한 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `bidQlfcRegDay` | 입찰참가자격 등록 마감일 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
@@ -319,9 +374,9 @@
 | `g2b-notice-a-v1` | `pointInfo` | `ctrlPrcmExcpYn` | 중앙조달 예외 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-a-v1 · mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List 에서 확정 |
 | `g2b-notice-a-v1` | `pointInfo` | `ctrtTyCd` | 계약구분(계120001 → 총액계약) | 수집 | 사용자 확인 2026-09-27(일괄 답변 10 / R11) |
-| `g2b-notice-a-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `pointInfo` | `devyCndtCd` | 인도조건 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-notice-a-v1` | `pointInfo` | `dfrlScrAplcnYn` | 차등점수 적용 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `dfrlScrItvlScr` | 차등점수 간격점수 | 후보 | ID·표 맥락 |
@@ -426,7 +481,7 @@
 | `g2b-notice-a-v1` | `pointInfo` | `vatAmt` | 부가가치세액 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
 | `g2b-notice-a-v1` | `pointInfo` | `wtoBidRsnCd` | 국제입찰 사유 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `pointInfo` | `pbancPstgDt` | 공고 게시일시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `deptNm` | 부서명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `dmstPicId` | 수요기관 담당자 ID/명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `dmstUntyGrpNm` | 수요기관명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -434,11 +489,11 @@
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `eml` | 이메일 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `evlPicYn` | 평가담당자 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `faxNo` | 팩스번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `picNm` | 담당자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `tlphNo` | 전화번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `bidLmtSeCd` | 입찰제한 구분 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `bidLmtUntyCd` | 입찰참가 제한 업종코드 | 제외: 다른 출처 | 원문 명칭 bidLmtUntyNm 을 수집(답변 3 명칭 우선) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `bidLmtUntyNm` | 입찰참가 제한 업종명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -447,44 +502,44 @@
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `lmtGupSqnoNm` | 제한그룹 순번/명 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `lmtKndCd` | 제한종류 코드 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `lmtSqno` | 제한 순번 | 후보 | ID·표 맥락 |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `atchFileDscr` | 첨부파일 설명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-notice-a-v1` | `*_grdFile` | `atchFileKndCd` | 첨부파일 종류코드(문서유형명은 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `atchFileSqno` | 첨부파일순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
-| `g2b-notice-a-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `atflRmrk` | 첨부파일 비고 | 후보 | 빈 열만 확인 |
-| `g2b-notice-a-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `bsneClsfCd` | 내부 업무분류코드 | 후보 | 구조·이름 분류 |
 | `g2b-notice-a-v1` | `*_grdFile` | `chngDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-notice-a-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `delYn` | 삭제 여부 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `*_grdFile` | `dwnldPrmsYn` | 다운로드 허용 여부 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `*_grdFile` | `fileExtnNm` | 파일 확장자 | 후보 | ID·표 맥락 |
 | `g2b-notice-a-v1` | `*_grdFile` | `fileSz` | 파일 크기(단위 확인) | 후보 | ID·표 맥락 · R14 「파일 크기 후보」, 단위 미확정 |
-| `g2b-notice-a-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `inptDt` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 구조·이름 분류 |
-| `g2b-notice-a-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `orgnlAtchFileNm` | 원본 첨부파일명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-notice-a-v1` | `*_grdFile` | `rgstDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-notice-a-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `*_grdFile` | `untyAtchFileNo` | 통합 첨부파일번호(원문 참조) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `devyCndtCd` | 인도조건 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `devyCndtCdExcel` | 인도조건 · Excel용 보조값 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dlvgdsPlacNm` | 납품장소 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -515,7 +570,7 @@
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `itrlPrcmItemIdnfNoVal` | 내부 조달 물품식별번호 후보 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ndfsItemSpecNo` | 규격번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ndfsPrcmDmndNo` | 국방 조달요구번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `no` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `prchsDtlItemQty` | 구매대상 품목수량 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `prchsDtlItemQtyExcel` | 구매대상 품목수량 · Excel용 보조값 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `prchsDtlItemUntVal` | 구매대상 품목 단위 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
@@ -524,14 +579,14 @@
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `prchsDtlItemUprcExcel` | 구매대상 품목 추정단가 · Excel용 보조값 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `prodCertAsctCd` | 제품인증 관련코드 후보 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `rowAmtSum` | 행 금액 합계 후보 | 후보 | ID·표 맥락 |
-| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `rsrvDtlsPrnmNo` | 예약 세부품명번호 후보 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `specAtrbNm` | 규격 속성명/내용 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `specKndCd` | 규격종류 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `specKndCdExcel` | 규격종류 · Excel용 보조값 | 후보 | 빈 열만 확인 |
 | `g2b-notice-a-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `specNoVal` | 규격번호 | 후보 | 빈 열만 확인 |
 
-## `g2b-notice-a-service-v1` — 입찰공고 상세(일반용역) (01181)
+## `g2b-notice-a-service-v1` — 입찰공고작성[일반용역] (01181)
 
 수집 78 · 제외: 다른 출처 79 · 제외: 뜻 없음 41 · 후보 7
 
@@ -578,8 +633,8 @@
 | `g2b-notice-a-service-v1` | `pointInfo` | `bidQlfcRegDay` | 입찰참가자격 등록 마감일 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
 | `g2b-notice-a-service-v1` | `pointInfo` | `bidQlfcRegTime` | 입찰참가자격 등록 마감시각 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
 | `g2b-notice-a-service-v1` | `pointInfo` | `pbancChgRsn` | 공고 변경사유 | 수집 | 사용자 확인 2026-09-27(일괄 답변 3 / R03) |
-| `g2b-notice-a-service-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-service-v1` | `pointInfo` | `bidPbancOrd` | 입찰공고차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-a-service-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-service-v1` | `pointInfo` | `bidPbancOrd` | 입찰공고차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dmstUntyGrpNm` | 수요기관명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dtlsPrnmNm` | 세부품명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dtlsPrnmNo` | 세부품명번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -592,11 +647,11 @@
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dlvgdsTermDt` | 납품기한 날짜 | 수집 | 사용자 확인 2026-09-27(일괄 답변 5 / R06) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `dlvgdsPlacNm` | 납품장소 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `devyCndtCd` | 인도조건 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
-| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `dmstUntyGrpNm` | 수요기관명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `deptNm` | 부서명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List` | `picNm` | 담당자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -743,28 +798,28 @@
 | `g2b-notice-a-service-v1` | `mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · mf_wfm_container_gridViewExcel 에서 확인 |
 | `g2b-notice-a-service-v1` | `pointInfo` | `grnteCrdrNm` | 보증 채권자 후보 — 값은 기관장 직함 | 후보 | 사용자 미정 2026-10-16 |
 
-## `g2b-notice-b-v1` — 입찰공고상세조회(통합) (01196)
+## `g2b-notice-b-v1` — 입찰공고상세 (01196)
 
 수집 63 · 제외: 다른 출처 41 · 제외: 뜻 없음 34 · 후보 45
 
 | 프로필 | 출처 | ID | 뜻 | 상태 | 근거 |
 |---|---|---|---|---|---|
-| `g2b-notice-b-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `pointInfo` | `alotBgtAmt` | 배정예산 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
-| `g2b-notice-b-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `pointInfo` | `bdngAmtRangLmtYnNm` | 투찰금액 범위제한 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `pointInfo` | `bfSpecRegNo` | 사전규격 등록번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `pointInfo` | `bidBlffNm` | 입찰 집행관명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `pointInfo` | `bidMthdNm` | 입찰방식 명칭 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `pointInfo` | `bidPbancNm` | 입찰공고명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-b-v1` | `pointInfo` | `bidPbancText` | 입찰공고번호·차수 결합 표시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-b-v1` | `pointInfo` | `bidPbancText` | 입찰공고번호·차수 결합 표시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-b-v1` | `pointInfo` | `bidPrcpLmtYnNm` | 입찰참가 제한 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `pointInfo` | `bizAmt` | 사업금액(추정가격+부가세) | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
 | `g2b-notice-b-v1` | `pointInfo` | `ctrtTyNm` | 계약구분 명칭 | 수집 | 사용자 확인 2026-09-27(일괄 답변 10 / R11 · 답변 3 명칭 우선) |
-| `g2b-notice-b-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `pointInfo` | `dgtnBizYnNm` | 정보화사업 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `pointInfo` | `dmstcOvrsSeNm` | 국내/국제 입찰구분 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `pointInfo` | `fctrRspbText` | 하자담보책임기간 표시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 7 / R08) |
@@ -802,13 +857,13 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `ord` | 일정 순번 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) 답 「모름」 · 표의 행 키라 매핑이 읽는다(읽는 법 — 식별 필드) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `placNm` | 장소(일정표) | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `prgNm` | 진행방법(일정표) | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `startDt` | 시작/종료 일시(일정표) | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridList1` | `subject` | 진행명(일정표) | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R13) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `bidClsfNo` | 입찰분류번호 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-b-v1 · mf_wfm_container_mainWframe_gridView3 에서 확정 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `bidPbancNo` | 입찰공고번호(본번호) | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-a-v1 · pointInfo 에서 확정 · 공고 머리의 번호·차수(bidPbancText)와 같은 값(코퍼스 대조 2026-10-15) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `bidPbancOrd` | 입찰공고차수 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-a-v1 · pointInfo 에서 확정 · 공고 머리의 번호·차수(bidPbancText)와 같은 값(코퍼스 대조 2026-10-15) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView4` | `usefAmt` | 용도별/분류별 금액(정확한 용어 미확정) | 후보 | ID·표 맥락 · Q01 에서 물었으나 답 없음 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `baseAmt` | 기초금액 | 수집 | 사용자 확인 2026-09-27(질문 Q01 일괄 승인) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `bidClsfNo` | 입찰분류번호 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-b-v1 · mf_wfm_container_mainWframe_gridView3 에서 확정 |
@@ -816,7 +871,7 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `bidPbancOrd` | 입찰공고차수 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-a-v1 · pointInfo 에서 확정 · 공고 머리의 번호·차수(bidPbancText)와 같은 값(코퍼스 대조 2026-10-15) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `inptDt` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 구조·이름 분류 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `rmrkCn` | 비고 내용 | 후보 | 빈 열만 확인 |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView5` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `deptNm` | 부서명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `dmstPicId` | 수요기관 담당자 ID/명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `dmstPicNm` | 수요기관 담당자 ID/명 | 후보 | 빈 열만 확인 |
@@ -825,7 +880,7 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `evlPicYn` | 평가담당자 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `faxNo` | 팩스번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `picNm` | 담당자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPic` | `tlphNo` | 전화번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-notice-a-v1 의 답) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `deptNm` | 부서명 | 제외: 다른 출처 | 코퍼스 대조(2026-10-15) — 모든 행이 gridDmstPic 의 한 행과 담는 여섯 칸(deptNm·dmstPicId·dmstUntyGrpNm·faxNo·picNm·tlphNo)이 같고 평가담당자 여부(evlPicYn)만 갈린다: 수요기관 담당자 표의 사본 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `dmstPicId` | 수요기관 담당자 ID/명 | 제외: 다른 출처 | 코퍼스 대조(2026-10-15) — 모든 행이 gridDmstPic 의 한 행과 담는 여섯 칸(deptNm·dmstPicId·dmstUntyGrpNm·faxNo·picNm·tlphNo)이 같고 평가담당자 여부(evlPicYn)만 갈린다: 수요기관 담당자 표의 사본 |
@@ -835,10 +890,10 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `evlPicYn` | 평가담당자 여부 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `faxNo` | 팩스번호 | 제외: 다른 출처 | 코퍼스 대조(2026-10-15) — 모든 행이 gridDmstPic 의 한 행과 담는 여섯 칸(deptNm·dmstPicId·dmstUntyGrpNm·faxNo·picNm·tlphNo)이 같고 평가담당자 여부(evlPicYn)만 갈린다: 수요기관 담당자 표의 사본 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `picNm` | 담당자명 | 제외: 다른 출처 | 코퍼스 대조(2026-10-15) — 모든 행이 gridDmstPic 의 한 행과 담는 여섯 칸(deptNm·dmstPicId·dmstUntyGrpNm·faxNo·picNm·tlphNo)이 같고 평가담당자 여부(evlPicYn)만 갈린다: 수요기관 담당자 표의 사본 |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridDmstPicEvl` | `tlphNo` | 전화번호 | 제외: 다른 출처 | 코퍼스 대조(2026-10-15) — 모든 행이 gridDmstPic 의 한 행과 담는 여섯 칸(deptNm·dmstPicId·dmstUntyGrpNm·faxNo·picNm·tlphNo)이 같고 평가담당자 여부(evlPicYn)만 갈린다: 수요기관 담당자 표의 사본 |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `bidClsfNo` | 입찰분류번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `bidPbancItemSqno` | 입찰공고 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `devyCndtCd` | 인도조건 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `devyCndtNm` | 인도조건 | 제외: 다른 출처 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) — 같은 뜻 devyCndtCd 를 수집 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `dlvgdsPlacNm` | 납품장소 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -857,10 +912,10 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `prchsDtlItemUntVal` | 구매대상 품목 단위 | 수집 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `prchsDtlItemUntValNm` | 구매대상 품목 단위명(단위 Val 과 같은 값) | 제외: 다른 출처 | 사용자 확인 2026-09-27(일괄 답변 6 / R07) — 같은 값 prchsDtlItemUntVal 을 수집 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `prchsDtlItemUprc` | 구매대상 품목 추정단가 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView3` | `ctrtDmndRcptItemSqno` | 계약요청 접수 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `bidClsfNo` | 입찰분류번호 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `bidPbancItemSqno` | 입찰공고 품목순번 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `devyCndtCd` | 인도조건 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
@@ -884,7 +939,7 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `prchsDtlItemUntVal` | 구매대상 품목 단위 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `prchsDtlItemUntValNm` | 구매대상 품목 단위 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `prchsDtlItemUprc` | 구매대상 품목 추정단가 | 제외: 다른 출처 | gridView3 과 공통 열이 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridView6` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `bidClsfNo` | 입찰분류번호 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-notice-b-v1 · mf_wfm_container_mainWframe_gridView3 에서 확정 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `bidClsfYn` | 입찰분류 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `bidPbancNm` | 입찰공고명 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-notice-a-v1 의 답) · 머리의 공고명(bidPbancNm)과 같은 값 — 한 문서는 괄호를 HTML 문자 참조로 적었다(코퍼스 대조 2026-10-15) |
@@ -895,37 +950,37 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `bidPgstNm` | 입찰진행상태 명칭(입160010 → 개찰완료) | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `bidPrgrsOrd` | 입찰진행차수 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `onbsPrnmntDt` | 개찰 예정일시 | 후보 | ID·표 맥락 |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `totCnt` | 해당 표 전체건수 후보(품목 전체건수와 구별) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_gridViewPgst` | `totCnt` | 해당 표 전체건수 후보(품목 전체건수와 구별) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `atchFileDscr` | 첨부파일 설명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-notice-b-v1` | `*_grdFile` | `atchFileKndCd` | 첨부파일 종류코드(문서유형명은 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-notice-b-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `atchFileSqno` | 첨부파일순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
-| `g2b-notice-b-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `atflRmrk` | 첨부파일 비고 | 후보 | 빈 열만 확인 |
-| `g2b-notice-b-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `bsneClsfCd` | 내부 업무분류코드 | 후보 | 구조·이름 분류 |
 | `g2b-notice-b-v1` | `*_grdFile` | `chngDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-notice-b-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `delYn` | 삭제 여부 | 후보 | 빈 열만 확인 |
 | `g2b-notice-b-v1` | `*_grdFile` | `dwnldPrmsYn` | 다운로드 허용 여부 | 후보 | 빈 열만 확인 |
 | `g2b-notice-b-v1` | `*_grdFile` | `fileExtnNm` | 파일 확장자 | 후보 | ID·표 맥락 |
 | `g2b-notice-b-v1` | `*_grdFile` | `fileSz` | 파일 크기(단위 확인) | 후보 | ID·표 맥락 · R14 「파일 크기 후보」, 단위 미확정 |
-| `g2b-notice-b-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `inptDt` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 구조·이름 분류 |
-| `g2b-notice-b-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `orgnlAtchFileNm` | 원본 첨부파일명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-notice-b-v1` | `*_grdFile` | `rgstDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-notice-b-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-notice-b-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-notice-b-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-notice-b-v1` | `*_grdFile` | `untyAtchFileNo` | 통합 첨부파일번호(원문 참조) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_grdEtspUntyGrp` | `bidPbancNo` | 입찰공고번호(본번호) | 제외: 다른 출처 | 같은 문서에서 수집하는 칸과 같은 값(코퍼스 대조 2026-10-15) |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_grdEtspUntyGrp` | `bidPbancOrd` | 입찰공고차수 | 제외: 다른 출처 | 같은 문서에서 수집하는 칸과 같은 값(코퍼스 대조 2026-10-15) |
@@ -933,23 +988,23 @@
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_grdLcnsLmt` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · mf_wfm_container_gridViewExcel 에서 확인 |
 | `g2b-notice-b-v1` | `mf_wfm_container_mainWframe_grdPrpsDmndInfoView` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 같은 ID 원칙(2026-10-15) — g2b-request-v1 · mf_wfm_container_gridViewExcel 에서 확인 |
 
-## `g2b-contract-v1` — 계약 상세 (01579)
+## `g2b-contract-v1` — 물품·일반용역 계약서 (01579)
 
 수집 67 · 제외: 개인정보 7 · 제외: 다른 출처 216 · 제외: 뜻 없음 40 · 후보 335
 
 | 프로필 | 출처 | ID | 뜻 | 상태 | 근거 |
 |---|---|---|---|---|---|
-| `g2b-contract-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `(빈 ID)` | 빈 ID(출처 복원 불가) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `pointInfo` | `advcPinfrmPsbltyRat` | 선급금 선고지 비율(%) | 수집 | 사용자 확인 2026-09-27(질문 Q04 부분 확정) |
 | `g2b-contract-v1` | `pointInfo` | `advcPinfrmYn` | 선급금 선고지 여부 | 수집 | 사용자 확인 2026-09-27(일괄 답변 7 / R08) |
 | `g2b-contract-v1` | `pointInfo` | `affcClclnTrgtYn` | 사후정산 대상 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `alotAmt` | 배정금액 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `aplcnCrtrPrce` | 적용기준가격 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `areaCd` | 화면/영역 코드(업무 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `pointInfo` | `atcsNm` | 국가(지방)계약법시행령 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-contract-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `atmtCntt01` | 화면 도움말 HTML(사업 특기사항 아님) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `pointInfo` | `bderCnt` | 입찰자 수 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `pointInfo` | `bondPchaAmt` | 채권 매입금액 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `bondSeCd` | 채권구분 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `bsamCmptProdYn` | 중소기업간 경쟁제품 여부 후보 | 후보 | ID·표 맥락 |
@@ -973,7 +1028,7 @@
 | `g2b-contract-v1` | `pointInfo` | `ctrtChgSeCd` | 계약변경구분 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `ctrtChrsIdntYn` | 계약특성 확인 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `ctrtChrsSeCd` | 계약특성 | 수집 | 사용자 확인 2026-10-15(화면에서 확인한 명칭 — 계약특성) |
-| `g2b-contract-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `pointInfo` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtDpdrNm` | 계약 조직/직책명(개별 약어 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtDt` | 현재 차수 계약일 | 수집 | 사용자 확인 2026-09-27(일괄 답변 1 / R01) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtDvofNm` | 계약 조직/직책명(개별 약어 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -984,7 +1039,7 @@
 | `g2b-contract-v1` | `pointInfo` | `ctrtItemNm` | 계약 품목명 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-contract-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-contract-v1` | `pointInfo` | `ctrtMthdCd` | 계약방법 | 수집 | 사용자 확인 2026-09-27(일괄 답변 10 / R11) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtNm` | 계약명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-contract-v1` | `pointInfo` | `ctrtNoOrd` | 계약번호·변경차수 결합 표시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `pointInfo` | `ctrtNoOrd` | 계약번호·변경차수 결합 표시 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtPicNm` | 계약담당자 | 수집 | 사용자 확인 2026-09-27(일괄 답변 11 / R12) |
 | `g2b-contract-v1` | `pointInfo` | `ctrtPlanYear` | 국방 조달계획연도 후보 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `ctrtPrdCn` | 납품기한 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -998,9 +1053,9 @@
 | `g2b-contract-v1` | `pointInfo` | `ctwtSbmsnMthdCd` | 계약보증서 제출방법 | 수집 | 사용자 확인 2026-09-27(질문 Q03 용어·단위 승인) |
 | `g2b-contract-v1` | `pointInfo` | `dcmtDepoEsntlPayTrgtYn` | 하자보수보증금 필수납부 대상 여부 후보 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `dcmtGtnrt` | 하자보수보증금률 | 수집 | 사용자 확인 2026-09-27(질문 Q03 용어·단위 승인) |
-| `g2b-contract-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `depth1` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `depth2` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `depth3` | 화면 경로 단계 후보 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `pointInfo` | `devyCndtCd` | 인도조건 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
 | `g2b-contract-v1` | `pointInfo` | `devyCndtNm` | 인도조건 | 후보 | 원문 명칭 · 계약 전체 값인지 선택 품목 값인지 미확인 |
 | `g2b-contract-v1` | `pointInfo` | `dgtnBizYn` | 정보화사업 여부 | 후보 | ID·표 맥락 |
@@ -1077,7 +1132,7 @@
 | `g2b-contract-v1` | `pointInfo` | `prttnDlvgdsPsbltyYn` | 분할납품 가능 여부 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-v1` | `pointInfo` | `prvctImplYn` | 수의계약 사유 관련 여부(약어 미확정) | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `pvctMmrdSbmsnYn` | 서약서/각서 제출 여부(문서종류 확인) | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `pointInfo` | `recordCountPerPage` | 페이지당 표시건수 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `pointInfo` | `recordCountPerPage` | 페이지당 표시건수 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `pointInfo` | `rlsYn` | 공개 여부 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) |
 | `g2b-contract-v1` | `pointInfo` | `rprsCtentUntyGrpNm` | 대표 계약상대자명 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `pointInfo` | `rprsvNm` | 대표자명 | 제외: 다른 출처 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-contract-change-v1 의 답) · 머리 칸은 화면에서 고른 행의 사본 |
@@ -1105,13 +1160,13 @@
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `avtsmtBankAddr` | 통지은행 정보(현재 MVP 제외) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `avtsmtBankNm` | 통지은행 정보(현재 MVP 제외) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `avtsmtBankSfcdVal` | 통지은행 정보(현재 MVP 제외) | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `bzmnRegNo` | 사업자등록번호 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `bzmnRegNo` | 사업자등록번호 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `cgntTxam` | 인지세 부과액(물품제조계약) | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-contract-v1 · pointInfo 에서 확정 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `cncdIntpCd` | 공동이행 관련 코드 후보 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentIntpNm` | 계약상대자 이행명 후보 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentSeCd` | 계약상대자 구분 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentUntyGrpNm` | 계약상대자명 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentUntyGrpNo` | 계약상대자 통합기관번호 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentUntyGrpNm` | 계약상대자명 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctentUntyGrpNo` | 계약상대자 통합기관번호 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctrtChgOrd` | 계약변경차수 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-contract-v1 · mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis 에서 확정 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctrtCrnyCd` | 계약/적용 통화코드 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B3 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ctrtGrnteAmt` | 계약 전체의 계약보증금액 | 제외: 다른 출처 | 사용자 확인 2026-10-15(같은 ID 원칙 — 뜻은 머리 칸의 계약보증금액과 같다) · 머리 칸(pointInfo)을 수집 |
@@ -1150,14 +1205,14 @@
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `jintSyddCmnMthoCd` | 공동수급 구성방식 코드 | 제외: 다른 출처 | 원문 명칭 jintSyddCmnMthoNm 을 수집(답변 3 명칭 우선) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `jintSyddCmnMthoNm` | 공동수급 구성방식 명칭(공500004 → 단독계약) | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `jintSyddRsnCd` | 공동수급 사유코드 후보 | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ltcrEstblMthdCd` | 신용장 개설방법 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B3 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ltcrVldYmd` | 신용장 유효일자 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B3 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `nflcNm` | 용어 미확정 — 약어만으로 번역하지 않음 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ocfmEdocNo` | 문서 전자문서번호(문서 약어 확인) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ocfmUntyAtchFileNo` | 문서유형별 통합 첨부번호(문서 약어 확인) | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `prchsRsltnNo` | 구매결의번호 후보 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `prttnShpgPrmsYn` | 분할선적 허용 여부 | 후보 | ID·표 맥락 · 옛 일괄 제외 B3 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `ptcpIntpCd` | 참여이행 관련 코드 후보 | 후보 | 빈 열만 확인 |
@@ -1165,8 +1220,8 @@
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `pvctCntltUntyAtchFileNo` | 문서유형별 통합 첨부번호(문서 약어 확인) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `pvctMmrdUntyAtchFileNo` | 문서유형별 통합 첨부번호(문서 약어 확인) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rcryCtrtAmt` | 원화 계약금액 후보 | 후보 | ID·표 맥락 · 옛 일괄 제외 B3 |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rprsvNm` | 대표자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-contract-change-v1 의 답) |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rspdntId` | 응답자 ID | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `mf_wfm_container_grdEtpsLst` | `rspnsDt` | 응답일시 | 후보 | ID·표 맥락 |
@@ -1209,17 +1264,17 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `coreCpntPlorNtnNm` | 핵심부품 원산지 코드/명 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B5 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctentUntyGrpNo` | 계약상대자 통합기관번호 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-contract-v1 · mf_wfm_container_grdEtpsLst 에서 확정 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtAmt` | 품목별 계약금액 | 수집 | 사용자 확인 2026-09-27(질문 Q02 부분 확정) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtChgOrd` | 계약변경차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtChgOrd` | 계약변경차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtCndtCn` | 계약조건 내용 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtCrnyCd` | 계약/적용 통화코드 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B4 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtGrnteAmt` | 계약 전체의 계약보증금액 | 제외: 다른 출처 | 사용자 확인 2026-10-15(같은 ID 원칙 — 뜻은 머리 칸의 계약보증금액과 같다) · 머리 칸(pointInfo)을 수집 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtGtnrt` | 계약보증금률 | 제외: 다른 출처 | 같은 ID 원칙(2026-10-15) — g2b-contract-v1 · pointInfo 에서 확정 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtItemNm` | 계약 품목명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtItemSqnm` | 계약 품목순번 표시명 후보 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtItemSqno` | 계약 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtNo` | 계약번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtItemSqno` | 계약 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtNo` | 계약번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtPlanYear` | 국방 조달계획연도 후보 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtQty` | 품목별 계약수량 | 수집 | 사용자 확인 2026-09-27(일괄 답변 2 / R02) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ctrtSqms` | 계약 면적 후보 | 후보 | ID·표 맥락 · 옛 일괄 제외 A4 |
@@ -1277,7 +1332,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `inspInstUntyGrpNo` | 검사기관 번호/명 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `inspNody` | 검사일수 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `inspTyCd` | 검사형태 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `isChecked` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `isChecked` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `itasRegInstNm` | 무형자산 등록번호/명/기관/일자 후보 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A5 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `itasRegNm` | 무형자산 등록번호/명/기관/일자 후보 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A5 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `itasRegNoVal` | 무형자산 등록번호/명/기관/일자 후보 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A5 |
@@ -1294,7 +1349,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `itrlPrcmItemIdnfNoVal` | 내부 조달 물품식별번호 후보 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `itrrTrnpItcg` | 내륙 운송 부대비용 후보 | 후보 | ID·표 맥락 · 옛 일괄 제외 B4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `jdgtEvlAmt` | 감정평가금액 후보 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A4 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `kimgrpYn` | 특정 제품군 여부/포함 여부(약어 미확정) | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `laseCtrtNo` | 리스 계약번호 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A3 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `laseExcnYmd` | 리스 실행일자 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A3 |
@@ -1313,7 +1368,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `mrstSharRat` | 유가증권 지분율 후보 | 후보 | ID·표 맥락 · 옛 일괄 제외 A5 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ndfsPrcmDmndNo` | 국방 조달요구번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토, 같은 ID g2b-request-v1 의 답) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ndpfExpndYn` | 국방 지출 여부 후보 | 후보 | ID·표 맥락 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `odn1PlorNtnCd` | 원산지 국가코드 | 제외: 다른 출처 | 원문 명칭 odn1PlorNtnNm 을 수집(답변 3 명칭 우선) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `odn1PlorNtnNm` | 원산지 국가명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `odn1ShpgAphrCd` | 선적 항구 코드(차수 범위 확인) | 후보 | 빈 열만 확인 · 옛 일괄 제외 B4 |
@@ -1330,7 +1385,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `odn3PlorNtnCd` | 원산지 국가(차수/순번 의미 확인) | 후보 | 빈 열만 확인 · 옛 일괄 제외 B5 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `odn3ShpgAphrCd` | 선적 항구 코드(차수 범위 확인) | 후보 | 빈 열만 확인 · 옛 일괄 제외 B4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `orgpAntpSeCd` | 원본/사본 구분 후보 | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ovrsFrgh` | 해외 운임 | 후보 | ID·표 맥락 · 옛 일괄 제외 B4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ownrAddr` | 소유자 개인정보(물품 MVP 제외) | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `ownrNm` | 소유자 개인정보(물품 MVP 제외) | 후보 | 빈 열만 확인 |
@@ -1357,8 +1412,8 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rgnLgdngCd` | 지역 법정동 코드 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rgtbNoVal` | 권리증 번호 후보 | 후보 | 빈 열만 확인 · 옛 일괄 제외 A4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rmrkCn` | 비고 내용 | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `shpgTermMtnb` | 선적기한 개월수 | 후보 | ID·표 맥락 · 옛 일괄 제외 B4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `shpgTermYmd` | 선적기한 일자 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B4 |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis` | `shpgTrnpMthdCd` | 선적 운송방법 | 후보 | 빈 열만 확인 · 옛 일괄 제외 B4 |
@@ -1472,7 +1527,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `inspInstUntyGrpNo` | 검사기관 번호/명 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `inspNody` | 검사일수 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `inspTyCd` | 검사형태 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `isChecked` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `isChecked` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `itasRegInstNm` | 무형자산 등록번호/명/기관/일자 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `itasRegNm` | 무형자산 등록번호/명/기관/일자 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `itasRegNoVal` | 무형자산 등록번호/명/기관/일자 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -1489,7 +1544,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `itrlPrcmItemIdnfNoVal` | 내부 조달 물품식별번호 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `itrrTrnpItcg` | 내륙 운송 부대비용 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `jdgtEvlAmt` | 감정평가금액 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `kbrdrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `kimgrpYn` | 특정 제품군 여부/포함 여부(약어 미확정) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `laseCtrtNo` | 리스 계약번호 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `laseExcnYmd` | 리스 실행일자 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -1508,7 +1563,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `mrstSharRat` | 유가증권 지분율 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `ndfsPrcmDmndNo` | 국방 조달요구번호 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `ndpfExpndYn` | 국방 지출 여부 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `nextRowYn` | 다음 행 여부(전체 수집 증거로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `odn1PlorNtnCd` | 원산지 국가(차수/순번 의미 확인) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `odn1PlorNtnNm` | 원산지 국가(차수/순번 의미 확인) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `odn1ShpgAphrCd` | 선적 항구 코드(차수 범위 확인) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -1525,7 +1580,7 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `odn3PlorNtnCd` | 원산지 국가(차수/순번 의미 확인) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `odn3ShpgAphrCd` | 선적 항구 코드(차수 범위 확인) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `orgpAntpSeCd` | 원본/사본 구분 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `outNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `ovrsFrgh` | 해외 운임 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `ownrAddr` | 소유자 개인정보(물품 MVP 제외) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `ownrNm` | 소유자 개인정보(물품 MVP 제외) | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -1552,8 +1607,8 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rgnLgdngCd` | 지역 법정동 코드 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rgtbNoVal` | 권리증 번호 후보 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rmrkCn` | 비고 내용 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rowNum` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `shpgTermMtnb` | 선적기한 개월수 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `shpgTermYmd` | 선적기한 일자 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `shpgTrnpMthdCd` | 선적 운송방법 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
@@ -1574,35 +1629,35 @@
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `trffAmt` | 관세액 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `uprcClcBassCn` | 단가 산출근거 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
 | `g2b-contract-v1` | `mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLisExcel` | `usagNm` | 용도명 | 제외: 다른 출처 | 일반 품목표와 행·필드가 같다(전수조사 「중복 수집원 확인」) |
-| `g2b-contract-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `CHK` | 행 선택 상태 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `atchFileDscr` | 첨부파일 설명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-contract-v1` | `*_grdFile` | `atchFileKndCd` | 첨부파일 종류코드(문서유형명은 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
-| `g2b-contract-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `atchFileNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `atchFileSqno` | 첨부파일순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
-| `g2b-contract-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `atflPathNm` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `atflRmrk` | 첨부파일 비고 | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `befRowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `bsneClsfCd` | 내부 업무분류코드 | 후보 | 구조·이름 분류 |
 | `g2b-contract-v1` | `*_grdFile` | `chngDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `chnrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `chnrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `colNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `delYn` | 삭제 여부 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `*_grdFile` | `dwnldPrmsYn` | 다운로드 허용 여부 | 후보 | 빈 열만 확인 |
 | `g2b-contract-v1` | `*_grdFile` | `fileExtnNm` | 파일 확장자 | 후보 | ID·표 맥락 |
 | `g2b-contract-v1` | `*_grdFile` | `fileSz` | 파일 크기(단위 확인) | 후보 | ID·표 맥락 · R14 「파일 크기 후보」, 단위 미확정 |
-| `g2b-contract-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `imgUrl` | 서버 내부 파일경로/저장명/이미지 URL(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `inptDt` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 구조·이름 분류 |
-| `g2b-contract-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `kbrdrNm` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `nIndex` | 표시/출력/내부 순번(업무 키로 사용 금지) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `orgnlAtchFileNm` | 원본 첨부파일명 | 수집 | 사용자 확인 2026-09-27(일괄 답변 12 / R14) |
 | `g2b-contract-v1` | `*_grdFile` | `rgstDttm` | 등록/변경/입력일시(업무일자와 구별) | 후보 | 빈 열만 확인 |
-| `g2b-contract-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
-| `g2b-contract-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(json-unused-candidates 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `rowStatus` | 현재/이전 행 상태(ERP 저장상태 의미 미확정) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `rstrId` | 시스템 등록/변경/입력자(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `rstrIpar` | 등록/변경 IP 성격 값(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `scrnIndtOdr` | 화면 표시순서 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `sessUserNo` | 세션 사용자번호(수집 제외) | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
+| `g2b-contract-v1` | `*_grdFile` | `tblNm` | 내부 테이블/컬럼명 | 제외: 뜻 없음 | 사용자 확인 2026-09-27(일괄 제외 검토 「기술 필드」 — 업무 뜻 없음) |
 | `g2b-contract-v1` | `*_grdFile` | `untyAtchFileNo` | 통합 첨부파일번호(원문 참조) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 
 ## `g2b-contract-change-v1` — 물품·일반용역 변경계약서 작성 (01608)
@@ -1631,13 +1686,13 @@
 | `g2b-contract-change-v1` | `pointInfo` | `advcPinfrmPsbltyRat` | 선급금 선고지 비율(%) | 수집 | 사용자 확인 2026-09-27(질문 Q04 부분 확정) |
 | `g2b-contract-change-v1` | `pointInfo` | `fctrRspbNbyr` | 하자담보책임기간(연수) | 수집 | 사용자 확인 2026-09-27(질문 Q03 용어·단위 승인) |
 | `g2b-contract-change-v1` | `pointInfo` | `fctrRspbMtnb` | 하자담보책임기간(개월수) | 수집 | 사용자 확인 2026-09-27(질문 Q03 용어·단위 승인) |
-| `g2b-contract-change-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-change-v1` | `pointInfo` | `bidPbancNo` | 입찰공고번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-change-v1` | `pointInfo` | `ctrtDvofNm` | 계약 조직/직책명(개별 약어 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `pointInfo` | `ctrtSlcfNm` | 계약 조직/직책명(개별 약어 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `pointInfo` | `ctrtDpdrNm` | 계약 조직/직책명(개별 약어 미확정) | 후보 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `pointInfo` | `ctrtPicNm` | 계약담당자 | 수집 | 사용자 확인 2026-09-27(일괄 답변 11 / R12) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtNo` | 계약번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtChgOrd` | 계약변경차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtNo` | 계약번호(본번호) | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtChgOrd` | 계약변경차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `itemClsfNo` | 물품분류번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `itemIdnfNo` | 물품식별번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtItemNm` | 계약 품목명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
@@ -1650,12 +1705,12 @@
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtAmt` | 품목별 계약금액 | 수집 | 사용자 확인 2026-09-27(질문 Q02 부분 확정) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `dmstUntyGrpNm` | 수요기관명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `dlvgdsTermYmd` | 납품기한 날짜 | 수집 | 사용자 확인 2026-09-27(일괄 답변 5 / R06) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtItemSqno` | 계약 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, decisions §6) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `ctentUntyGrpNo` | 계약상대자 통합기관번호 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `ctentUntyGrpNm` | 계약상대자명 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
-| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `bzmnRegNo` | 사업자등록번호 | 수집 | 사용자 확인 2026-09-27(decisions §6 업체 식별·지분) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtDmndRcptNo` | 계약요청 접수번호 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtDmndRcptOrd` | 계약요청 접수차수 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCtrtLis` | `ctrtItemSqno` | 계약 품목순번 | 수집 | 사용자 확인 2026-09-27(일괄 답변 4 / R04 — 명시 키, 쟁점 정리 §6) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `ctentUntyGrpNo` | 계약상대자 통합기관번호 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `ctentUntyGrpNm` | 계약상대자명 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
+| `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `bzmnRegNo` | 사업자등록번호 | 수집 | 사용자 확인 2026-09-27(쟁점 정리 §6 업체 식별·지분) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `rprsvNm` | 대표자명 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `etpsAddr` | 업체 주소 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |
 | `g2b-contract-change-v1` | `mf_wfm_container_grdCrntEtpsLst` | `etpsTlphNo` | 업체 전화번호 | 수집 | 사용자 확인 2026-10-15(필드 확정 검토) |

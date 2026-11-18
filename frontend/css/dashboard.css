@@ -9,9 +9,6 @@
 .db-facts { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-4) var(--sp-16); color: var(--n-ink-soft); font-size: var(--fs-dense); }
 .db-facts b { margin-left: var(--sp-6); color: var(--a-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 .db-facts small { margin-left: var(--sp-8); font-size: var(--fs-caption); }
-.db-count-note { margin-top: var(--sp-8); font-size: var(--fs-caption); color: var(--n-ink-soft); }
-.db-count-note summary { cursor: pointer; width: fit-content; }
-.db-count-note p { margin: var(--sp-8) 0 0; max-width: 75ch; }
 .db-stage-bar { display: flex; gap: 2px; height: .625rem; margin: var(--sp-6) 0; background: var(--n-track); overflow: hidden; border-radius: var(--rad-control); }
 .db-stage-bar > span { flex-basis: 0; min-width: 2px; background: var(--stage-tone); }
 .db-stage-requestOnly, .db-stage-awaitingContract { --stage-tone: var(--n-ink-soft); }
@@ -69,7 +66,6 @@
 .db-mode { display: flex; gap: var(--sp-6); padding: var(--sp-6) var(--sp-16); border-bottom: 1px solid var(--a-border); }
 .db-delivery-filters { margin-top: var(--sp-6); }
 .db-delivery-filters .db-stage-filter::before { display: none; }
-.db-order-note { color: var(--n-ink-soft); font-size: var(--fs-caption); }
 .db-range { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-8); font-size: var(--fs-dense); }
 .db-range label { display: inline-flex; align-items: center; gap: var(--sp-6); }
 .db-range .text { width: auto; }

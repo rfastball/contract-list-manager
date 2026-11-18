@@ -10,7 +10,7 @@
 /* 머리 — u_이름 · 한 줄 = 조달 건 · 건 수 … 상태 · 저장 */
 .uv-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-16); padding: var(--sp-12) var(--sp-24); border-bottom: 1px solid var(--a-border); }
 .uv-picker { display: none; }
-.column-manager .uv-picker select { width: auto; max-width: 12rem; min-height: 2rem; padding-block: var(--sp-2); }
+.column-manager :is(.uv-picker, .uv-meta) select { width: auto; max-width: 12rem; min-height: 2rem; padding-block: var(--sp-2); }
 .uv-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4) var(--sp-16); min-width: 0; }
 .uv-name { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
 .uv-name > span { font-size: var(--fs-caption); font-weight: 600; color: var(--n-ink-control); }
@@ -26,12 +26,8 @@
 .uv-actions { display: flex; flex: none; align-items: center; gap: var(--sp-8); margin-left: auto; font-size: var(--fs-caption); white-space: nowrap; }
 .uv-actions .action { font-size: var(--fs-body); }
 .uv-collect-toggle { display: none !important; }
+.uv-actions .uv-delete { color: var(--a-danger); }
 .uv-head .column-notice { flex-basis: 100%; margin: 0; }
-/* 계약이 여럿인 건 — 뷰에 계약 필드가 있을 때만 머리 아래 한 줄 */
-.uv-contracts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-6) var(--sp-12); padding: var(--sp-8) var(--sp-24); border-bottom: 1px solid var(--a-border); font-size: var(--fs-body); }
-.uv-contracts-label { color: var(--n-ink-control); white-space: nowrap; }
-.uv-contracts-count { color: var(--n-ink-soft); font-variant-numeric: tabular-nums; }
-.uv-contracts-hint { flex-basis: 100%; }
 .uv-reason { display: flex; align-items: center; gap: var(--sp-6); margin: 0; padding: var(--sp-6) var(--sp-24); border-bottom: 1px solid var(--a-border);
   background: var(--n-surface-alt); color: var(--n-ink-control); font-size: var(--fs-caption); }
 .uv-reason .cm-icon { color: var(--a-warn); }
@@ -110,7 +106,6 @@
 .uv-rename { width: 100%; min-height: 1.75rem; padding: 0 var(--sp-6); border: 1px solid var(--n-border-control); border-radius: var(--rad-control); background: var(--a-card); font: inherit; font-weight: 600; color: var(--a-ink); }
 .uv-empty-record { padding: var(--sp-24) var(--sp-8); max-width: 60ch; font-size: var(--fs-body); line-height: 1.7; }
 .uv-empty-record h2 { margin: 0 0 var(--sp-4); font-size: var(--fs-strong); }
-.uv-empty-record p { margin: 0; color: var(--n-ink-control); }
 .uv-record-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8) var(--sp-16); padding: var(--sp-8) 0 0; }
 
 /* 필드 목록 — 접수 → 공고 → 계약, 필드마다 지금 표본의 값 */
@@ -138,7 +133,6 @@
 .column-manager .uv-crumb-back { padding-inline: var(--sp-8); color: var(--n-ink-control); }
 .uv-column-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-24); font-size: var(--fs-body); font-weight: 600; }
 .column-manager .uv-column-name input { width: min(28rem, 100%); min-height: 2.5rem; font-size: var(--fs-strong); }
-.uv-crumb-hint { margin-left: auto; }
 .uv-editor > .uv-row-error { padding: var(--sp-8) var(--sp-24) 0; }
 .uv-editor-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-16) var(--sp-24) var(--sp-24); }
 
@@ -157,7 +151,7 @@
   }
 }
 @container (max-width: 36rem) {
-  .uv-head, .uv-sample, .uv-crumbs, .uv-column-name, .uv-editor-scroll, .uv-reason, .uv-contracts { padding-inline: var(--sp-16); }
+  .uv-head, .uv-sample, .uv-crumbs, .uv-column-name, .uv-editor-scroll, .uv-reason { padding-inline: var(--sp-16); }
   .uv-sample { flex-wrap: wrap; }
   .uv-sample-find input { width: 7rem; }
 }

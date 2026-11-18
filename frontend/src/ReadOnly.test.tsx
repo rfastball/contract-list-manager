@@ -49,9 +49,8 @@ describe("열람 창", () => {
 
     await 띠();
     const banner = screen.getByText("열람 중").closest(".readonly-banner")!;
-    expect(banner.textContent).toContain("제출본");
-    expect(banner.textContent).toContain("제출_홍길동_20260901.pclm");
-    expect(banner.textContent).toContain("읽기 전용");
+    expect(banner.textContent).toContain("백업");
+    expect(banner.textContent).toContain("계약자료_백업_20260901.pclm");
   });
 
   it("표의 칸을 고칠 수 없고 삭제 단추가 서지 않는다", async () => {
@@ -86,7 +85,7 @@ describe("열람 창", () => {
     for (const b of within(dialog).getAllByRole("button").filter((b) => !목차.contains(b)))
       expect([b.textContent, 잠김(b)]).toEqual([b.textContent, !남는것.has(b.textContent ?? "")]);
 
-    for (const input of within(dialog).getAllByRole("textbox")) expect(잠김(input)).toBe(true);
+    for (const input of within(dialog).queryAllByRole("textbox")) expect(잠김(input)).toBe(true);
 
     // 수집 도구는 설정에 없다 — 나라장터로 가는 길만 남는다.
     expect(within(dialog).queryByText("고급 · 수집 매핑과 JSON 검토")).toBeNull();
@@ -130,9 +129,7 @@ describe("열람 창", () => {
     await user.click(source);
 
     expect(await screen.findByText("이 창에는 수집한 자료가 저장되지 않습니다.")).toBeTruthy();
-    expect(screen.getByText(/가져오기는 작업자료 창에서만 합니다/)).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "이 파일에 남은 수집 기록" })).toBeTruthy();
-    expect(screen.getByText("열람 중이라 기록을 보기만 합니다.")).toBeTruthy();
     // 통로는 그리지 않는다 — 이 창은 수집 대상이 아니다.
     expect(screen.queryByRole("region", { name: "수집 통로" })?.textContent ?? "").not.toMatch(/단축키/);
     expect(잠김(screen.getByRole("button", { name: "JSON 파일로 가져오기…" }))).toBe(true);
@@ -144,7 +141,6 @@ describe("열람 창", () => {
 
     // 상태 보드의 확장 관리 열기는 작업자료 창의 일이다.
     await user.click(screen.getByRole("button", { name: "Chrome 확장 상태" }));
-    expect(screen.getByText("수집한 자료는 작업자료 창에 저장됩니다")).toBeTruthy();
     expect(잠김(screen.getByRole("button", { name: "Chrome 확장 관리 열기" }))).toBe(true);
   });
 
@@ -180,7 +176,7 @@ describe("작업자료 창", () => {
     const dialog = await screen.findByRole("dialog", { name: "설정" });
     expect(within(dialog).getByRole("heading", { name: "저장 위치" })).toBeTruthy();
     for (const name of [
-      "제출본 만들기", "저장", "다른 자료 열어 보기…",
+      "다른 자료 열어 보기…",
       "작업자료 옮기기…", "작업자료 바꾸기…", "새 계약자료…", "백업 만들기…",
     ]) expect(잠김(within(dialog).getByRole("button", { name }))).toBe(false);
     expect(within(dialog).queryByText(/본 창의 「작업자료 바꾸기」/)).toBeNull();

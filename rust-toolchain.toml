@@ -3,3 +3,5 @@
 channel = "1.93.1"
 profile = "minimal"
 components = ["clippy", "rustfmt", "llvm-tools"]
+# 문서 만들기 엔진(crates/pclm-doc-engine)을 확장에 싣는 wasm 으로 짓는다(scripts/build-engine.ps1).
+targets = ["wasm32-unknown-unknown"]

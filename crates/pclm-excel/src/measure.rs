@@ -1,12 +1,11 @@
-//! 열 너비 — ClosedXML 0.105.1 의 `Columns().AdjustToContents(1, 40, 60)` 을 그대로 옮긴다(`XLColumn.AdjustToContents`,
-//! `CalculateMinColumnWidth`, `XLCell.GetGlyphBoxes`, `DefaultGraphicEngine.GetGlyphBox`).
+//! 열 너비 — 옛 판이 내던 통합 문서와 같게, 내용에 맞춰(최소 40 · 최대 60 글자 폭) 잰다.
 //!
 //! 칸의 글을 글자 묶음(grapheme)으로 가르고, 묶음마다 글자들의 전진폭을 더해 픽셀로 바꿔 **반올림**한다(Calibri 11pt,
 //! 96 DPI). 줄바꿈에서 줄을 끊고 가장 긴 줄이 그 칸의 글 너비다. 양옆 여백(글 너비의 3% + 숫자 폭의 1/4, 올림)과
 //! 칸 사이 선 1px 을 더하고, 자동 거르개가 선 줄(머리글)에는 단추 16px 를 더한다. 열의 너비는 칸들 가운데 가장 큰 것을
 //! 40~60 글자 폭 사이로 자른 것이다.
 //!
-//! **C# 의 버릇도 옮긴다.** `\r\n` 은 묶음 하나인데 ClosedXML 은 줄바꿈 길이(2)만큼 묶음을 건너뛰어, 그 뒤의 묶음
+//! **옛 판의 버릇도 옮긴다.** `\r\n` 은 묶음 하나인데 옛 판은 줄바꿈 길이(2)만큼 묶음을 건너뛰어, 그 뒤의 묶음
 //! 하나를 재지 않는다.
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -15,13 +14,13 @@ use crate::font::Metrics;
 
 /// 통합 문서 글꼴의 크기(pt). 새 통합 문서는 Calibri 11.
 const FONT_SIZE: f64 = 11.0;
-/// DPI — ClosedXML 의 기본.
+/// DPI — 엑셀의 기본.
 const DPI: f64 = 96.0;
 /// 더 좁히지 않는 너비(글자 폭 수).
 pub const MIN_WIDTH: f64 = 40.0;
 /// 더 넓히지 않는 너비(글자 폭 수).
 pub const MAX_WIDTH: f64 = 60.0;
-/// ClosedXML 이 너비를 적을 때 더하는 값(`XLConstants.ColumnWidthOffset`).
+/// 너비를 파일에 적을 때 더하는 값.
 const COLUMN_WIDTH_OFFSET: f64 = 0.710625;
 
 /// 잴 칸 하나.
@@ -31,7 +30,7 @@ pub struct MeasuredCell<'a> {
     pub autofilter_row: bool,
 }
 
-/// 글꼴 단위 → 픽셀(반올림 전). `PointsToPixels(advanceFu * size / unitsPerEm, dpi)`.
+/// 글꼴 단위 → 픽셀(반올림 전) — 전진폭 × 글꼴 크기 ÷ em 단위를 pt 에서 DPI 의 픽셀로.
 fn units_to_px(units: i64, units_per_em: u16) -> f64 {
     (units as f64 * FONT_SIZE / f64::from(units_per_em)) / 72.0 * DPI
 }
@@ -46,7 +45,7 @@ fn max_digit_width(font: &Metrics) -> f64 {
     per_em * FONT_SIZE / 72.0 * DPI
 }
 
-/// 글 하나의 너비(픽셀) — 가장 긴 줄. `GetGlyphBoxes` 와 `GetContentWidth(0, …)`.
+/// 글 하나의 너비(픽셀) — 가장 긴 줄.
 fn content_width(font: &Metrics, text: &str) -> f64 {
     let graphemes: Vec<&str> = text.graphemes(true).collect();
     let mut max = 0f64;
@@ -95,7 +94,7 @@ pub fn column_px<'a>(font: &Metrics, cells: impl IntoIterator<Item = MeasuredCel
         }
         column = column.max(cell_px);
     }
-    // Math.Round 는 짝수 쪽으로 반올림한다(이 자리만 AwayFromZero 가 아니다).
+    // 짝수 쪽으로 반올림한다(이 자리만 0 에서 먼 쪽이 아니다).
     let mdw = mdw_raw.round_ties_even() as i32;
     let min = no_c_to_pixels(MIN_WIDTH, mdw).ceil();
     if f64::from(column) < min {
@@ -113,7 +112,7 @@ pub fn mdw(font: &Metrics) -> i32 {
     max_digit_width(font).round_ties_even() as i32
 }
 
-/// `XLHelper.NoCToPixels`.
+/// 글자 폭 수 → 픽셀.
 fn no_c_to_pixels(noc: f64, mdw: i32) -> f64 {
     let pp = 2 * (f64::from(mdw) / 4.0).ceil() as i32 + 1;
     if noc < 1.0 {
@@ -123,7 +122,7 @@ fn no_c_to_pixels(noc: f64, mdw: i32) -> f64 {
     }
 }
 
-/// `XLHelper.PixelToNoC`.
+/// 픽셀 → 글자 폭 수.
 fn pixel_to_no_c(px: i32, mdw: i32) -> f64 {
     let pp = 2 * (f64::from(mdw) / 4.0).ceil() as i32 + 1;
     if px >= mdw + pp {
@@ -133,7 +132,7 @@ fn pixel_to_no_c(px: i32, mdw: i32) -> f64 {
     }
 }
 
-/// 파일에 적을 `width` — ClosedXML 이 적는 그대로(`Math.Round(noc + 0.710625, 6)`).
+/// 파일에 적을 `width` — 글자 폭 수에 0.710625 를 더해 소수 여섯 자리로 반올림한 값.
 pub fn stored_width(px: i32, mdw: i32) -> f64 {
     let noc = pixel_to_no_c(px, mdw);
     let noc = if noc <= 0.0 { 9.140625 } else { noc };
@@ -150,7 +149,7 @@ mod tests {
         assert_eq!(no_c_to_pixels(40.0, 7), 285.0);
         assert_eq!(no_c_to_pixels(60.0, 7), 425.0);
         assert_eq!(stored_width(285, 7), 40.710625);
-        // ClosedXML 0.105.1 이 343px 열에 적은 값(시험 엑셀에서 잰 것).
+        // 옛 판이 343px 열에 적은 값(시험 엑셀에서 잰 것).
         assert_eq!(stored_width(343, 7), 48.996339);
     }
 }

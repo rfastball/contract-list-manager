@@ -1,8 +1,7 @@
-//! 계약면 뷰 시험 — C# `DatasetContractTests` 전부, `FlowColumnTests.기본_열_목록이_면_뷰와_같다`,
-//! `WarrantyViewTests`, `NoticeRelationTests` 의 뷰 몫, 그리고 C# 과 같은 SQL 을 받게 맞춘 연결(큰따옴표 글자 끄기,
+//! 계약면 뷰 시험 — 면 뷰의 열과 값, 기본 열 목록과 면 뷰의 일치, 보증 뷰, 관련공고의 뷰 몫, 그리고 같은 SQL 을 받게 맞춘 연결(큰따옴표 글자 끄기,
 //! `ceil`·`floor`)과 깨진 가공열 격리.
 //!
-//! C# `Store` 의 편집 API(`UpsertNotice` 따위)는 다음 조각이라 행을 직접 넣는다. 값은 모두 지어낸 것이다.
+//! 행을 직접 넣는다. 값은 모두 지어낸 것이다.
 
 mod common;
 
@@ -10,7 +9,7 @@ use std::path::PathBuf;
 
 use common::{Temp, TestEnv};
 use pclm_core::storage::database::refresh;
-use pclm_core::storage::{pclm_file, store, views};
+use pclm_core::storage::{store, views};
 use pclm_core::{Access, Database};
 use rusqlite::{Connection, params};
 
@@ -23,7 +22,7 @@ struct Db {
 fn fresh() -> Db {
     let temp = Temp::new("views");
     let path = temp.path("views.pclm");
-    let database = pclm_file::create(&path, "work", &TestEnv::new()).unwrap();
+    let database = common::workfile(&path, &TestEnv::new());
     Db {
         _temp: temp,
         path,
@@ -49,7 +48,7 @@ fn view_names(c: &Connection) -> Vec<String> {
         .unwrap()
 }
 
-/// `Store.UserColumns(entity)` 의 이름 — 갓 지은 작업자료에도 기본 입력열이 선다.
+/// 사용자 열의 이름 — 갓 지은 작업자료에도 기본 입력열이 선다.
 fn people(c: &Connection, entity: &str) -> Vec<String> {
     c.prepare("SELECT field_name FROM user_column WHERE entity_type = ?1 ORDER BY entity_type, sort_order;")
         .unwrap()
@@ -73,7 +72,7 @@ fn cell(db: &Db, view: &str, column: &str) -> String {
 // ── 연결 ─────────────────────────────────────────────
 
 /// 쓰기·읽기 손잡이 모두 큰따옴표 글자를 받지 않는다(e_sqlite3 의 `SQLITE_DQS=0`). 받으면 없는 열을 큰따옴표로 적은
-/// SQL 이 글로 읽혀 C# 에서 깨지는 열이 여기서는 선다.
+/// SQL 이 글로 읽혀 지나가 버린다.
 #[test]
 fn every_connection_refuses_double_quoted_strings() {
     let db = fresh();
@@ -137,7 +136,7 @@ fn contract_dir() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/contract"))
 }
 
-/// `뷰_표면이_박제와_같다` — 열 이름과 순서를 C# 과 같은 박제(`views.txt`)에 견준다. 박제는 C# 시험이 쓴다 — 여기서는
+/// `뷰_표면이_박제와_같다` — 열 이름과 순서를 박제(`views.txt`)에 견준다. 여기서는 박제를
 /// 다시 쓰지 않는다(`PCLM_UPDATE_GOLDEN` 을 보지 않는다).
 #[test]
 fn view_surface_matches_the_golden() {
@@ -216,6 +215,28 @@ fn contract_columns_match_the_contract_view() {
     expected.extend(people(&c, "contract"));
     assert!(expected.iter().any(|c| c == "담당메모"));
     assert_eq!(expected, columns_of(&c, "v_계약"));
+}
+
+/// 손으로 고친 파일의 사람 열 이름에 따옴표가 섞여도 뷰가 서고 그 이름 그대로 열이 된다.
+#[test]
+fn quoted_user_column_names_do_not_break_the_views() {
+    let db = fresh();
+    let name = "따옴\"표'열";
+    db.database
+        .open()
+        .unwrap()
+        .execute(
+            "INSERT INTO user_column (entity_type, field_name, kind, options, sort_order) VALUES ('contract', ?1, 'text', NULL, 10), ('notice', ?1, 'text', NULL, 10);",
+            [name],
+        )
+        .unwrap();
+
+    db.database.refresh_views().unwrap();
+
+    let c = db.database.open_read_only().unwrap();
+    for view in ["v_계약", "v_통합", "v_공고"] {
+        assert!(columns_of(&c, view).iter().any(|c| c == name), "{view}");
+    }
 }
 
 /// `통합이_계약_뷰의_열을_모두_담는다`
@@ -308,7 +329,8 @@ fn legacy_views_are_cleared_on_open() {
              CREATE VIEW v_계획_v1 AS
                  SELECT r.접수번호, g.입찰공고번호, k.계약번호
                  FROM v_접수_v1 r LEFT JOIN v_공고_v1 g ON 0 LEFT JOIN v_계약_v1 k ON 0;
-             CREATE VIEW v_사용자뷰 AS SELECT 1 AS 옛;",
+             CREATE VIEW v_사용자뷰 AS SELECT 1 AS 옛;
+             CREATE VIEW v_계획 AS SELECT 1 AS 옛;",
         )
         .unwrap();
         let mut legacy: Vec<String> = view_names(&c)
@@ -341,7 +363,7 @@ fn legacy_names_do_not_overlap_current_names() {
     for name in views::LEGACY_NAMES {
         assert!(!views::NAMES.contains(name), "{name}");
     }
-    // 판을 붙여 부르던 것과, 판 없이 제자리에서 이름을 바꾼 것(2판의 맞춤 뷰 메타) 하나.
+    // 판을 붙여 부르던 것과, 판 없이 제자리에서 이름을 바꾼 것(2판의 맞춤 뷰 메타) 하나, 걷은 것(계획) 하나.
     let unversioned: Vec<&str> = views::LEGACY_NAMES
         .iter()
         .copied()
@@ -352,7 +374,7 @@ fn legacy_names_do_not_overlap_current_names() {
             tail.is_empty() || !tail.bytes().all(|b| b.is_ascii_digit())
         })
         .collect();
-    assert_eq!(vec!["v_사용자뷰"], unversioned);
+    assert_eq!(vec!["v_계획", "v_사용자뷰"], unversioned);
 }
 
 /// `엑셀_시트_이름은_머리만_뗀_뷰_이름이다`
@@ -409,7 +431,7 @@ fn base_columns_match_the_face_views() {
 
 // ── 깨진 가공열 ─────────────────────────────────────────────
 
-/// 깨진 SQL 가공열은 뷰를 막지 않고 빈 글로 선다(`Database.IsolateComputed`). 없는 열을 큰따옴표로 적은 SQL 이 바로 그
+/// 깨진 SQL 가공열은 뷰를 막지 않고 빈 글로 선다(격리). 없는 열을 큰따옴표로 적은 SQL 이 바로 그
 /// 경우다 — 큰따옴표 글자를 받는 SQLite 였다면 이 열은 글 `없는열` 로 섰다. 같은 자리의 `ceil` 열은 선다.
 #[test]
 fn broken_sql_column_stands_empty_and_ceil_column_stands() {
@@ -455,7 +477,7 @@ fn broken_sql_column_stands_empty_and_ceil_column_stands() {
     }
     assert_eq!("", cell(&db, "v_계약", "깨진열"));
     assert_eq!("2.0", cell(&db, "v_계약", "올림열"));
-    // 깨진 자리는 뷰의 SQL 에 표지로 남아 다시 읽힌다(`Views.BrokenIn`).
+    // 깨진 자리는 뷰의 SQL 에 표지로 남아 다시 읽힌다.
     let sql: String = db
         .database
         .open_read_only()
@@ -471,7 +493,7 @@ fn broken_sql_column_stands_empty_and_ceil_column_stands() {
     assert_eq!("깨진열", marked[0].0);
 }
 
-/// C# `이어_붙인_칸은_순번_차례다` — 이어 붙인 세 칸은 넣은 차례가 아니라 순번(line_no) 차례다. 조달요구번호는 같은
+/// 이어 붙인 세 칸은 넣은 차례가 아니라 순번(line_no) 차례다. 조달요구번호는 같은
 /// 번호가 두 줄에 나뉘어도 한 번만, 처음 나온 순번 자리에 선다. 줄은 일부러 거꾸로 넣는다.
 #[test]
 fn joined_cells_follow_line_order() {

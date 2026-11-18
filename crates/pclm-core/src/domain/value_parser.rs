@@ -1,5 +1,5 @@
-//! 값 읽기(C# `Domain/ValueParser.cs`) 가운데 공고건 재구성이 부르는 `SplitNoticeRef` 와, 사람이 친 키를 실제 행에
-//! 맞추는 `NoticeNumber`·`ContractNumber`(`Store.Resolve`), 계획 엑셀의 지시수량을 읽는 `Integer`.
+//! 값 읽기 가운데 공고건 재구성이 부르는 `SplitNoticeRef` 와, 사람이 친 키를 실제 행에
+//! 맞추는 `NoticeNumber`·`ContractNumber`(키 풀이).
 
 /// `ValueParser.NoticeNumber` — 공고번호 `R26BK00000001 - 000` 을 본번호와 차수로 가른다. `-` 로 나눈 조각이
 /// 정확히 둘이어야 하고(조각마다 앞뒤 공백을 걷는다), [`checked`] 를 지나야 한다. **번호처럼 생기지 않았으면
@@ -19,7 +19,7 @@ pub fn notice_number(text: Option<&str>) -> Option<(String, String)> {
 /// `ValueParser.ContractNumber` — 계약번호는 끝 두 자리가 차수다(`R26TA0000000100`). 세 글자보다 짧으면 번호가 아니다.
 pub fn contract_number(text: Option<&str>) -> Option<(String, String)> {
     let t = text?.trim();
-    // C# 의 길이는 UTF-16 단위다. 검사([`checked`])가 ASCII 만 받으므로 그 밖의 글자가 끼면 어차피 번호가 아니다.
+    // 길이는 UTF-16 단위로 센다. 검사([`checked`])가 ASCII 만 받으므로 그 밖의 글자가 끼면 어차피 번호가 아니다.
     if t.is_empty() || crate::text::utf16_len(t) < 3 {
         return None;
     }
@@ -57,40 +57,6 @@ pub fn split_notice_ref(text: Option<&str>) -> Option<(String, String)> {
     Some((base.to_string(), seq.to_string()))
 }
 
-/// `ValueParser.Integer` — 정수. `3` · `3 대` · `1,200`. 소수점이 있으면 정수가 아니다. 32비트를 넘으면 `None`.
-pub fn integer(text: Option<&str>) -> Option<i32> {
-    // int.TryParse(…, NumberStyles.Integer, Invariant) — Digits 가 지은 글은 부호와 숫자뿐이다.
-    digits(text, false)?.parse().ok()
-}
-
-/// `ValueParser.Digits` — 숫자·맨 앞의 `-`·(허락하면) 첫 소수점만 모으고, 자릿점과 공백은 건너뛰고, 그 밖의 글자(단위)에서
-/// 멈춘다. 숫자가 하나도 없으면 `None`. 끝에 남은 소수점은 지운다.
-fn digits(text: Option<&str>, allow_decimal: bool) -> Option<String> {
-    let text = text?;
-    if text.chars().all(char::is_whitespace) {
-        return None;
-    }
-    let mut out = String::new();
-    let mut seen_dot = false;
-    for ch in text.chars() {
-        if ch.is_ascii_digit() || (ch == '-' && out.is_empty()) {
-            out.push(ch);
-        } else if ch == '.' && !allow_decimal {
-            return None;
-        } else if ch == '.' && allow_decimal && !seen_dot && !out.is_empty() {
-            out.push(ch);
-            seen_dot = true;
-        } else if ch == ',' || ch == ' ' {
-            continue;
-        } else {
-            break;
-        }
-    }
-    out.bytes()
-        .any(|b| b.is_ascii_digit())
-        .then(|| out.trim_end_matches('.').to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn numbers_split_like_dotnet() {
+    fn numbers_split_on_hyphen() {
         assert_eq!(
             notice_number(Some(" A26BK00000001 - 000 ")),
             Some(("A26BK00000001".into(), "000".into()))
@@ -128,26 +94,11 @@ mod tests {
         assert_eq!(contract_number(Some("가나100")), None);
     }
 
-    #[test]
-    fn integers_like_value_parser() {
-        assert_eq!(integer(Some("8")), Some(8));
-        assert_eq!(integer(Some("1,200")), Some(1200));
-        assert_eq!(integer(Some("3 대")), Some(3));
-        assert_eq!(integer(Some("-5")), Some(-5));
-        assert_eq!(integer(Some("1.5")), None);
-        assert_eq!(integer(Some("대")), None);
-        assert_eq!(integer(Some("")), None);
-        assert_eq!(integer(Some("  ")), None);
-        assert_eq!(integer(None), None);
-        assert_eq!(integer(Some("99999999999")), None);
-    }
-
-    /// C# `ValueParserTests` 의 번호·수량 사례 — 번호처럼 생기지 않았으면 번호가 아니다. 이 가드가 없을 때 계약번호는 세 자
+    /// 번호 사례 — 번호처럼 생기지 않았으면 번호가 아니다. 이 가드가 없을 때 계약번호는 세 자
     /// 이상이면 무엇이든 통과해 끝 두 자를 차수로 잘랐고, 사내 품의서의 `연구개발용역` 같은 값이 자연키가 되어 `contract` 에
     /// 조용히 정상 행으로 앉았다. 반대로 자릿수·접두사는 박지 않는다 — 지자체·수의계약의 변형을 튕긴다.
-    /// (`ValueParser.Money` 사례는 옮기지 않는다 — C# 에서도 프로덕션 호출자가 없던 함수라 Rust 에 짝이 없다.)
     #[test]
-    fn csharp_value_parser_cases() {
+    fn value_parser_cases() {
         let pair = |b: &str, s: &str| Some((b.to_string(), s.to_string()));
         // 공고번호는_붙임표로_차수를_가른다
         assert_eq!(
@@ -182,10 +133,6 @@ mod tests {
             "R26BK98000575-",
         ] {
             assert_eq!(notice_number(Some(input)), None, "{input}");
-        }
-        // 소수나_정수범위_밖의_수량은_잘라_읽지_않는다
-        for input in ["1.5", "-1.5 대", "999999999999"] {
-            assert_eq!(integer(Some(input)), None, "{input}");
         }
         // 자릿수나_접두사는_따지지_않는다
         assert_eq!(contract_number(Some("12300")), pair("123", "00"));

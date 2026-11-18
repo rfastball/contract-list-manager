@@ -1,10 +1,12 @@
-//! 확장 ↔ 창의 중계(C# `Erp/ExtensionRelay.cs`, ADR-036). 호스트와 창은 다른 프로세스라 **홈의 파일로 잇는다.**
+//! 확장 ↔ 창의 중계(ADR-036). 호스트와 창은 다른 프로세스라 **홈의 파일로 잇는다.**
 //!
 //! - 확장이 상시 포트로 보낸 나라장터 탭 보고를 호스트가 `extension-live/<pid>.tabs.json` 에 통째로 바꿔 쓴다.
+//! - 앞 탭이 그대로인 동안 확장은 내용 대신 박동(그 읽기의 번호와 readiness)만 보내고, 호스트는 그것을
+//!   `extension-live/<pid>.beat.json` 에 쓴다. 읽는 쪽이 번호가 같은 탭에만 박동의 readiness 를 덮는다.
 //! - 창은 명령을 `extension-live/<pid>.cmd/<순번>.json` 에 놓고, 호스트가 그 폴더를 지켜 포트로 넘긴 뒤 지운다.
 //!
-//! 탭 보고에는 **실제 조달 자료**가 들어 있다. 홈 밖으로 내지 않고 로그에 남기지 않는다. 바이트는 C# 과 같다 — 창(C#)이
-//! Rust 호스트가 쓴 보고를 그대로 읽는다.
+//! 탭 보고에는 **실제 조달 자료**가 들어 있다. 홈 밖으로 내지 않고 로그에 남기지 않는다. 창이 호스트가 쓴 보고를
+//! 그대로 읽는다.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,12 +16,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pclm_core::erp::{screens, wire};
 use pclm_core::local_time::LocalDateTime;
-use pclm_home::{dotnet, win};
+use pclm_home::{paths, win};
 use serde_json::{Map, Value};
 
 use crate::presence;
 
 pub const TABS_METHOD: &str = "tabs";
+pub const BEAT_METHOD: &str = "beat";
+
+/// 박동의 documentId 길이 상한(UTF-16). 확장은 UUID 를 싣는다.
+const MAX_DOCUMENT_ID: usize = 100;
 
 /// 창이 보낼 수 있는 명령. 확장은 이것 말고는 받지 않는다.
 pub const COMMANDS: [&str; 4] = ["focusTab", "read", "export", "openExtensions"];
@@ -40,6 +46,10 @@ pub fn tabs_path(directory: &Path, pid: i32) -> PathBuf {
     presence::live_directory(directory).join(format!("{pid}.tabs.json"))
 }
 
+pub fn beat_path(directory: &Path, pid: i32) -> PathBuf {
+    presence::live_directory(directory).join(format!("{pid}.beat.json"))
+}
+
 pub fn command_directory(directory: &Path, pid: i32) -> PathBuf {
     presence::live_directory(directory).join(format!("{pid}.cmd"))
 }
@@ -48,7 +58,73 @@ pub fn is_tabs(request: &Value) -> bool {
     request.get("method").and_then(Value::as_str) == Some(TABS_METHOD)
 }
 
-/// 탭 보고 한 벌을 적는다(C# `ExtensionRelay.WriteTabs`). 모양만 본다 — 값은 확장이 읽은 그대로 둔다(ADR-016).
+pub fn is_beat(request: &Value) -> bool {
+    request.get("method").and_then(Value::as_str) == Some(BEAT_METHOD)
+}
+
+/// 박동 하나를 적는다 — 앞 탭이 그대로라는 그 읽기의 번호와 readiness 뿐이다. 모양만 보고 아는 칸만 옮긴다.
+/// 받지 않았으면 그 까닭.
+pub fn write_beat(directory: &Path, pid: i32, beat: &Value) -> io::Result<Option<String>> {
+    let readiness = beat.get("readiness");
+    let field = |name: &str| readiness.and_then(|r| r.get(name));
+    let tab = beat.get("tabId").and_then(wire::try_get_int32);
+    let seq = beat.get("seq").and_then(wire::try_get_int64);
+    let stable = field("stable").and_then(Value::as_bool);
+    let observed = field("observedAt").filter(|v| v.is_number());
+    let document = field("documentId")
+        .and_then(Value::as_str)
+        .filter(|d| wire::utf16_len(d) <= MAX_DOCUMENT_ID);
+    let (Some(tab), Some(seq), Some(stable), Some(observed), Some(document)) =
+        (tab, seq, stable, observed, document)
+    else {
+        return Ok(Some("박동의 모양이 다릅니다.".to_string()));
+    };
+    let mut ready = Map::new();
+    ready.insert("stable".into(), Value::Bool(stable));
+    ready.insert("observedAt".into(), observed.clone());
+    ready.insert("documentId".into(), Value::String(document.into()));
+    let mut root = Map::new();
+    root.insert("tabId".into(), tab.into());
+    root.insert("seq".into(), seq.into());
+    root.insert("readiness".into(), Value::Object(ready));
+    std::fs::create_dir_all(presence::live_directory(directory))?;
+    // replace_file 은 매번 fsync · rename 한다 — 2초마다 오는 박동은 제자리에 덮어쓰고, 쓰다 만 것은 읽는 쪽이 버린다.
+    std::fs::write(
+        beat_path(directory, pid),
+        wire::to_web_json(&Value::Object(root)),
+    )?;
+    Ok(None)
+}
+
+/// 박동의 readiness 를 같은 탭·같은 읽기 번호의 탭에만 덮는다. 박동이 없거나 깨졌거나(쓰다 만 것 포함) 번호가 다르면
+/// 내용 보고의 것을 그대로 둔다 — 그 readiness 는 늙어 자동 수집이 새 읽기를 기다린다.
+fn apply_beat(directory: &Path, pid: i32, report: &mut Value) {
+    let Some(Value::Object(beat)) = paths::read_all_text(&beat_path(directory, pid))
+        .ok()
+        .and_then(|text| wire::parse_node(&text))
+    else {
+        return;
+    };
+    let tab = beat.get("tabId").and_then(wire::try_get_int32);
+    let seq = beat.get("seq").and_then(wire::try_get_int64);
+    let (Some(tab), Some(seq), Some(readiness @ Value::Object(_))) =
+        (tab, seq, beat.get("readiness"))
+    else {
+        return;
+    };
+    let Some(Value::Array(tabs)) = report.get_mut("tabs") else {
+        return;
+    };
+    for entry in tabs.iter_mut().filter_map(Value::as_object_mut) {
+        if entry.get("tabId").and_then(wire::try_get_int32) == Some(tab)
+            && entry.get("seq").and_then(wire::try_get_int64) == Some(seq)
+        {
+            entry.insert("readiness".into(), readiness.clone());
+        }
+    }
+}
+
+/// 탭 보고 한 벌을 적는다. 모양만 본다 — 값은 확장이 읽은 그대로 둔다(ADR-016).
 /// 받지 않았으면 그 까닭.
 pub fn write_tabs(
     directory: &Path,
@@ -71,27 +147,35 @@ pub fn write_tabs(
             Some("reading" | "supported" | "unsupported" | "error")
         );
         let rows_ok = fields.get("screenRows").is_none_or(screen_rows_fit);
-        // 메뉴 번호(ADR-037)는 빈 글이거나 숫자 다섯이다. 옛 확장은 싣지 않는다.
-        let menu_ok = fields.get("menu").is_none_or(|menu| {
-            menu.as_str()
-                .is_some_and(|m| m.is_empty() || screens::is_code(Some(m)))
-        });
+        // 메뉴 번호(ADR-037)는 빈 글이거나 숫자 다섯이다.
+        let menu_ok = fields
+            .get("menu")
+            .and_then(Value::as_str)
+            .is_some_and(|m| m.is_empty() || screens::is_code(Some(m)));
         if !(id_ok && state_ok && rows_ok && menu_ok) {
             return refuse();
         }
         written.push(tab.clone());
     }
-    let mut settings = Value::Null;
-    if let Some(given) = report.get("settings").filter(|v| !v.is_null()) {
-        match given.get("siteAccess") {
+    // 확장이 설정을 읽지 못했으면 null 이다. 아는 칸만 옮긴다 — 홈에 임의 글이 남지 않는다.
+    let settings = match report.get("settings") {
+        Some(Value::Null) => Value::Null,
+        Some(given) => match given.get("siteAccess") {
             Some(Value::Bool(access)) => {
                 let mut o = Map::new();
                 o.insert("siteAccess".into(), Value::Bool(*access));
-                settings = Value::Object(o);
+                Value::Object(o)
             }
             _ => return refuse(),
-        }
-    }
+        },
+        None => return refuse(),
+    };
+    // 패널 설정의 「내 정보」 이름 — 앱의 자동 수집이 이것으로 담당자를 가린다. 이름 하나만 옮긴다.
+    let Some(name) = report.get("me").and_then(|me| me.get("name")).and_then(Value::as_str) else {
+        return refuse();
+    };
+    let mut me = Map::new();
+    me.insert("name".into(), Value::String(name.to_string()));
     let mut root = Map::new();
     root.insert("pid".into(), pid.into());
     root.insert("receivedAt".into(), Value::String(now.second_text()));
@@ -112,6 +196,7 @@ pub fn write_tabs(
     );
     root.insert("tabs".into(), Value::Array(written));
     root.insert("settings".into(), settings);
+    root.insert("me".into(), Value::Object(me));
     replace(
         &tabs_path(directory, pid),
         &wire::to_web_json(&Value::Object(root)),
@@ -146,11 +231,12 @@ pub struct TabReport {
 pub fn read_tabs(directory: &Path) -> Vec<TabReport> {
     let mut reports = Vec::new();
     for (pid, contact) in presence::live_processes(directory) {
-        let Ok(text) = dotnet::read_all_text(&tabs_path(directory, pid)) else {
+        let Ok(text) = paths::read_all_text(&tabs_path(directory, pid)) else {
             continue;
         };
-        // JsonDocument.Parse(MaxDepth 64) — 같은 키를 막지 않는다.
-        if let Some(report) = pclm_core::erp::parse_json(&text) {
+        // 깊이 64 까지 읽는다 — 같은 키를 막지 않는다.
+        if let Some(mut report) = pclm_core::erp::parse_json(&text) {
+            apply_beat(directory, pid, &mut report);
             reports.push(TabReport {
                 pid,
                 browser: contact.browser,
@@ -162,8 +248,8 @@ pub fn read_tabs(directory: &Path) -> Vec<TabReport> {
     reports
 }
 
-/// 창 → 확장 명령 하나를 그 호스트의 명령 폴더에 놓는다(C# `ExtensionRelay.Send`/`SendSetting`). 살아 있지 않은 호스트에는
-/// 놓지 않는다(`Ok(false)`). 모르는 명령·모양이 틀린 명령은 `Err`(C# `InvalidOperationException`).
+/// 창 → 확장 명령 하나를 그 호스트의 명령 폴더에 놓는다. 살아 있지 않은 호스트에는
+/// 놓지 않는다(`Ok(false)`). 모르는 명령·모양이 틀린 명령은 `Err`.
 pub fn send(directory: &Path, pid: i32, command: &str, tab_id: Option<i32>) -> io::Result<bool> {
     if !COMMANDS.contains(&command) {
         return Err(io::Error::new(
@@ -202,9 +288,10 @@ pub fn send(directory: &Path, pid: i32, command: &str, tab_id: Option<i32>) -> i
     Ok(true)
 }
 
-/// 이 프로세스가 남긴 탭 보고와 명령 폴더를 치운다. 끝나는 길이라 실패를 삼킨다.
+/// 이 프로세스가 남긴 탭 보고·박동과 명령 폴더를 치운다. 끝나는 길이라 실패를 삼킨다.
 pub fn forget(directory: &Path, pid: i32) {
     let _ = std::fs::remove_file(tabs_path(directory, pid));
+    let _ = std::fs::remove_file(beat_path(directory, pid));
     let _ = std::fs::remove_dir_all(command_directory(directory, pid));
 }
 
@@ -213,13 +300,13 @@ fn replace(path: &Path, text: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    dotnet::replace_file(path, text)
+    paths::replace_file(path, text)
 }
 
 /// 명령을 넘기는 길. 확장으로 가는 포트에 쓴다.
 pub type Deliver = Box<dyn Fn(Value) -> io::Result<()> + Send + Sync>;
 
-/// 호스트 쪽: 명령 폴더를 지켜 들어온 것을 차례대로 넘기고 지운다(C# `ExtensionRelay.Watcher`). 폴더 변화 알림이 놓칠 수
+/// 호스트 쪽: 명령 폴더를 지켜 들어온 것을 차례대로 넘기고 지운다. 폴더 변화 알림이 놓칠 수
 /// 있어 짧게 다시 본다. 모양이 틀린 것은 넘기지 않고 지운다. 놓으면(`Drop`) 지킴을 멈추고 그 실마리를 기다린다.
 pub struct Watcher {
     inner: Arc<Inner>,
@@ -294,7 +381,7 @@ impl Inner {
         let Ok(listing) = std::fs::read_dir(&self.folder) else {
             return;
         };
-        // Directory.GetFiles("*.json") 뒤 GetExtension(f) == ".json"(대소문자를 가린다), 이름의 UTF-16 차례.
+        // 확장자가 `.json` 인 것만(대소문자를 가린다), 이름의 UTF-16 차례.
         let mut files: Vec<(Vec<u16>, PathBuf)> = listing
             .filter_map(Result::ok)
             .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
@@ -306,7 +393,7 @@ impl Inner {
             .collect();
         files.sort();
         for (_, file) in files {
-            let text = match dotnet::read_all_text(&file) {
+            let text = match paths::read_all_text(&file) {
                 Ok(text) => text,
                 Err(_) => continue, // 아직 쓰는 중 — 다음에 줍는다.
             };

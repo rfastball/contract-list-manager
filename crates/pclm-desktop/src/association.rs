@@ -1,4 +1,4 @@
-//! `.pclm` 을 이 exe 에 잇는다(C# `Pclm.App/FileAssociation.cs`) — 받은 제출본을 두 번 누르면 이 프로그램을 몰라도 열람 창이
+//! `.pclm` 을 이 exe 에 잇는다— 받은 자료를 두 번 누르면 이 프로그램을 몰라도 열람 창이
 //! 뜬다.
 //!
 //! 배포물은 exe 하나라 설치기가 없다. 그래서 창을 켤 때마다 적는다 — exe 를 새 판으로 바꾸거나 옮기면 옛 자리를 가리키는
@@ -10,42 +10,39 @@
 use std::io;
 use std::path::Path;
 
-use pclm_home::{Home, dotnet};
+use pclm_home::{Home, paths};
 
 const EXTENSION: &str = ".pclm";
 const PROG_ID: &str = "Pclm.Workfile";
 
 /// `HKCU` 아래에 하는 일. 키 이름은 `Software\Classes\…` 꼴이다.
 pub trait Registry {
-    /// `OpenSubKey(key)?.GetValue("") as string` — 키나 값이 없거나 글이 아니면 `None`.
+    /// 키의 기본값 — 키나 값이 없거나 글이 아니면 `None`.
     fn default_value(&self, key: &str) -> io::Result<Option<String>>;
-    /// `CreateSubKey(key).SetValue(name, value)` — 글 값(`REG_SZ`). 빈 이름은 기본값이다.
+    /// 글 값(`REG_SZ`)을 적는다. 빈 이름은 기본값이다.
     fn set_string(&self, key: &str, name: &str, value: &str) -> io::Result<()>;
-    /// `SetValue(name, Array.Empty<byte>(), RegistryValueKind.None)` — 꼴 없는 빈 값.
+    /// 꼴 없는 빈 값을 적는다.
     fn set_empty(&self, key: &str, name: &str) -> io::Result<()>;
     /// `SHChangeNotify(SHCNE_ASSOCCHANGED)` — 알리지 않으면 탐색기가 다시 켜질 때까지 옛 연결과 아이콘을 쥐고 있다.
     fn notify_changed(&self);
 }
 
-/// 창이 켜질 때 부른다 — 업무 홈일 때만 [`refresh`] 한다(C# `if (home.IsDefault) FileAssociation.Refresh()`).
+/// 창이 켜질 때 부른다 — 업무 홈일 때만 [`refresh`] 한다.
 pub fn refresh_for(registry: &dyn Registry, home: &Home, exe: Option<&Path>, temp: &Path) {
     if home.is_default() {
         refresh(registry, exe, temp);
     }
 }
 
-/// C# `FileAssociation.Refresh`. 창을 막을 일이 아니라 실패는 삼킨다 — 적지 못했으면 두 번 누른 파일이 연결 프로그램을 물을
+/// 등록부에 연결을 적는다. 창을 막을 일이 아니라 실패는 삼킨다 — 적지 못했으면 두 번 누른 파일이 연결 프로그램을 물을
 /// 뿐이다.
 pub fn refresh(registry: &dyn Registry, exe: Option<&Path>, temp: &Path) {
     let Some(exe) = exe else {
         return;
     };
     // 압축 파일 안에서 곧바로 켜면 탐색기가 임시 폴더에 풀어 띄운다. 그 자리는 곧 지워지니 적지 않는다.
-    if let (Ok(full), Ok(temp)) = (dotnet::full_path(exe), dotnet::full_path(temp)) {
-        let full = dotnet::to_upper_invariant(&full.to_string_lossy());
-        if full.starts_with(&dotnet::to_upper_invariant(&temp.to_string_lossy())) {
-            return;
-        }
+    if paths::is_under(exe, temp) {
+        return;
     }
     let _ = write(registry, exe);
 }

@@ -1,15 +1,15 @@
-//! 실행 파일의 정체(C# `Erp/Executable.cs` 의 `ExecutableIdentity`, ADR-035) — 자리·크기·마지막 쓴 때. 상시 연결 호스트는
+//! 실행 파일의 정체(ADR-035) — 자리·크기·마지막 쓴 때. 상시 연결 호스트는
 //! 브라우저가 켜져 있는 동안 exe 를 붙든다. 사람이 옛 exe 를 비키고 새 것을 놓으면 호스트는 제 자리가 더는 자기가 아님을
 //! 보고 떠난다. 옛 exe 치우기(`OldExecutables`)는 창의 일이라 옮기지 않았다.
 
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use pclm_home::dotnet;
+use pclm_home::paths;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecutableIdentity {
-    /// `FileInfo.FullName`.
+    /// 실행 파일의 온전한 경로.
     pub path: String,
     pub length: u64,
     /// 마지막 쓴 때(FILETIME, UTC 100ns).
@@ -22,7 +22,7 @@ impl ExecutableIdentity {
         if path.as_os_str().is_empty() {
             return None;
         }
-        let full = dotnet::full_path(path).ok()?;
+        let full = paths::full_path(path).ok()?;
         let meta = std::fs::metadata(&full).ok().filter(|m| m.is_file())?;
         Some(ExecutableIdentity {
             path: full.to_string_lossy().into_owned(),
@@ -31,7 +31,7 @@ impl ExecutableIdentity {
         })
     }
 
-    /// 이 프로세스를 띄운 파일(`Environment.ProcessPath`). Rust 호스트는 exe 하나다.
+    /// 이 프로세스를 띄운 파일. Rust 호스트는 exe 하나다.
     pub fn of_this_process() -> Vec<ExecutableIdentity> {
         std::env::current_exe()
             .ok()
@@ -46,19 +46,19 @@ impl ExecutableIdentity {
     }
 }
 
-/// 브라우저의 호스트 등록 문서(`{"path": …}`)가 이 실행 파일을 가리키는가(C# `ExecutableIdentity.ManifestPointsAt`).
+/// 브라우저의 호스트 등록 문서(`{"path": …}`)가 이 실행 파일을 가리키는가.
 /// 읽지 못하는 문서는 가리킨다고 친다 — 확실하지 않을 때 연결을 끊지 않는다.
 pub fn manifest_points_at(manifest_json: &str, process_path: &Path) -> bool {
     let Some(document) = pclm_core::erp::parse_json(manifest_json) else {
         return true;
     };
-    // 뿌리가 객체가 아니면 C# 은 TryGetProperty 에서 던지고, 부르는 쪽(등록 확인)이 가리킨다고 친다.
+    // 뿌리가 객체가 아니면 읽지 못한 문서와 같이 가리킨다고 친다.
     let Some(serde_json::Value::String(path)) = document.as_object().and_then(|o| o.get("path"))
     else {
         return true;
     };
-    match (dotnet::full_path(path), dotnet::full_path(process_path)) {
-        (Ok(a), Ok(b)) => dotnet::eq_ignore_case(&a.to_string_lossy(), &b.to_string_lossy()),
+    match (paths::full_path(path), paths::full_path(process_path)) {
+        (Ok(a), Ok(b)) => paths::eq_ignore_case(&a.to_string_lossy(), &b.to_string_lossy()),
         _ => true,
     }
 }
@@ -118,7 +118,7 @@ mod tests {
                 .to_string()
         };
         assert!(manifest_points_at(&manifest(&exe), &exe));
-        let upper = PathBuf::from(dotnet::to_upper_invariant(&exe.to_string_lossy()));
+        let upper = PathBuf::from(paths::to_upper_invariant(&exe.to_string_lossy()));
         assert!(manifest_points_at(&manifest(&upper), &exe));
         assert!(!manifest_points_at(
             &manifest(&std::env::temp_dir().join("새 자리").join("계약목록.exe")),

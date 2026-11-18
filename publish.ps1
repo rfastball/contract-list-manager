@@ -84,6 +84,12 @@ if (Test-Path $Output) {
     }
 }
 
+# 문서 만들기 엔진(extension/engine.wasm)도 빌드 산출물이다. 내장 확장은 build.rs 가 exe 에 박으므로 창보다 먼저 짓는다
+# — 건너뛰면 엔진이 빠진 확장이 나간다(ADR-045).
+Step '문서 만들기 엔진 짓기 (wasm)'
+& ./scripts/build-engine.ps1
+if (-not (Test-Path 'extension/engine.wasm')) { throw '엔진이 나오지 않았습니다: extension/engine.wasm' }
+
 Step '창 짓기 (cargo build --release -p pclm-desktop --features shell)'
 # cargo 는 진행을 stderr 로 쓴다 — 출력을 받아 내도(*> 기록) 'Stop' 이 그 줄에서 멈추지 않게 종료 코드로만 가린다.
 & { $ErrorActionPreference = 'Continue'; cargo build --release -p pclm-desktop --features shell }

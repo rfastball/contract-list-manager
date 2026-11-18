@@ -1,4 +1,4 @@
-//! 흐름식 → 순수 SQLite 스칼라 식(C# `Storage/FlowCompiler.cs`, docs/column-management.md §11.3).
+//! 흐름식 → 순수 SQLite 스칼라 식(docs/column-management.md §11.3).
 //!
 //! 앱 전용 함수가 없어 외부 읽기 연결에서도 같은 값이 나온다. 바깥 행은 별칭 `현재` 로 읽는다 — 정정
 //! (`field_override`)을 마친 면 뷰의 값이다.
@@ -7,25 +7,25 @@
 //! 문서는 그 개체의 덮개 식을 다시 불러 읽는다 — 공개 뷰를 읽지 않으므로 뷰 사이 순환이 생기지 않는다.
 //! [`Target::Public`] 은 「SQL로 꺼내기」로, 같은 단계를 계약면 뷰 위에 옮겨 쓴다. 둘은 최신 차수에서 같다.
 //!
-//! **글이 C# 과 바이트까지 같아야 한다** — 이 식이 뷰 정의(`sqlite_master.sql`)에 그대로 박힌다. 수 글자는 .NET 의
-//! 표기(`Num`·`JsNumber`)를 따른다.
+//! **글이 옛 판이 지은 뷰 정의와 바이트까지 같아야 한다** — 이 식이 뷰 정의(`sqlite_master.sql`)에 그대로 박힌다.
+//! 수 글자는 `Num`·`JsNumber` 의 표기를 따른다.
 
 use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::storage::flow::{Flow, FlowClause, FlowDefinition, FlowFormula, FlowSource, FlowStep};
 use crate::storage::flow_check::{self, FlowEnv};
+use crate::storage::flow_format;
 use crate::storage::{computed_column, notice_groups, views};
-use crate::text::{dotnet_double_integer, dotnet_double_r, raw};
+use crate::text::{double_integer_text, double_round_trip, raw};
 
-/// `FlowCompiler.Target`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Internal,
     Public,
 }
 
-/// `FlowCompiler.Part` — 앞부분 컴파일의 결과. 목록·행이면 `sql` 이 부질의, 값·수·날짜면 스칼라 식이다.
+/// 앞부분 컴파일의 결과. 목록·행이면 `sql` 이 부질의, 값·수·날짜면 스칼라 식이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Part {
     pub shape: &'static str,
@@ -34,21 +34,20 @@ pub struct Part {
 }
 
 impl Part {
-    /// `Part.IsRelation`.
     pub fn is_relation(&self) -> bool {
         matches!(self.shape, "rows" | "values" | "row")
     }
 }
 
-/// `FlowCompiler.Self` — 바깥 행의 별칭(§5).
+/// 바깥 행의 별칭(§5).
 pub const SELF: &str = "현재";
 
-/// `FlowCompiler.Spaces` — JS 의 `trim` 이 걷는 공백(전각 공백 U+3000 이 문서에 흔하다).
+/// JS 의 `trim` 이 걷는 공백(전각 공백 U+3000 이 문서에 흔하다).
 const SPACES: &str = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 
 // ── 겉 ─────────────────────────────────────────────
 
-/// `FlowCompiler.Expression` — 뷰의 한 칸이 될 식. 꼴 검사를 지나지 못하면 단계 번호를 담아 거절한다(「3단계: …」).
+/// 뷰의 한 칸이 될 식. 꼴 검사를 지나지 못하면 단계 번호를 담아 거절한다(「3단계: …」).
 /// `env` 가 없으면 [`Flow::env_for`] — 맞춤 뷰는 [`Flow::env_for_view`] 를 준다(그때 `entity` 는 쓰지 않는다).
 pub fn expression(
     entity: &str,
@@ -64,7 +63,7 @@ pub fn expression(
     Ok(format!("coalesce({}, '')", render(&part)?))
 }
 
-/// `FlowCompiler.Eject` — 「SQL로 꺼내기」: 계약면 뷰만 읽는 스칼라 부질의 하나(§5).
+/// 「SQL로 꺼내기」: 계약면 뷰만 읽는 스칼라 부질의 하나(§5).
 pub fn eject(entity: &str, formula: &FlowFormula, env: Option<&FlowEnv>) -> Result<String> {
     let expression = expression(entity, formula, Target::Public, env)?;
     let steps = formula.flow.as_ref().map(steps_of).unwrap_or_default();
@@ -73,7 +72,7 @@ pub fn eject(entity: &str, formula: &FlowFormula, env: Option<&FlowEnv>) -> Resu
         .enumerate()
         .map(|(i, step)| {
             let op = step.op.as_deref().unwrap_or("");
-            // C# `Flow.Verbs.First(v => v.Op == step.Op)` — 꼴 검사를 지난 식이라 모르는 동사가 없다.
+            // 꼴 검사를 지난 식이라 모르는 동사가 없다.
             let word = flow_check::verb_of(op).map_or("", |v| v.word);
             format!("  -- {}단계: {word}", i + 1)
         })
@@ -90,7 +89,7 @@ pub fn eject(entity: &str, formula: &FlowFormula, env: Option<&FlowEnv>) -> Resu
     ))
 }
 
-/// `FlowCompiler.FinalShape` — 끝 꼴(`value`·`number`·`date`). 검사를 지나지 못하면 거절한다. SQL 열은 `value`.
+/// 끝 꼴(`value`·`number`·`date`). 검사를 지나지 못하면 거절한다. SQL 열은 `value`.
 pub fn final_shape(
     entity: &str,
     formula: &FlowFormula,
@@ -115,7 +114,7 @@ pub fn final_shape(
     Ok(checked.r#final.expect("검사를 지난 식은 끝 꼴이 있다"))
 }
 
-/// `FlowCompiler.Prefix` — 앞부분 컴파일: 단계 `steps` 개까지만 잘라 그 시점의 값을 낸다(§11.3, 보표가 쓴다).
+/// 앞부분 컴파일: 단계 `steps` 개까지만 잘라 그 시점의 값을 낸다(§11.3, 보표가 쓴다).
 /// 0 이면 원천이다. 그 앞에 꼴 오류가 있으면 단계 번호를 담아 거절한다.
 pub fn prefix(
     entity: &str,
@@ -144,9 +143,7 @@ fn prefix_inner(
     env: Option<&FlowEnv>,
 ) -> Result<Part> {
     if steps > step_count(flow) {
-        return Err(Error::Argument(
-            "Specified argument was out of the range of valid values. (Parameter 'steps')".into(),
-        ));
+        return Err(Error::Argument(format!("흐름에 {steps}째 단계가 없습니다.")));
     }
     let owned;
     let env = match env {
@@ -174,15 +171,14 @@ fn prefix_inner(
     let mut part = sources.from(flow.from.as_ref().unwrap_or(&empty), &checked.fields[0])?;
     let all = steps_of(flow);
     for (i, step) in all.iter().take(steps).enumerate() {
-        let shape = checked.shapes[i + 1].expect("검사를 지난 단계는 꼴이 있다");
-        part = apply(step, part, shape, &checked.fields[i + 1], &|f| {
+        part = apply(step, part, &checked.fields[i + 1], &|f| {
             sources.row_column(f)
         })?;
     }
     Ok(part)
 }
 
-/// `FlowCompiler.Render` — 끝 값을 열에 찍힐 글로(§4.6). 목록·행이면 쓸 수 없다.
+/// 끝 값을 열에 찍힐 글로(§4.6). 목록·행이면 쓸 수 없다.
 pub fn render(part: &Part) -> Result<String> {
     Ok(match part.shape {
         "value" => part.sql.clone(),
@@ -195,7 +191,8 @@ pub fn render(part: &Part) -> Result<String> {
             "#,
             &[("part.Sql", &part.sql)],
         ),
-        "date" => format!("replace({}, '-', '/')", part.sql),
+        // 날짜가 지닌 시각은 찍지 않는다(날짜만).
+        "date" => format!("replace(substr({}, 1, 10), '-', '/')", part.sql),
         other => {
             return Err(Error::InvalidOperation(format!(
                 "마지막 결과가 {}입니다. 값·수·날짜 중 하나로 끝나야 저장할 수 있습니다",
@@ -207,7 +204,7 @@ pub fn render(part: &Part) -> Result<String> {
 
 // ── 원천 ─────────────────────────────────────────────
 
-/// `FlowCompiler.Sources` — 원천을 읽는 길. 출력기 둘이 갈리는 곳은 여기뿐이다 — 단계는 같은 SQL 을 쌓는다.
+/// 원천을 읽는 길. 출력기 둘이 갈리는 곳은 여기뿐이다 — 단계는 같은 SQL 을 쌓는다.
 ///
 /// 맞춤 뷰(`env.view`)면 바깥 행이 `현재` 하나가 아니라 같은 조달 건의 세 문서다(docs/user-views.md §5). 뷰가 면 뷰를
 /// 별칭 `접수`·`공고`·`계약` 으로 걸어 두므로 연결 문서를 찾아가지 않고 그 별칭을 바로 읽는다.
@@ -217,37 +214,33 @@ struct Sources<'a> {
     env: &'a FlowEnv,
 }
 
-/// `Sources.Faces` — (키, 본번호, 면 뷰, 품목 뷰).
+/// (키, 본번호, 면 뷰, 품목 뷰).
 fn faces(kind: &str) -> Result<(&'static str, &'static str, &'static str, &'static str)> {
     Ok(match kind {
         "notice" => ("입찰공고번호", "공고본번호", "v_공고", "v_공고품목"),
         "contract" => ("계약번호", "계약본번호", "v_계약", "v_계약품목"),
         "request" => ("접수번호", "접수본번호", "v_접수", "v_접수품목"),
-        // C# 사전의 KeyNotFoundException — 종류는 꼴 검사가 먼저 거른다.
-        _ => {
-            return Err(Error::invalid(format!(
-                "The given key '{kind}' was not present in the dictionary."
-            )));
-        }
+        // 종류는 꼴 검사가 먼저 거른다.
+        _ => return Err(unknown_kind(kind)),
     })
 }
 
-/// `Sources.Own` — 바깥 행의 열.
+/// 접수 · 공고 · 계약 밖의 종류.
+fn unknown_kind(kind: &str) -> Error {
+    Error::invalid(format!("모르는 종류입니다: {kind}"))
+}
+
+/// 바깥 행의 열.
 fn own(column: &str) -> String {
     format!("{SELF}.{}", ident(column))
 }
 
-/// `Sources.Doc` — 맞춤 뷰의 바깥 행 별칭(그 문서의 면 뷰 한 줄, 없으면 NULL).
+/// 맞춤 뷰의 바깥 행 별칭(그 문서의 면 뷰 한 줄, 없으면 NULL).
 fn doc(kind: &str) -> Result<&'static str> {
-    flow_check::doc_words(kind).ok_or_else(|| {
-        Error::invalid(format!(
-            "The given key '{kind}' was not present in the dictionary."
-        ))
-    })
+    flow_check::doc_words(kind).ok_or_else(|| unknown_kind(kind))
 }
 
 impl Sources<'_> {
-    /// `Sources.From`.
     fn from(&self, from: &FlowSource, fields: &[String]) -> Result<Part> {
         let fields = fields.to_vec();
         Ok(match from.kind.as_deref() {
@@ -259,6 +252,7 @@ impl Sources<'_> {
             Some("field") => scalar("value", own(from.field.as_deref().unwrap_or(""))),
             Some("text") => scalar("value", lit(from.text.as_deref().unwrap_or(""))),
             Some("number") => scalar("number", num(from.value.unwrap_or(0.0))),
+            Some("today") => scalar("date", "date('now', 'localtime')".into()),
             Some("linked") => self.linked(from, fields)?,
             other => {
                 return Err(Error::InvalidOperation(format!(
@@ -269,7 +263,7 @@ impl Sources<'_> {
         })
     }
 
-    /// `Sources.RowColumn` — 단계가 읽는 행의 열(`비면`·사칙·`날짜차이`). 가공열은 `현재` 의 열이고, 맞춤 뷰는
+    /// 단계가 읽는 행의 열(`비면`·사칙·`날짜차이`). 가공열은 `현재` 의 열이고, 맞춤 뷰는
     /// `공고.공고명` 꼴을 그 문서의 별칭으로 읽는다 — 문서가 없으면 빈 글이다.
     fn row_column(&self, field: &str) -> Result<String> {
         if !self.env.view {
@@ -294,11 +288,7 @@ impl Sources<'_> {
         }
         let many = Flow::env_for(self.entity)?
             .link(kind)
-            .ok_or_else(|| {
-                Error::invalid(format!(
-                    "The given key '{kind}' was not present in the dictionary."
-                ))
-            })?
+            .ok_or_else(|| unknown_kind(kind))?
             .many;
         let rows = self.linked_rows(kind)?;
         let Some(field) = from.field.as_deref() else {
@@ -314,7 +304,7 @@ impl Sources<'_> {
         ))
     }
 
-    /// `Sources.Document` — 맞춤 뷰의 문서 하나. 별칭을 바로 읽는다.
+    /// 맞춤 뷰의 문서 하나. 별칭을 바로 읽는다.
     fn document(&self, kind: &str, from: &FlowSource, fields: Vec<String>) -> Result<Part> {
         let doc = doc(kind)?;
         let (key, base, _, item_view) = faces(kind)?;
@@ -373,7 +363,7 @@ impl Sources<'_> {
 
     // ── 안쪽: 내부 표 + 덮개 식 ──
 
-    /// `Sources.Group` — 이 행이 속한 공고건. 연결의 끝점은 건이다(스키마 V15).
+    /// 이 행이 속한 공고건. 연결의 끝점은 건이다(스키마 V15).
     fn group(&self) -> String {
         match self.entity {
             "contract" => format!(
@@ -484,7 +474,7 @@ impl Sources<'_> {
 
     // ── 바깥: 계약면 뷰 ──
 
-    /// `Sources.PublicKey` — 연결 문서의 키를 계약면 뷰로 찾는다. 계약 줄과 접수 줄은 `v_통합` 이 건의 현행 공고에
+    /// 연결 문서의 키를 계약면 뷰로 찾는다. 계약 줄과 접수 줄은 `v_통합` 이 건의 현행 공고에
     /// 잇고, 공고 줄은 그 공고 문서가 몇 번째 공고든 건에 잇기 위해 `v_통합차수` 를 본다.
     fn public_key(&self, kind: &str) -> Result<String> {
         let own_key = faces(self.entity)?.0;
@@ -532,11 +522,10 @@ fn scalar(shape: &'static str, sql: String) -> Part {
 
 // ── 단계 ─────────────────────────────────────────────
 
-/// `FlowCompiler.Apply` — 단계 하나를 앞 조각 위에 쌓는다.
+/// 단계 하나를 앞 조각 위에 쌓는다.
 fn apply(
     step: &FlowStep,
     part: Part,
-    output: &'static str,
     fields: &[String],
     row: &dyn Fn(&str) -> Result<String>,
 ) -> Result<Part> {
@@ -675,6 +664,11 @@ fn apply(
                 rel_part("row", format!("SELECT * FROM ({rel}) {pick}"))
             });
         }
+        "format" if matches!(part.shape, "number" | "date") => {
+            let code =
+                flow_format::parse(text, part.shape == "date").map_err(Error::InvalidOperation)?;
+            return Ok(over("value", flow_format::sql(&code)));
+        }
         "format" => {
             let text = template(text);
             return Ok(if part.shape == "row" {
@@ -761,7 +755,7 @@ fn apply(
         _ => {}
     }
 
-    // C# 은 여기서 operand 를 먼저 셈한다 — 맞춤 뷰에서 문서를 붙이지 않은 필드는 동사와 상관없이 여기서 거절된다.
+    // operand 를 먼저 셈한다 — 맞춤 뷰에서 문서를 붙이지 않은 필드는 동사와 상관없이 여기서 거절된다.
     let operand = match field {
         Some(f) => number(&row(f)?),
         None => num(step.value.unwrap_or(0.0)),
@@ -771,7 +765,7 @@ fn apply(
         if !(-15..=15).contains(&digits) {
             return Err(Error::invalid("소수 자리는 -15~15 사이여야 합니다."));
         }
-        // Math.Pow(10, digits) — 10 의 거듭제곱은 글로 읽어 가장 가까운 double 로 둔다(정확히 반올림한 값).
+        // 10 의 거듭제곱은 글로 읽어 가장 가까운 double 로 둔다(정확히 반올림한 값).
         Ok(num(format!("1e{digits}").parse::<f64>().expect("수 글")))
     };
     let value_or_row = |f: Option<&str>, fallback: &str| -> Result<String> {
@@ -925,10 +919,6 @@ fn apply(
                 ),
             )
         }
-        "thousands" => over(
-            "value",
-            "CASE WHEN v IS NULL THEN '' ELSE printf('%,d', v) END".into(),
-        ),
         "plain" => over(
             "value",
             "CASE WHEN v IS NULL THEN '' ELSE printf('%.15g', v) END".into(),
@@ -944,8 +934,9 @@ fn apply(
             let sign = if n < 0 { "-" } else { "+" };
             over(
                 "date",
+                // 날짜를 옮기고 시각은 그대로 붙여 둔다.
                 format!(
-                    "date(v, {})",
+                    "date(v, {}) || substr(v, 11)",
                     lit(&format!("{sign}{} {unit}", i64::from(n).abs()))
                 ),
             )
@@ -953,7 +944,7 @@ fn apply(
         "dateDiff" => over(
             "number",
             format!(
-                "CAST(round(julianday(v) - julianday({})) AS INTEGER)",
+                "CAST(round(julianday(substr(v, 1, 10)) - julianday(substr({}, 1, 10))) AS INTEGER)",
                 to_date(&row(field.unwrap_or(""))?)
             ),
         ),
@@ -963,15 +954,7 @@ fn apply(
             "number",
             "(CAST(substr(v, 6, 2) AS INTEGER) + 2) / 3".into(),
         ),
-        "dateFormat" => over(
-            "value",
-            format!(
-                "CASE WHEN v IS NULL THEN '' ELSE {} END",
-                date_pattern(text)
-            ),
-        ),
         _ => {
-            let _ = output;
             return Err(Error::InvalidOperation(format!(
                 "이 꼴에서 돌 수 없는 연산: {op}"
             )));
@@ -979,12 +962,12 @@ fn apply(
     })
 }
 
-/// 단계의 조건(C# `step.Cond!`). 읽기([`Flow::parse`])가 빈 마디를 거르므로 모두 차 있다.
+/// 단계의 조건. 읽기([`Flow::parse`])가 빈 마디를 거르므로 모두 차 있다.
 fn cond(step: &FlowStep) -> Vec<&FlowClause> {
     step.cond.iter().flatten().flatten().collect()
 }
 
-/// C# `{step.N}` — `int?` 를 끼우면 null 은 빈 글이다.
+/// 단계의 번호 — 없으면 빈 글이다.
 fn int_or_empty(n: Option<i32>) -> String {
     n.map_or_else(String::new, |n| n.to_string())
 }
@@ -1038,7 +1021,7 @@ fn quoted_end(chars: &[char], start: usize) -> Option<usize> {
 
 // ── 조각 ─────────────────────────────────────────────
 
-/// `FlowCompiler.Template` — 서식: `{필드}` 자리에 그 행의 값(`\{([^{}]+)\}`). 필드 값은 NULL 이 아니다.
+/// 서식: `{필드}` 자리에 그 행의 값(`\{([^{}]+)\}`). 필드 값은 NULL 이 아니다.
 fn template(text: &str) -> String {
     let mut parts = Vec::new();
     let bytes = text.as_bytes();
@@ -1072,47 +1055,7 @@ fn template(text: &str) -> String {
     }
 }
 
-/// `FlowCompiler.DatePattern` — `YYYY|MM|M|DD|D` 를 왼쪽부터, 앞의 갈래가 먼저.
-fn date_pattern(text: &str) -> String {
-    let mut parts = Vec::new();
-    let mut end = 0;
-    let mut i = 0;
-    while i < text.len() {
-        let rest = &text[i..];
-        let token = ["YYYY", "MM", "M", "DD", "D"]
-            .into_iter()
-            .find(|t| rest.starts_with(t));
-        let Some(token) = token else {
-            i += rest.chars().next().map_or(1, char::len_utf8);
-            continue;
-        };
-        if i > end {
-            parts.push(lit(&text[end..i]));
-        }
-        parts.push(
-            match token {
-                "YYYY" => "substr(v, 1, 4)",
-                "MM" => "substr(v, 6, 2)",
-                "M" => "CAST(CAST(substr(v, 6, 2) AS INTEGER) AS TEXT)",
-                "DD" => "substr(v, 9, 2)",
-                _ => "CAST(CAST(substr(v, 9, 2) AS INTEGER) AS TEXT)",
-            }
-            .to_string(),
-        );
-        i += token.len();
-        end = i;
-    }
-    if end < text.len() {
-        parts.push(lit(&text[end..]));
-    }
-    if parts.is_empty() {
-        "''".to_string()
-    } else {
-        parts.join(" || ")
-    }
-}
-
-/// `FlowCompiler.Number` — 글 → 수. 쉼표와 앞뒤 공백을 걷고 `[+-]?(숫자+.?숫자*|.숫자+)` 꼴만 읽는다 — 못 읽으면
+/// 글 → 수. 쉼표와 앞뒤 공백을 걷고 `[+-]?(숫자+.?숫자*|.숫자+)` 꼴만 읽는다 — 못 읽으면
 /// NULL. `CAST('abc' AS REAL)` 은 0 을 내므로 꼴을 먼저 본다([`Flow::to_number`] 와 같은 규칙).
 pub(crate) fn number(text: &str) -> String {
     let t = format!("trim(replace({text}, ',', ''), {SPACES})");
@@ -1122,14 +1065,22 @@ pub(crate) fn number(text: &str) -> String {
     )
 }
 
-/// `FlowCompiler.ToDate` — 글 → 날짜(`YYYY-MM-DD`). 앞 10자를 보고 `/` 를 `-` 로. 없는 날(2월 30일)은 NULL.
+/// 글 → 날짜(`YYYY-MM-DD`, 시각이 붙어 있으면 `YYYY-MM-DD HH:MM:SS`). 앞 10자를 보고 `/` 를 `-` 로. 없는 날(2월 30일)은
+/// NULL. 그 뒤가 ` HH:MM` · ` HH:MM:SS` 꼴의 올바른 시각이면 지니고(초가 없으면 `00`), 다른 꼬리는 버린다.
 fn to_date(text: &str) -> String {
-    format!(
-        "(SELECT CASE WHEN t GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(t) = t THEN t END FROM (SELECT replace(substr({text}, 1, 10), '/', '-') AS t))"
+    raw(
+        r#"
+        (SELECT CASE WHEN t GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(t) = t THEN t || CASE
+            WHEN s GLOB ' [0-9][0-9]:[0-9][0-9]' AND substr(s, 2, 2) <= '23' AND substr(s, 5, 2) <= '59' THEN s || ':00'
+            WHEN s GLOB ' [0-9][0-9]:[0-9][0-9]:[0-9][0-9]' AND substr(s, 2, 2) <= '23' AND substr(s, 5, 2) <= '59' AND substr(s, 8, 2) <= '59' THEN s
+            ELSE '' END END
+         FROM (SELECT replace(substr(x, 1, 10), '/', '-') AS t, substr(x, 11) AS s FROM (SELECT {text} AS x)))
+        "#,
+        &[("text", text)],
     )
 }
 
-/// `FlowCompiler.Condition` — 그리고가 또는보다 먼저 묶인다(SQL 과 같다). 수와 수면 수로, 아니면 글로 견준다.
+/// 그리고가 또는보다 먼저 묶인다(SQL 과 같다). 수와 수면 수로, 아니면 글로 견준다.
 fn condition(cond: &[&FlowClause], subject: &dyn Fn(&str) -> Result<String>) -> Result<String> {
     let mut text = String::from("(");
     for (i, c) in cond.iter().enumerate() {
@@ -1179,7 +1130,6 @@ fn condition(cond: &[&FlowClause], subject: &dyn Fn(&str) -> Result<String>) -> 
     Ok(text)
 }
 
-/// `FlowCompiler.Columns`.
 fn columns<S: AsRef<str>>(names: &[S]) -> String {
     names
         .iter()
@@ -1188,32 +1138,32 @@ fn columns<S: AsRef<str>>(names: &[S]) -> String {
         .join(", ")
 }
 
-/// `FlowCompiler.Ident` — SQL 식별자.
+/// SQL 식별자.
 pub fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
-/// `FlowCompiler.Lit` — SQL 글자.
+/// SQL 글자.
 pub fn lit(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// `FlowCompiler.Num` — 정수이고 1e15 아래면 정수로, 아니면 .NET 의 왕복 표기(`R`)로.
+/// 정수이고 1e15 아래면 정수로, 아니면 값이 그대로 되돌아오는 왕복 표기로.
 fn num(value: f64) -> String {
     if value == value.floor() && value.abs() < 1e15 {
         // `(long)value` — -0 도 0 이다.
         (value as i64).to_string()
     } else {
-        dotnet_double_r(value)
+        double_round_trip(value)
     }
 }
 
-/// `FlowCompiler.JsNumber` — JS 의 `String(수)` 를 흉내 낸 것: 정수이고 1e21 아래면 사용자 서식 `0`, 아니면 `R`.
+/// JS 의 `String(수)` 를 흉내 낸 것: 정수이고 1e21 아래면 사용자 서식 `0`, 아니면 `R`.
 fn js_number(value: f64) -> String {
     if value == value.floor() && value.abs() < 1e21 {
-        dotnet_double_integer(value)
+        double_integer_text(value)
     } else {
-        dotnet_double_r(value)
+        double_round_trip(value)
     }
 }
 
@@ -1222,20 +1172,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn template_and_date_pattern_follow_the_regexes() {
+    fn template_follows_the_regex() {
         assert_eq!(template(""), "''");
         assert_eq!(template("{a}-{b}"), "\"a\" || '-' || \"b\"");
         assert_eq!(template("x{a{b}y"), "'x{a' || \"b\" || 'y'");
         assert_eq!(template("{}"), "'{}'");
-        assert_eq!(
-            date_pattern("YYYY년 M월"),
-            "substr(v, 1, 4) || '년 ' || CAST(CAST(substr(v, 6, 2) AS INTEGER) AS TEXT) || '월'"
-        );
-        assert_eq!(date_pattern("YYY"), "'YYY'");
     }
 
     #[test]
-    fn numbers_follow_dotnet() {
+    fn numbers_use_round_trip_text() {
         assert_eq!(num(3.0), "3");
         assert_eq!(num(-0.0), "0");
         assert_eq!(num(0.1), "0.1");

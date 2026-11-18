@@ -1,4 +1,4 @@
-//! C# `ConfirmedFieldTests` 의 Store·뷰·판올림 몫 — 확정되고도 담지 않던 필드(ADR-043, 스키마 28)가 면 뷰의 새 열에
+//! Store·뷰·판올림 시험 — 확정되고도 담지 않던 필드(ADR-043, 스키마 28)가 면 뷰의 새 열에
 //! 닿는가. 수집 흐름(`ErpCapture`·`MappingStore`·`Mapping`)을 거치는 시험은 그 부분이 옮겨진 뒤의 일이다. 값은 모두
 //! 지어낸 것이다.
 
@@ -15,7 +15,7 @@ use serde_json::json;
 /// `새_머리_열은_덮개로_고쳐진다` — 새 열도 사람이 고칠 수 있다. 덮개가 그 칸을 감싸지 않으면 그 칸만 조용히 고칠 수
 /// 없게 된다(ADR-020).
 ///
-/// C# 은 접수 화면을 수집해(`ErpCapture`) 자료를 세운다 — 여기서는 같은 머리 값을 `UpsertRequest` 픽스처로 넣는다.
+/// 접수 화면을 수집하지 않고 같은 머리 값을 `UpsertRequest` 픽스처로 넣는다.
 /// 보는 것은 수집이 아니라 덮개가 `추정가격` 을 감싸는가다.
 #[test]
 fn new_head_column_is_corrected_by_override() {
@@ -64,7 +64,7 @@ fn finance_officers(c: &Connection) -> Vec<String> {
         .unwrap()
 }
 
-/// `재무관_판올림은_실제_출처를_검증하고_새_수집값을_보존한다` (Theory 28·29) — 배포된 v29 를 거쳐도 실제 매핑·수집
+/// 배포된 v29 를 거쳐도 실제 매핑·수집
 /// 원값으로 증명한 재무관만 남기고 새 대상으로 수집한 값은 보존한다.
 #[test]
 fn finance_officer_migration_checks_real_sources_and_keeps_new_values() {
@@ -172,9 +172,9 @@ fn erp_raw(c: &Connection) -> Vec<String> {
         .unwrap()
 }
 
-/// `ERP_원자료에_겹친_키가_들면_판올림이_멈추고_원자료는_그대로다` (Theory) — 재무관(v30)·공고종류(v32) 판올림이 읽는 수집
-/// 기록·영수증·매핑에 같은 키가 두 번 들면 C# 은 그 객체를 열며 `ArgumentException` 으로 판올림을 멈춘다. Rust 도 같은
-/// 글로 멈추고 원자료는 그대로다 — 뒤 값으로 접어 보수하고, v32 에서는 수집 기록을 접어 다시 쓰고 있었다.
+/// 재무관(v30)·공고종류(v32) 판올림이 읽는 수집
+/// 기록·영수증·매핑에 같은 키가 두 번 들면 그 객체를 열며 판올림이 멈춘다.
+/// 같은 글로 멈추고 원자료는 그대로다 — 뒤 값으로 접어 보수하고, v32 에서는 수집 기록을 접어 다시 쓰고 있었다.
 #[test]
 fn duplicate_keys_in_erp_sources_stop_the_migration() {
     const HEAD: &str = r#"{"table":"notice","sourceKey":"","values":{"creditor":"홍길동","notice_kind":"실공고(일반공고)"},"origins":{"creditor":"g2b-notice-a-v1","notice_kind":"g2b-notice-a-v1"}}"#;
@@ -264,7 +264,7 @@ fn duplicate_keys_in_erp_sources_stop_the_migration() {
             .unwrap_err();
         assert!(
             matches!(&error, pclm_core::Error::Argument(m)
-                if *m == format!("An item with the same key has already been added. Key: {key} (Parameter 'propertyName')")),
+                if *m == format!("같은 열쇠가 두 번 들었습니다: {key}")),
             "v{version} {place}: {error:?}"
         );
         let after = common::raw(&path);

@@ -1,7 +1,7 @@
-//! C# `NoticeItemViewTests`(공고 품목이 `v_공고` 에 어떻게 비치는가)와 `FlowColumnTests`(가공열 v2 가 계약면에 서는
-//! 자리) — `기본_열_목록이_면_뷰와_같다` 는 `views.rs` 가 이미 옮겼다.
+//! 공고 품목이 `v_공고` 에 어떻게 비치는가와 가공열 v2 가 계약면에 서는 자리 — `기본_열_목록이_면_뷰와_같다` 는
+//! `views.rs` 가 본다.
 //!
-//! 자료는 `Store.UpsertNotice`·`UpsertContract` 를 옮긴 픽스처로 세운다. 값은 모두 지어낸 것이다.
+//! 자료는 행을 직접 넣는 픽스처로 세운다. 값은 모두 지어낸 것이다.
 
 mod common;
 
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 // ── 거들기 ───────────────────────────────────────────
 
-/// `Assert.Throws<InvalidOperationException>` — 글을 돌려준다.
+/// 글을 돌려준다.
 fn invalid<T: Debug>(result: pclm_core::Result<T>) -> String {
     match result {
         Err(Error::InvalidOperation(message)) => message,
@@ -30,7 +30,7 @@ fn invalid<T: Debug>(result: pclm_core::Result<T>) -> String {
     }
 }
 
-/// C# `Convert.ToString` 꼴 — NULL 은 `None`.
+/// 값을 글로 바꾼다 — NULL 은 `None`.
 fn text(value: Sql) -> Option<String> {
     match value {
         Sql::Null => None,
@@ -57,7 +57,7 @@ fn single(c: &Connection, sql: &str) -> Option<String> {
 // 줄 하나가 공고 하나라는 약속을 지키면서 품목을 실으려면 하나로 정할 수 있을 때만 실어야 한다 — 첫 줄을 공고 전체의
 // 값인 양 내면 틀린 값이 그대로 문서에 찍힌다.
 
-/// C# `NoticeItemRecord` 의 시험 꼴(`Item(...)` 의 기본값 그대로). `None` 은 그 열을 넣지 않는다(NULL).
+/// 공고 품목 한 줄의 시험 꼴. `None` 은 그 열을 넣지 않는다(NULL).
 #[derive(Clone)]
 struct Item {
     line_no: i32,
@@ -88,7 +88,7 @@ fn item(line_no: i32, name: &'static str, number: &'static str, quantity: Option
 }
 
 impl Item {
-    /// `Store.UpsertNotice` 의 `notice_item` 열.
+    /// `notice_item` 열.
     fn columns(&self) -> Vec<(&'static str, String)> {
         let mut c = vec![
             ("line_no", self.line_no.to_string()),
@@ -107,7 +107,7 @@ impl Item {
         if let Some(d) = self.days {
             c.push(("delivery_days", d.to_string()));
         }
-        // Microsoft.Data.Sqlite 는 DateTime 을 `yyyy-MM-dd HH:mm:ss` 글로 묶는다.
+        // DateTime 은 `yyyy-MM-dd HH:mm:ss` 글로 담긴다.
         if let Some(d) = self.due {
             c.push(("delivery_due", d.to_string()));
         }
@@ -115,7 +115,7 @@ impl Item {
     }
 }
 
-/// C# `NoticeContactRecord` 의 시험 꼴.
+/// 공고 담당자 한 줄의 시험 꼴.
 struct Contact {
     line_no: i32,
     agency: &'static str,
@@ -251,7 +251,6 @@ fn differing_units_blank_quantity() {
     assert_eq!(get(&row, "단위"), "");
 }
 
-/// `인도조건은_세부품명이_여럿이어도_같으면_싣는다` (Theory).
 #[test]
 fn delivery_terms_carry_when_uniform_across_detail_items() {
     for (first, second, expected) in [
@@ -292,7 +291,7 @@ fn single_detail_item_blanks_differing_cells() {
     assert_eq!(get(&row, "수량"), "3");
 }
 
-/// `빈_줄이_섞이면_칸을_비운다` (Theory) — 빈 줄도 한 값이다. 옛 줄에는 NULL 대신 빈 문자열이 남아 있을 수 있어 둘 다 본다.
+/// 빈 줄도 한 값이다. 옛 줄에는 NULL 대신 빈 문자열이 남아 있을 수 있어 둘 다 본다.
 #[test]
 fn blank_lines_blank_the_cell() {
     for (first, second, expected) in [
@@ -321,7 +320,7 @@ fn blank_lines_blank_the_cell() {
     }
 }
 
-/// `수량이_빈_줄이_있으면_더하지_않는다` (Theory) — `SUM` 은 NULL 을 건너뛰어 모르는 수량을 0 으로 친 합을 냈다.
+/// `SUM` 은 NULL 을 건너뛰어 모르는 수량을 0 으로 친 합을 냈다.
 #[test]
 fn blank_quantity_is_not_summed() {
     for (first, second, expected) in [
@@ -339,7 +338,7 @@ fn blank_quantity_is_not_summed() {
     }
 }
 
-/// `담당자_칸도_빈_사람이_섞이면_비운다` (Theory) — 전화를 적은 사람과 비운 사람을 두고 앞사람의 전화를 낼 수 없다.
+/// 전화를 적은 사람과 비운 사람을 두고 앞사람의 전화를 낼 수 없다.
 #[test]
 fn officer_cells_blank_when_a_blank_person_mixes_in() {
     for (first, second, expected) in [
@@ -374,7 +373,7 @@ fn officer_cells_blank_when_a_blank_person_mixes_in() {
     }
 }
 
-/// `납품기한은_날짜가_먼저다` (Theory) — 날짜가 있는 공고는 일수를 `0` 으로 적어 두므로 날짜가 먼저다.
+/// 날짜가 있는 공고는 일수를 `0` 으로 적어 두므로 날짜가 먼저다.
 #[test]
 fn delivery_due_date_comes_first() {
     for (days, due, expected) in [
@@ -600,7 +599,7 @@ fn round_view_old_rows_use_their_own_items() {
 #[test]
 fn reads_corrected_values() {
     let f = Fixture::new("flowcol-override");
-    // C# `BasePrice = 1000m` — Microsoft.Data.Sqlite 는 decimal 을 글로 묶는다.
+    // decimal 은 글로 담긴다.
     f.notice(
         "TESTN",
         "000",
@@ -715,7 +714,7 @@ fn save_rechecks_and_refuses_with_step_numbers() {
 
     const LEGACY: &str = r#"{"version":1,"id":"","steps":[{"op":"pick","fields":["품명"]},{"op":"distinct"},{"op":"count"}]}"#;
     // `ComputedColumn.ReadForEditing` 은 Rust 에 없다 — `migrationError` 표식이 없는 식에서 그것은
-    // `Flow.Serialize(Flow.ReadForIdentity(json))` 이므로 그 둘로 같은 것을 본다.
+    // `Flow::serialize(Flow::read_for_identity(json))` 이므로 그 둘로 같은 것을 본다.
     let editable_text = Flow::serialize(&Flow::read_for_identity(LEGACY).unwrap()).unwrap();
     let editable: Value = serde_json::from_str(&editable_text).unwrap();
     assert_eq!(editable["version"].as_i64(), Some(2));
@@ -943,7 +942,7 @@ fn migration_moves_v1_formulas_to_v2() {
     let path = temp.path("v21.db");
     {
         let old = common::raw(&path);
-        // C# 은 단계를 바로 잇는다 — 여기서는 줄을 끊는다(주석으로 끝나는 단계가 다음 문장을 먹지 않게).
+        // 단계를 바로 잇지 않고 줄을 끊는다(주석으로 끝나는 단계가 다음 문장을 먹지 않게).
         let sql = format!(
             "{}\n{}\n{}\n{}",
             schema::BASELINE,

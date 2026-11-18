@@ -1,6 +1,6 @@
-//! 덮개(사람이 고친 값)와 번호 해석 시험 — C# `FieldOverrideTests` 전부와 `RequestResolveTests` 전부.
+//! 덮개(사람이 고친 값)와 번호 해석 시험.
 //!
-//! C# 레코드는 `Fixture` 의 SQL 픽스처로 세운다. `decimal` 은 Microsoft.Data.Sqlite 가 묶는 꼴(`0.0###…`, 예:
+//! 레코드는 `Fixture` 의 SQL 픽스처로 세운다. `decimal` 은 `0.0###…` 꼴로 담긴다(예:
 //! `164872340.0`), `DateTime` 은 `yyyy-MM-dd HH:mm:ss` 다. 값은 모두 지어낸 것이다(CLAUDE.md).
 
 mod common;
@@ -27,7 +27,7 @@ fn request_ref() -> EntityRef {
     EntityRef::new("request", REQUEST_BASE, "000")
 }
 
-/// C# `Contract(seq)` — 건명과 금액만 있는 계약.
+/// 건명과 금액만 있는 계약.
 fn contract(f: &Fixture, seq: &str) {
     f.contract(
         CONTRACT_BASE,
@@ -37,7 +37,6 @@ fn contract(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `Notice(seq)`.
 fn notice(f: &Fixture, seq: &str, items: &[&[(&str, &str)]]) {
     f.notice(
         NOTICE_BASE,
@@ -48,7 +47,6 @@ fn notice(f: &Fixture, seq: &str, items: &[&[(&str, &str)]]) {
     );
 }
 
-/// C# `Request(seq)`.
 fn request(f: &Fixture, seq: &str) {
     f.request(
         REQUEST_BASE,
@@ -70,7 +68,7 @@ fn request(f: &Fixture, seq: &str) {
     );
 }
 
-/// C# `Cell(view, column)` — 줄이 하나뿐인 시험이라 첫 줄을 본다. NULL 은 빈 글.
+/// 줄이 하나뿐인 시험이라 첫 줄을 본다. NULL 은 빈 글.
 fn cell(f: &Fixture, view: &str, column: &str) -> String {
     let c = f.database().open_read_only().unwrap();
     let v: Value = c
@@ -87,7 +85,6 @@ fn cell(f: &Fixture, view: &str, column: &str) -> String {
     }
 }
 
-/// C# `ViewColumns(view)`.
 fn view_columns(f: &Fixture, view: &str) -> Vec<String> {
     let c = f.database().open_read_only().unwrap();
     let mut s = c
@@ -99,7 +96,7 @@ fn view_columns(f: &Fixture, view: &str) -> Vec<String> {
         .unwrap()
 }
 
-/// `Assert.Throws<InvalidOperationException>` — 글을 낸다.
+/// 글을 낸다.
 fn invalid<T>(r: Result<T>) -> String {
     match r {
         Err(Error::InvalidOperation(m)) => m,
@@ -328,6 +325,28 @@ fn item_aggregate_column_is_correctable() {
     assert_eq!("수질측정기 외 1종", cell(&f, "v_공고", "세부품명"));
 }
 
+/// 품목 뷰가 옮겨 적는 머리 열(건명)도 그 차수의 정정을 따른다 — 머리 뷰와 품목 뷰가 같은 건을 다르게 적지 않는다.
+#[test]
+fn item_views_follow_corrected_head_title() {
+    let f = Fixture::new("override-item-title");
+    let store = f.store();
+    let line: &[(&str, &str)] = &[("line_no", "1"), ("item_name", "수질측정기")];
+    notice(&f, "000", &[line]);
+    f.contract(CONTRACT_BASE, "00", &[("title", "수질측정기 구매")], &[line]);
+    request(&f, "000");
+    store.set_override(&notice_ref(), "공고명", "고친 공고명").unwrap();
+    store.set_override(&contract_ref(), "계약건명", "고친 계약건명").unwrap();
+    store.set_override(&request_ref(), "요청명", "고친 요청명").unwrap();
+
+    assert_eq!("고친 공고명", cell(&f, "v_공고품목", "공고명"));
+    assert_eq!("고친 계약건명", cell(&f, "v_계약품목", "계약건명"));
+    assert_eq!("고친 요청명", cell(&f, "v_접수품목", "요청명"));
+
+    // 다음 차수의 품목 줄에는 옛 차수의 정정이 닿지 않는다.
+    notice(&f, "001", &[line]);
+    assert_eq!("수질측정기 구매", cell(&f, "v_공고품목", "공고명"));
+}
+
 /// `공고의_모든_열이_감싸여_있다`
 #[test]
 fn every_notice_column_is_wrapped() {
@@ -550,11 +569,11 @@ fn request_override_does_not_follow_revision() {
     assert_eq!("181,725,200", cell(&f, "v_접수", "품대"));
 }
 
-// ── 번호 해석(C# RequestResolveTests) ────────────────────
+// ── 번호 해석 ────────────────────
 
 const RESOLVE_BASE: &str = "R26DC00000001";
 
-/// C# `RequestResolveTests` 생성자 — 품목마다 다른 조달요구번호를 단 접수 하나.
+/// 품목마다 다른 조달요구번호를 단 접수 하나.
 fn resolve_fixture(name: &str) -> Fixture {
     let f = Fixture::new(name);
     f.request(
@@ -581,7 +600,7 @@ fn resolve_by_request_number() {
     assert_eq!("000", found.seq);
 }
 
-/// `아무_요청번호로도_찾는다` — `[Theory]` 세 줄.
+/// 요청번호 세 줄로 같은 건을 찾는다.
 #[test]
 fn resolve_by_any_procurement_number() {
     let f = resolve_fixture("resolve-any");

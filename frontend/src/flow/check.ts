@@ -2,6 +2,7 @@ import type { Clause, Flow, FlowEnv, Shape, Source, Step } from "./ast";
 import { 은는 } from "./josa";
 import { docWord, qualified, shapeLabel, wordOf } from "./ast";
 import { verbByOp } from "./verbs";
+import { parseCode } from "./format";
 import { verbWord } from "./syntax";
 
 /**
@@ -21,6 +22,8 @@ export type Checked = {
 const ends: Shape[] = ["value", "number", "date"];
 /** 「경우」 의 갈래 수 상한 — 백엔드 Flow.MaxBranches 와 같다. */
 export const maxBranches = 20;
+/** 「앞채우기」 길이 상한(백엔드 MAX_PAD). */
+const maxPad = 1000;
 
 export function sourceShape(from: Source, env: FlowEnv): { shape: Shape; fields: string[] } | string {
   if (env.view && from.kind === "items") return "맞춤 뷰에는 「이 행」 이 없습니다. ‘공고.품목’처럼 문서를 붙여 읽으세요";
@@ -29,6 +32,7 @@ export function sourceShape(from: Source, env: FlowEnv): { shape: Shape; fields:
     case "items": return { shape: "rows", fields: env.items };
     case "text": return { shape: "value", fields: [] };
     case "number": return { shape: "number", fields: [] };
+    case "today": return { shape: "date", fields: [] };
     case "field":
       return env.base.includes(from.field) ? { shape: "value", fields: [] } : `이 행에 없는 열: ${from.field}`;
     case "linked": {
@@ -95,13 +99,18 @@ function stepProblem(step: Step, input: Shape, fields: string[], env: FlowEnv): 
       return null;
     case "take": case "nth": return (step.n ?? 0) >= 1 ? null : "1 이상의 수를 적으세요";
     case "abbrev": {
-      if ((step.n ?? 0) < 1) return "보일 개수는 1 이상이어야 합니다";
+      if ((step.n ?? 0) < 1) return "보일 개수는 1 이상입니다";
       const ph = placeholders(step.text ?? "");
       if (typeof ph === "string") return ph;
       const bad = ph.find(p => p !== "앞" && p !== "나머지");
       return bad ? `줄여쓰기에는 {앞}·{나머지}만 씁니다: {${bad}}` : null;
     }
     case "format": {
+      if (input === "number" || input === "date") {
+        const code = parseCode(step.text ?? "", input === "date");
+        if (typeof code === "string") return code;
+        return code.kind === "korean" && !env.view ? "[DBNum4] 는 맞춤 뷰에서만 씁니다" : null;
+      }
       const ph = placeholders(step.text ?? "");
       if (typeof ph === "string") return ph;
       const bad = ph.find(p => !fields.includes(p));
@@ -111,8 +120,11 @@ function stepProblem(step: Step, input: Shape, fields: string[], env: FlowEnv): 
     case "sum": case "min": case "max": case "avg":
       if (input === "rows") return needField(step.field);
       return step.field !== undefined ? "값목록에는 필드를 적지 않습니다" : null;
-    case "substr": return (step.n ?? 0) >= 1 && (step.length ?? -1) >= 0 ? null : "시작은 1 이상, 길이는 0 이상이어야 합니다";
-    case "padStart": return (step.length ?? 0) >= 1 && (step.text ?? "").length >= 1 ? null : "길이와 채울 글자를 적으세요";
+    case "substr": return (step.n ?? 0) >= 1 && (step.length ?? -1) >= 0 ? null : "시작은 1 이상, 길이는 0 이상입니다";
+    case "padStart":
+      if ((step.length ?? 0) > maxPad) return `길이는 ${maxPad} 이하로 적으세요`;
+      return (step.length ?? 0) >= 1 && (step.text ?? "").length >= 1 ? null : "길이와 채울 글자를 적으세요";
+    case "round": case "floor": return Math.abs(step.n ?? 0) <= 15 ? null : "소수 자리는 -15~15 사이여야 합니다";
     case "ifEmpty": return step.field !== undefined ? baseField(step.field) : null;
     case "map": return step.pairs?.length ? null : "대응할 값을 하나 이상 적으세요";
     case "cases": {
@@ -127,9 +139,8 @@ function stepProblem(step: Step, input: Shape, fields: string[], env: FlowEnv): 
     }
     case "add": case "sub": case "mul": case "div":
       if (step.field !== undefined) return baseField(step.field);
-      return step.op === "div" && step.value === 0 ? "0으로 나눌 수 없습니다" : null;
-    case "dateDiff": return step.field ? baseField(step.field) : "뺄 날짜 열을 고르세요";
-    case "dateFormat": return step.text ? null : "서식을 적으세요";
+      return step.op === "div" && step.value === 0 ? "0 으로 나눌 수 없습니다" : null;
+    case "dateDiff": return step.field ? baseField(step.field) : "기준 날짜 열을 고르세요";
     default: return null;
   }
 }

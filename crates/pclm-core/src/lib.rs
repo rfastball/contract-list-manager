@@ -11,10 +11,11 @@ pub mod env;
 pub mod erp;
 pub mod error;
 pub(crate) mod json;
+pub(crate) mod korean;
 pub mod local_time;
 pub mod sqlite;
 pub mod storage;
-pub(crate) mod text;
+pub mod text;
 
 pub use env::Env;
 pub use error::{Error, Result};

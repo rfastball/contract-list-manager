@@ -42,7 +42,6 @@ export function SamplePicker({ samples, index, onIndex, query, onQuery, edge, on
     <details className="uv-sample-options">
       <summary>다른 자료로 확인{(query || edge) && <span className="uv-sample-filtered"> · 조건 적용 중</span>}</summary>
       <div className="uv-sample-options-body">
-        <p className="column-hint">미리보기 자료만 바꿉니다. 저장되는 보기의 행이나 내보내기에는 영향을 주지 않습니다.</p>
         <label className="uv-sample-find"><Icon name="search" size={14} /><span className="sr-only">미리보기 자료 찾기</span>
           <input type="search" aria-label="미리보기 자료 찾기" placeholder="번호·건명 찾기" value={query} onChange={e => onQuery(e.target.value)} /></label>
         <span className="uv-sample-edges">

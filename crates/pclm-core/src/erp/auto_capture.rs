@@ -1,4 +1,4 @@
-//! 자동 수집의 판단(C# `Erp/AutoCapture.cs`) — 현재 화면의 조건을 확인하고 기존 검토·저장 경계를 쓴다. 탭 조작이나 DB
+//! 자동 수집의 판단 — 현재 화면의 조건을 확인하고 기존 검토·저장 경계를 쓴다. 탭 조작이나 DB
 //! 값으로 조건을 보충하지 않는다.
 //!
 //! 설정 파일(`auto-capture.json`)을 읽고 쓰는 일은 홈의 것이라 여기 없다(#10) — [`AutoCapturePreferences::from_json`]·
@@ -15,26 +15,23 @@ use crate::env::Env;
 use crate::error::{Error, Result};
 use crate::json::{self, Encoder};
 use crate::storage::database::Database;
-use crate::text::{eq_ignore_case, utf16_len};
+use crate::text::eq_ignore_case;
 
-/// C# `AutoCapturePreferences` — 켜졌는가, 담당자 이름 조건.
+/// 켜졌는가. 담당자 이름은 설정이 아니라 확장이 화면 보고에 싣는 패널의 「내 정보」 이름이다([`AutoCapture::try_save`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AutoCapturePreferences {
     pub enabled: bool,
-    pub name: String,
 }
 
 impl AutoCapturePreferences {
-    /// `Mapping.Json` 으로 쓴 꼴.
+    /// 매핑 JSON 꼴(웹 옵션, 기본 인코더)로 쓴 것.
     pub fn to_value(&self) -> Value {
         let mut o = Map::new();
         o.insert("enabled".into(), Value::Bool(self.enabled));
-        o.insert("name".into(), Value::String(self.name.clone()));
         Value::Object(o)
     }
 
-    /// `AutoCapturePreferences.Read` 의 글 쪽 — 읽지 못하거나, 비었거나, 이름이 200자를 넘으면 기본값(꺼짐). 모르는 칸은
-    /// 건너뛴다.
+    /// `AutoCapturePreferences.Read` 의 글 쪽 — 읽지 못하거나 비었으면 기본값(꺼짐). 모르는 칸은 건너뛴다.
     pub fn from_json(text: &str) -> AutoCapturePreferences {
         let parsed = (|| -> Option<AutoCapturePreferences> {
             let value = json::parse(text).ok()?;
@@ -46,25 +43,20 @@ impl AutoCapturePreferences {
                         Value::Bool(b) => *b,
                         _ => return None,
                     };
-                } else if eq_ignore_case(key, "name") {
-                    out.name = json::read_string(v).ok()??;
                 }
             }
-            (utf16_len(&out.name) <= 200).then_some(out)
+            Some(out)
         })();
         parsed.unwrap_or_default()
     }
 
-    /// `AutoCapturePreferences.Write` 의 글 쪽 — 이름이 200자를 넘으면 거절한다.
-    pub fn to_json(&self) -> Result<String> {
-        if utf16_len(&self.name) > 200 {
-            return Err(Error::invalid("자동 수집 설정을 확인하세요."));
-        }
-        Ok(json::to_indented(&self.to_value(), Encoder::Default))
+    /// `AutoCapturePreferences.Write` 의 글 쪽.
+    pub fn to_json(&self) -> String {
+        json::to_indented(&self.to_value(), Encoder::Default)
     }
 }
 
-/// C# `AutoCaptureResult` — `state` 는 `hold`·`unchanged`·`stored`.
+/// `state` 는 `hold`·`unchanged`·`stored`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoCaptureResult {
     pub state: String,
@@ -104,7 +96,7 @@ struct Pending {
     choices: Choices,
 }
 
-/// C# `AutoCapture` — 같은 읽기에 한 번만 저장한다. 응답이 불명확해도 처음 요청의 토큰·선택·ID 를 그대로 다시 쓴다.
+/// 같은 읽기에 한 번만 저장한다. 응답이 불명확해도 처음 요청의 토큰·선택·ID 를 그대로 다시 쓴다.
 pub struct AutoCapture<'a> {
     database: &'a Database,
     home: &'a dyn Destination,
@@ -132,8 +124,8 @@ fn at(mut value: &Value, path: &str) -> Option<String> {
     }
 }
 
-/// `Guid.NewGuid().ToString()` — 줄표 꼴(`D`). [`Env::new_id`] 는 `N` 꼴이다.
-fn dashed(id: &str) -> String {
+/// 새 식별자의 줄표 꼴(`D`). [`Env::new_id`] 는 `N` 꼴이다.
+pub(crate) fn dashed(id: &str) -> String {
     if id.len() != 32 || !id.is_ascii() {
         return id.to_string();
     }
@@ -160,11 +152,13 @@ impl<'a> AutoCapture<'a> {
     }
 
     /// `AutoCapture.TrySave` — `now_ms` 는 지금의 유닉스 밀리초, `may_save` 는 앱이 저장해도 되는가(종료 중이면 거짓).
-    /// 판단이 멈춘 까닭은 `hold` 로 돌려준다. C# 이 그 자리에서 잡지 않던 오류(매핑·스냅샷을 읽지 못함 따위)는 오류로 낸다.
+    /// `name` 은 확장이 보고에 실은 패널의 내 정보 이름이다 — 비면 저장하지 않는다.
+    /// 판단이 멈춘 까닭은 `hold` 로 돌려준다. 그 밖의 오류(매핑·스냅샷을 읽지 못함 따위)는 `hold` 로 삼키지 않고 오류로 낸다.
     pub fn try_save(
         &mut self,
         tab: &Value,
         preferences: &AutoCapturePreferences,
+        name: &str,
         now_ms: i64,
         may_save: Option<&dyn Fn() -> bool>,
     ) -> Result<AutoCaptureResult> {
@@ -212,22 +206,26 @@ impl<'a> AutoCapture<'a> {
         let Some(profile) = profile.filter(|p| p.id.as_deref() == input.profile.as_deref()) else {
             return hold("이 화면의 수집 규칙을 확인하지 못했습니다.");
         };
-        let expected = preferences.name.trim();
-        if !expected.is_empty() {
-            // 수요기관 담당자는 업무 담당자와 다르므로 이름 조건에 쓰지 않는다.
-            let staff = profile.fields_iter().find(|f| {
-                matches!(f.target(), "staff" | "notice_officer")
-                    && f.secondary_source.is_none()
-                    && !f.source().starts_with("tables.")
-            });
-            let Some(staff) = staff else {
-                return hold("현재 화면에서 담당자 칸을 확인하지 못했습니다.");
-            };
-            let data = input.data.as_ref().ok_or_else(element::undefined)?;
-            let actual = element::try_get(data, "pointInfo")?.and_then(|p| at(p, staff.source()));
-            if !actual.is_some_and(|a| a.contains(expected)) {
-                return hold("현재 화면의 담당자에 입력한 이름이 포함되어 있지 않습니다.");
-            }
+        if profile.entity_type() == "request" {
+            return hold("접수 화면은 자동으로 수집하지 않습니다.");
+        }
+        let expected = name.trim();
+        if expected.is_empty() {
+            return hold("패널 설정의 내 정보에 이름이 없어 자동으로 수집하지 않습니다.");
+        }
+        // 수요기관 담당자는 업무 담당자와 다르므로 이름 조건에 쓰지 않는다.
+        let staff = profile.fields_iter().find(|f| {
+            matches!(f.target(), "staff" | "notice_officer")
+                && f.secondary_source.is_none()
+                && !f.source().starts_with("tables.")
+        });
+        let Some(staff) = staff else {
+            return hold("현재 화면에서 담당자 칸을 확인하지 못했습니다.");
+        };
+        let data = input.data.as_ref().ok_or_else(element::undefined)?;
+        let actual = element::try_get(data, "pointInfo")?.and_then(|p| at(p, staff.source()));
+        if !actual.is_some_and(|a| a.contains(expected)) {
+            return hold("현재 화면의 담당자에 내 정보의 이름이 포함되어 있지 않습니다.");
         }
         let dataset: String = self.database.open_read_only()?.query_row(
             "SELECT dataset_id FROM pclm_file",
@@ -242,6 +240,7 @@ impl<'a> AutoCapture<'a> {
         keyed.insert("dataset".into(), Value::String(dataset));
         keyed.insert("input".into(), input.to_value());
         keyed.insert("preferences".into(), preferences.to_value());
+        keyed.insert("name".into(), Value::String(expected.to_string()));
         keyed.insert(
             "documentId".into(),
             Value::String(text(readiness, "documentId")),
@@ -276,29 +275,21 @@ impl<'a> AutoCapture<'a> {
     ) -> Result<Attempt> {
         if !self.pending.iter().any(|(k, _)| k == key) {
             let capture = ErpCapture::new(self.database.path(), self.env);
-            let (live, preview) = mirror::prepare(&capture, input)?;
-            let choices = mirror::default_choices(&preview, &[]);
-            let changes = preview.changes.iter().any(|ch| {
-                choices
-                    .iter()
-                    .find(|(k, _)| *k == ch.id)
-                    .map(|(_, v)| v.as_str())
-                    != Some("keep")
-            });
-            if !changes {
+            let plan = mirror::plan(&capture, input)?;
+            if plan.changed == 0 {
                 return Ok(Attempt::Done(AutoCaptureResult::new(
                     "unchanged",
                     "같은 내용이 이미 저장되어 있습니다.",
-                    Some(preview.entity),
+                    Some(plan.preview.entity),
                 )));
             }
             self.pending.push((
                 key.to_string(),
                 Pending {
-                    input: live,
-                    base_token: preview.base_token,
+                    input: plan.input,
+                    base_token: plan.preview.base_token,
                     id: dashed(&self.env.new_id()),
-                    choices,
+                    choices: plan.choices,
                 },
             ));
         }

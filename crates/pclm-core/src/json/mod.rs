@@ -1,20 +1,20 @@
-//! System.Text.Json 과 **바이트까지 같은** JSON 읽기·쓰기.
+//! 옛 판이 써 둔 JSON 과 **바이트까지 같은** JSON 읽기·쓰기.
 //!
-//! 저장되는 JSON(맞춤 뷰 정의·가공식·판올림이 고쳐 쓰는 식)은 C# 이 쓴 것과 한 글자도 갈리면 안 된다 —
+//! 저장되는 JSON(맞춤 뷰 정의·가공식·판올림이 고쳐 쓰는 식)은 옛 판이 써 둔 글과 한 글자도 갈리면 안 된다 —
 //! 대조(#8 E1·E3)가 저장 바이트를 견주고, 소비자는 그 글을 그대로 읽는다. serde_json 의 직렬화는 이스케이프·
-//! 수 표기가 .NET 과 달라서 값 모형(`serde_json::Value`)만 빌리고 쓰는 것은 여기서 한다.
+//! 수 표기가 옛 판과 달라서 값 모형(`serde_json::Value`)만 빌리고 쓰는 것은 여기서 한다.
 //!
-//! - **인코더 둘.** `Flow.Json`(가공식·맞춤 뷰)은 `UnsafeRelaxedJsonEscaping`, 그 밖의 기본 옵션(`Mapping.Json`,
-//!   인자 없는 `ToJsonString()`)은 `JavaScriptEncoder.Default` 다. 실측(.NET 8, scratch 콘솔):
+//! - **인코더 둘.** 가공식·맞춤 뷰는 느슨한 인코더, 그 밖의 기본 옵션(매핑 JSON 꼴,
+//!   인자 없는 문자열화)은 기본 인코더다. 옛 판의 실측:
 //!   - 둘 다 `\\`·`\b`·`\t`·`\n`·`\f`·`\r` 은 짧은 꼴, 그 밖의 이스케이프는 `\uXXXX`(대문자 16진),
 //!     BMP 밖 글자는 서로게이트 둘(`\uD83D\uDE00`)이다.
 //!   - 느슨한 쪽은 `"` 를 `\"` 로 쓰고 `<>&'+` 와 `` ` ``·한글을 그대로 둔다. 다만 제어 문자·U+007F..U+00A0·
 //!     U+2028/2029·U+FEFF·사용 영역·정의되지 않은 코드 포인트·BMP 밖 전부를 이스케이프한다 — 그 표가
 //!     [`relaxed_table`] 이다.
 //!   - 기본 쪽은 `"&'+<>` 와 `` ` `` 를 `\u0022` 꼴로, U+007F 이상을 모두 이스케이프한다.
-//! - **수.** 읽은 수는 원문 그대로 다시 쓴다(`JsonNode` 와 같다 — `1.50` 은 `1.50`, `1E+2` 는 `1E+2`). 코드가 지은
-//!   `double` 은 .NET 의 왕복 최단 꼴로 쓴다([`format_double`]).
-//! - **읽기.** `JsonSerializerDefaults.Web` 은 속성 이름의 대소문자를 가리지 않고 수를 글로도 받는다
+//! - **수.** 읽은 수는 원문 그대로 다시 쓴다(`1.50` 은 `1.50`, `1E+2` 는 `1E+2`). 코드가 지은
+//!   `double` 은 왕복 최단 꼴로 쓴다([`format_double`]).
+//! - **읽기.** 웹 기본 옵션은 속성 이름의 대소문자를 가리지 않고 수를 글로도 받는다
 //!   (`"n": "3"`). 같은 이름이 둘이면 뒤의 것이 이긴다.
 
 mod relaxed_table;
@@ -28,12 +28,12 @@ use crate::text::eq_ignore_case;
 /// 문자열을 쓸 때의 인코더.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Encoder {
-    /// `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` — `Flow.Json`.
+    /// 느슨한 인코더(가공식·맞춤 뷰) — `"` 는 `\"` 로 쓰고 `<>&'+` 와 `` ` ``·한글은 그대로 둔다. 제어 문자·
+    /// U+007F..U+00A0·U+2028/2029·U+FEFF·사용 영역·정의되지 않은 코드 포인트·BMP 밖은 이스케이프한다([`relaxed_table`]).
     Relaxed,
-    /// `JavaScriptEncoder.Default` — 옵션 없는 직렬화·`Mapping.Json`.
+    /// 기본 인코더(옵션 없는 직렬화·매핑 JSON 꼴) — U+0020..U+007E 밖은 모두, 그 안에서도 `"&'+<>`` ` ``\` 를 이스케이프한다.
     Default,
-    /// `JavaScriptEncoder.Create(UnicodeRanges.All)` — 홈의 쪽지(`Home.Json`). 허락 표는 느슨한 쪽과 같고(둘 다
-    /// `UnicodeRanges.All` 에서 정의되지 않은 글자를 뺀다), 느슨하지 않아 `"&'+<>` 와 `` ` `` 를 기본 쪽처럼 `"`
+    /// 모든 범위 인코더 — 홈의 쪽지. 허락 표는 느슨한 쪽과 같고(정의되지 않은 글자는 이스케이프), 느슨하지 않아 `"&'+<>` 와 `` ` `` 를 기본 쪽처럼 `"`
     /// 꼴로 쓴다.
     AllRanges,
 }
@@ -87,7 +87,7 @@ pub(crate) fn write_string(out: &mut String, s: &str, encoder: Encoder) {
     out.push('"');
 }
 
-/// 한 줄로 쓴다 — `JsonNode.ToJsonString(options)`·`JsonSerializer.Serialize` 의 들여쓰지 않은 꼴.
+/// 한 줄로 쓴다 — 들여쓰지 않은 꼴.
 pub(crate) fn to_compact(value: &Value, encoder: Encoder) -> String {
     let mut out = String::new();
     write_compact(&mut out, value, encoder);
@@ -126,8 +126,7 @@ fn write_compact(out: &mut String, value: &Value, encoder: Encoder) {
     }
 }
 
-/// 들여 쓴다 — `WriteIndented = true`. 줄바꿈은 언제나 `\r\n` 이다. .NET 8 의 들여쓰기 줄바꿈은 `Environment.NewLine`
-/// 이라, 이 글로 판을 뜨는 C# `Mapping.HashText` 가 `\r\n` 으로 박아 맞춘다.
+/// 들여 쓴다. 줄바꿈은 언제나 `\r\n` 이다 — 이 글로 판을 뜨므로 운영체제와 상관없이 같아야 한다.
 pub(crate) fn to_indented(value: &Value, encoder: Encoder) -> String {
     let mut out = String::new();
     write_indented(&mut out, value, encoder, 0);
@@ -175,11 +174,11 @@ fn write_indented(out: &mut String, value: &Value, encoder: Encoder, depth: usiz
     }
 }
 
-/// 코드가 지은 `double` 의 JSON 꼴 — `Utf8JsonWriter.WriteNumberValue(double)` 와 같다(실측).
+/// 코드가 지은 `double` 의 JSON 꼴(옛 판의 실측과 같다).
 ///
 /// 왕복 최단 자릿수를 쓰고, 소수점 자리(scale)가 17 을 넘거나 -3 보다 작으면 지수 꼴(`1E+21`·`1E-05`·
 /// `1.2345678901234568E+17`)이다. 그 사이는 그냥 적는다(`10000000000000000`·`0.0001`). `-0` 은 `-0`.
-/// 유한하지 않은 값은 .NET 이 쓰기를 거절하므로 부르는 쪽이 먼저 막는다.
+/// 유한하지 않은 값은 JSON 수로 쓸 수 없으므로 부르는 쪽이 먼저 막는다.
 pub(crate) fn format_double(d: f64) -> String {
     let s = format!("{d:e}");
     let (mantissa, exponent) = s.split_once('e').unwrap_or((&s, "0"));
@@ -228,7 +227,7 @@ pub(crate) fn format_double(d: f64) -> String {
 
 /// 원문을 그대로 들고 있는 수 — `arbitrary_precision` 이라 다시 쓸 때 이 글 그대로 나간다.
 ///
-/// serde_json 은 수를 읽으며 지수를 고쳐 적는다(`1E+2` → `1e+2`, `1e5` → `1e+5`) — .NET `JsonNode` 는 원문을
+/// serde_json 은 수를 읽으며 지수를 고쳐 적는다(`1E+2` → `1e+2`, `1e5` → `1e+5`) — 옛 판은 원문을
 /// 그대로 들고 다시 쓰므로 그 길로는 같은 바이트가 나오지 않는다. 그래서 JSON 수로 맞는지만 serde_json 으로 보고,
 /// 값은 원문 글자로 짓는다(`Number::from_string_unchecked` — 숨은 API 라 serde_json 판을 `=` 로 묶어 둔다).
 pub(crate) fn number(text: &str) -> Value {
@@ -238,7 +237,7 @@ pub(crate) fn number(text: &str) -> Value {
     }
 }
 
-/// JSON 으로 읽기 — `JsonNode.Parse`/`JsonDocument.Parse` 처럼 수의 원문과 키의 차례를 지킨다.
+/// JSON 으로 읽기 — 수의 원문과 키의 차례를 지킨다.
 ///
 /// serde_json 이 고쳐 적은 지수(위 [`number`])는 글에서 수의 원문을 차례대로 다시 주워 되돌린다. 같은 키가 두 번
 /// 나와 값 하나가 빠지면 차례가 어긋날 수 있으므로, 주운 원문을 serde_json 식으로 고쳐 적은 것이 읽은 값과 하나도
@@ -247,10 +246,10 @@ pub(crate) fn parse(text: &str) -> Result<Value, JsonException> {
     parse_with_depth(text, MAX_DEPTH)
 }
 
-/// [`parse`] 를 깊이 한도 `max_depth` 로 — `JsonDocumentOptions.MaxDepth` 를 따로 준 자리(확장 메시지는 32).
+/// [`parse`] 를 깊이 한도 `max_depth` 로 — 한도를 따로 준 자리(확장 메시지는 32).
 pub(crate) fn parse_with_depth(text: &str, max_depth: usize) -> Result<Value, JsonException> {
     let mut value: Value = serde_json::from_str(text).map_err(|_| JsonException)?;
-    // .NET 은 64 단계보다 깊은 글을 읽지 않는다 — serde_json 의 한도(128)로 두면 65~128 단계를 Rust 만 읽는다.
+    // 64 단계보다 깊은 글은 읽지 않는다 — serde_json 의 한도(128)로 두면 65~128 단계를 Rust 만 읽는다.
     if too_deep(text, max_depth) {
         return Err(JsonException);
     }
@@ -272,7 +271,7 @@ pub(crate) fn parse_with_depth(text: &str, max_depth: usize) -> Result<Value, Js
     Ok(value)
 }
 
-/// .NET `JsonReaderOptions.MaxDepth` 의 기본값 — `JsonDocument`·`JsonNode`·`Utf8JsonReader`·`JsonSerializer` 가 같다.
+/// 읽을 수 있는 중첩의 기본 한도.
 const MAX_DEPTH: usize = 64;
 
 /// 객체·배열이 `max_depth` 단계보다 깊게 들었는가. 이미 serde_json 이 맞는 JSON 으로 읽은 글에만 쓴다.
@@ -302,17 +301,16 @@ fn too_deep(text: &str, max_depth: usize) -> bool {
     false
 }
 
-/// 글 안 어느 객체에든 같은 키가 두 번 나오는가. 키는 이스케이프를 푼 UTF-16 단위로 견준다 — `JsonObject` 의 열쇠
-/// (대소문자를 가린다)와 같다. C# 의 `JsonNode` 는 그런 객체를 열 때 `ArgumentException` 을 던지고, 역직렬화와
-/// serde_json 은 뒤의 것을 조용히 골라 읽는 쪽마다 값이 갈리므로, 저장된 식에서는 형식 오류로 막는다.
+/// 글 안 어느 객체에든 같은 키가 두 번 나오는가. 키는 이스케이프를 푼 UTF-16 단위로 견준다 — JSON 객체의 열쇠
+/// (대소문자를 가린다)와 같다. 겹친 키는 읽는 쪽마다 값이 갈리므로(serde_json 은 뒤의 것을 조용히 고른다), 저장된 식에서는
+/// 형식 오류로 막는다.
 ///
 /// serde_json 은 겹친 키를 하나로 접어 값만 봐서는 알 수 없어 글을 직접 훑는다. 이미 [`parse`] 를 지난 글에만 쓴다.
 pub(crate) fn has_duplicate_keys(text: &str) -> bool {
     first_duplicate_key(text).is_some()
 }
 
-/// 글의 차례로 처음 두 번째 나온 키(이스케이프를 푼 것). C# `JsonObject` 가 그 객체를 열며 던지는 `ArgumentException`
-/// 의 `Key:` 와 같다. 이미 [`parse`] 를 지난 글에만 쓴다.
+/// 글의 차례로 처음 두 번째 나온 키(이스케이프를 푼 것). 이미 [`parse`] 를 지난 글에만 쓴다.
 pub(crate) fn first_duplicate_key(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     // 열린 묶음마다 — 객체면 본 키들, 배열이면 `None`.
@@ -415,7 +413,7 @@ fn raw_numbers(text: &str) -> Vec<&str> {
 }
 
 /// serde_json 이 수를 읽고 남기는 꼴 — 지수 글자는 `e`, 부호가 없으면 `+`. 정수는 `u64`·`i64` 에 들면 그 수로
-/// 바꿔 다시 적으므로 `-0` 이 `0` 이 된다(.NET 은 `-0` 그대로).
+/// 바꿔 다시 적으므로 `-0` 이 `0` 이 된다.
 fn serde_spelling(raw: &str) -> String {
     if !raw.contains(['.', 'e', 'E'])
         && let Ok(n) = raw.parse::<i64>()
@@ -446,7 +444,7 @@ fn collect_numbers<'a>(value: &'a mut Value, out: &mut Vec<&'a mut Number>) {
     }
 }
 
-/// C# `JsonException` — 글이 JSON 이 아니거나, 받을 자리와 꼴이 맞지 않는다.
+/// 글이 JSON 이 아니거나, 받을 자리와 꼴이 맞지 않는다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct JsonException;
 
@@ -556,14 +554,14 @@ pub(crate) fn for_each_property(
     Ok(())
 }
 
-// ── JsonNode 로 다니기 ──────────────────────────────────────────────
+// ── 값 다니기 ──────────────────────────────────────────────
 
-/// C# 이 `JsonNode` 를 다니다 낸 `InvalidOperationException` — 배열·값에 이름으로 물었거나, 글이 아닌 것을 글로
+/// 값을 다니다 낸 오류 — 배열·값에 이름으로 물었거나, 글이 아닌 것을 글로
 /// 꺼냈다. 판올림 보정은 이것을 잡아 그 줄을 건너뛴다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct NodeError;
 
-/// `node?["key"]`. 없는 속성과 JSON `null` 은 `None`(C# 의 `null` 노드). 객체가 아닌 노드에 물으면 오류다.
+/// `node?["key"]`. 없는 속성과 JSON `null` 은 `None`(없는 노드). 객체가 아닌 노드에 물으면 오류다.
 pub(crate) fn index<'a>(
     node: Option<&'a Value>,
     key: &str,
@@ -593,7 +591,7 @@ pub(crate) fn as_array(node: Option<&Value>) -> Result<Option<&Vec<Value>>, Node
     }
 }
 
-/// `JsonNode.DeepEquals`(.NET 8) — 객체는 키 차례를 보지 않고, 값은 쓴 글로 견준다(수는 원문 그대로).
+/// 깊은 비교 — 객체는 키 차례를 보지 않고, 값은 쓴 글로 견준다(수는 원문 그대로).
 pub(crate) fn deep_equals(a: Option<&Value>, b: Option<&Value>) -> bool {
     let a = a.filter(|v| !v.is_null());
     let b = b.filter(|v| !v.is_null());
@@ -649,9 +647,9 @@ mod tests {
         out
     }
 
-    /// 기대값은 .NET 8 의 `JsonSerializer.Serialize(string, options)` 가 낸 글이다(scratch 콘솔 실측).
+    /// 기대값은 옛 판의 느슨한 인코더가 낸 글이다(실측).
     #[test]
-    fn relaxed_escaping_matches_dotnet() {
+    fn relaxed_escaping_bytes() {
         let cases = [
             ("\u{0}", "\"\\u0000\""),
             ("\u{8}", "\"\\b\""),
@@ -672,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn default_escaping_matches_dotnet() {
+    fn default_escaping_bytes() {
         let cases = [
             ("\"", "\"\\u0022\""),
             ("&'+<>`", "\"\\u0026\\u0027\\u002B\\u003C\\u003E\\u0060\""),
@@ -701,9 +699,9 @@ mod tests {
         }
     }
 
-    /// 기대값은 `Flow.Serialize` 가 `FlowSource.Value` 를 쓴 글이다(실측).
+    /// 기대값은 옛 판이 가공식 값을 쓴 글이다(실측).
     #[test]
-    fn doubles_match_dotnet() {
+    fn doubles_write_shortest_round_trip() {
         let cases = [
             (0.0, "0"),
             (-0.0, "-0"),
@@ -734,9 +732,9 @@ mod tests {
         }
     }
 
-    /// `JsonNode.Parse(…).ToJsonString(Flow.Json)` 의 실측 — 수 원문과 키 차례가 남고 글은 다시 이스케이프된다.
+    /// 옛 판의 실측 — 수 원문과 키 차례가 남고 글은 다시 이스케이프된다.
     #[test]
-    fn node_round_trip_matches_dotnet() {
+    fn node_round_trip_keeps_raw_numbers_and_order() {
         let node = parse(r#"{"a":"\u0041<>&'+\u00e9\ud55c","b":1.50,"c":null,"d":1E+2,"e":true}"#)
             .unwrap();
         assert_eq!(
@@ -757,7 +755,7 @@ mod tests {
     }
 
     #[test]
-    fn indented_matches_dotnet() {
+    fn indented_uses_crlf_and_two_spaces() {
         let node = parse(r#"{"a":1,"b":[1],"c":[],"d":{}}"#).unwrap();
         assert_eq!(
             to_indented(&node, Encoder::Default),
@@ -766,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn integers_read_like_dotnet() {
+    fn integers_read_from_numbers_and_text() {
         assert_eq!(read_i32(&parse("3").unwrap()), Ok(Some(3)));
         assert_eq!(read_i32(&parse("\"3\"").unwrap()), Ok(Some(3)));
         assert_eq!(read_i32(&parse("3.0").unwrap()), Err(JsonException));

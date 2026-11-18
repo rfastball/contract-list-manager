@@ -1,8 +1,8 @@
-//! 열 너비를 잴 글꼴 — ClosedXML 0.105.1 `DefaultGraphicEngine` 이 SixLabors.Fonts 로 읽는 것과 같은 수.
+//! 열 너비를 잴 글꼴 — 옛 판이 내던 통합 문서의 열 너비와 같은 수가 나오도록 같은 글꼴 규칙을 따른다.
 //!
-//! ClosedXML 은 통합 문서의 글꼴 이름(새 통합 문서는 `Calibri`)으로 **이 기계의 글꼴**을 찾고, 없으면
-//! `Microsoft Sans Serif`, 그것도 없으면 제가 품은 CarlitoBare 를 쓴다. 굵기·기울기를 따로 고르지 않는다 —
-//! `FontFamily.CreateFont(size)` 는 늘 보통체다(굵은 머리글도 보통체의 너비로 잰다). 글자 하나의 너비는 cmap 이
+//! 통합 문서의 글꼴 이름(새 통합 문서는 `Calibri`)으로 **이 기계의 글꼴**을 찾고, 없으면
+//! `Microsoft Sans Serif` 를 쓴다. 굵기·기울기를 따로 고르지 않는다 —
+//! 늘 보통체다(굵은 머리글도 보통체의 너비로 잰다). 글자 하나의 너비는 cmap 이
 //! 가리키는 글리프의 hmtx 전진폭이고, cmap 에 없는 글자는 0번(.notdef)의 너비다 — 한글이 없는 Calibri 에서 한글은
 //! 모두 .notdef 의 너비로 잰다.
 //!
@@ -66,7 +66,7 @@ impl Metrics {
         0
     }
 
-    /// 0~9 가운데 가장 넓은 것(글꼴 단위) — ClosedXML `CalculateMaxDigitWidth`.
+    /// 0~9 가운데 가장 넓은 것(글꼴 단위) .
     pub fn max_digit_advance(&self) -> u16 {
         ('0'..='9')
             .map(|c| self.advance(c as u32))
@@ -258,8 +258,8 @@ fn be32(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
-/// 이 기계에서 ClosedXML 이 고를 글꼴 — `Calibri`, 없으면 `Microsoft Sans Serif`. 둘 다 없으면 `None` 이다(ClosedXML 은
-/// 제가 품은 CarlitoBare 를 쓴다 — Windows 가 아닌 기계에서만 생기는 일이라 옮기지 않았다).
+/// 이 기계에서 고를 글꼴 — `Calibri`, 없으면 `Microsoft Sans Serif`. 둘 다 없으면 `None` 이다(옛 판은 그때
+/// 품은 글꼴을 썼다 — Windows 가 아닌 기계에서만 생기는 일이라 옮기지 않았다).
 pub fn workbook_font() -> Option<&'static Metrics> {
     static FONT: OnceLock<Option<Metrics>> = OnceLock::new();
     FONT.get_or_init(|| {
@@ -269,7 +269,7 @@ pub fn workbook_font() -> Option<&'static Metrics> {
     .as_ref()
 }
 
-/// SixLabors.Fonts 의 Windows 시스템 글꼴 자리.
+/// Windows 시스템 글꼴 자리.
 fn font_files() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(root) = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR")) {

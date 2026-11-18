@@ -1,0 +1,330 @@
+{
+  "note": "가짜 나라장터의 화면 자료. 값은 모두 지어낸 것이다. 칸은 [열쇠, 이름표, 원값, 화면에 보일 값(없으면 원값)] — 열쇠는 crates/pclm-core/src/erp/mapping.json 의 fields[].source 와 같다. 세 화면은 한 건이다: 접수번호 RC00000001 → 공고 R26BK00000001 → 계약 R26TA00000001.",
+  "screens": [
+    {
+      "code": "01112",
+      "title": "계약요청접수상세조회-일반용역(개발용)",
+      "seqKeys": ["ctrtDmndRcptOrd"],
+      "sections": [
+        {
+          "heading": "접수 정보",
+          "fields": [
+            ["ctrtDmndRcptNo", "접수번호", "RC00000001"],
+            ["ctrtDmndRcptOrd", "접수차수", "000"],
+            ["ctrtDmndBizNm", "사업명", "가상 사무용품 구매(개발용)"],
+            ["wrtYmd", "접수일", "20260105", "2026/01/05"],
+            ["prcmBsneSeNm", "조달업무구분", "물품"],
+            ["pbancKndCd", "공고종류", "공440002", "실공고"],
+            ["lcrtTyCd", "계약법구분", "계040001", "국가계약법"],
+            ["stdCtrtMthdCd", "계약방법", "계030001", "일반경쟁"],
+            ["ctrtTyCd", "계약구분", "계120001", "총액계약"],
+            ["scsbdMthdCd", "낙찰방법", "낙030001", "적격심사제"],
+            ["dmstAcntgNm", "회계구분", "일반회계"],
+            ["drpmSbpySeCd", "대금지급방법", "직130001", "직불"],
+            ["fprdYn", "외자여부", "N", "아니오"],
+            ["rlsYn", "공개여부", "Y"],
+            ["advfPinfrmYn", "선금지급여부", "N", "아니오"],
+            ["advfPinfrmPsbltyRat", "선금지급비율", "0"]
+          ]
+        },
+        {
+          "heading": "금액",
+          "fields": [
+            ["totlPymtAmt", "총지급액", "33000000", "33,000,000"],
+            ["bgtAmt", "예산액", "33000000", "33,000,000"],
+            ["prspPrce", "추정가격", "30000000", "30,000,000"],
+            ["antcPrcmFee", "조달수수료", "0"]
+          ]
+        },
+        {
+          "heading": "수요기관",
+          "fields": [
+            ["dmstNm", "수요기관", "가상시 가상구청"],
+            ["dmstUntyGrpNo", "수요기관코드", "AA0000001"],
+            ["dmndInstBizPicNm", "담당자", "홍길동"],
+            ["dmndInstBizPicTlphNo", "전화번호", "000-0000-0000"],
+            ["dmndInstPicFaxNo", "팩스번호", "000-0000-0001"]
+          ]
+        }
+      ],
+      "tables": [
+        {
+          "id": "mf_wfm_container_gvDmndItem",
+          "heading": "요구 품목",
+          "items": true,
+          "ordinal": ["ctrtDmndRcptItemSqno"],
+          "rows": [
+            {"ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ctrtDmndRcptItemSqno": "001",
+             "ndfsPrcmDmndNo": "REQ0000001", "ndfsPrcmCtrtPlanYear": "2026", "ndfsPrcmPlanChgOrd": "00",
+             "dtlsPrnmNo": "0000000001", "itemIdnfNo": "00000001", "itemClsfNo": "00000001", "dtlsPrnm": "사무용의자",
+             "itemIdnfNm": "사무용의자, 가상규격 A", "rtrcnYn": "N", "ctrtDmndUprc": "100000", "ctrtDmndQty": "100",
+             "ctrtDmndAmt": "10000000", "qtyUntNm": "개", "albmNopg": "0", "devyCndtCd": "인010001",
+             "dlvgdsTermNody": "60", "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 1층", "ndfsIvtrNo": "",
+             "ndfsItemSpecNo": "SPEC-0001"},
+            {"ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ctrtDmndRcptItemSqno": "002",
+             "ndfsPrcmDmndNo": "REQ0000001", "ndfsPrcmCtrtPlanYear": "2026", "ndfsPrcmPlanChgOrd": "00",
+             "dtlsPrnmNo": "0000000002", "itemIdnfNo": "00000002", "itemClsfNo": "00000002", "dtlsPrnm": "사무용책상",
+             "itemIdnfNm": "사무용책상, 가상규격 B", "rtrcnYn": "N", "ctrtDmndUprc": "300000", "ctrtDmndQty": "50",
+             "ctrtDmndAmt": "15000000", "qtyUntNm": "개", "albmNopg": "0", "devyCndtCd": "인010002",
+             "dlvgdsTermNody": "60", "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 2층", "ndfsIvtrNo": "",
+             "ndfsItemSpecNo": "SPEC-0002"},
+            {"ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ctrtDmndRcptItemSqno": "003",
+             "ndfsPrcmDmndNo": "REQ0000001", "ndfsPrcmCtrtPlanYear": "2026", "ndfsPrcmPlanChgOrd": "00",
+             "dtlsPrnmNo": "0000000003", "itemIdnfNo": "00000003", "itemClsfNo": "00000003", "dtlsPrnm": "서류함",
+             "itemIdnfNm": "서류함, 가상규격 C", "rtrcnYn": "N", "ctrtDmndUprc": "80000", "ctrtDmndQty": "100",
+             "ctrtDmndAmt": "8000000", "qtyUntNm": "개", "albmNopg": "0", "devyCndtCd": "인010003",
+             "dlvgdsTermNody": "60", "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 3층", "ndfsIvtrNo": "",
+             "ndfsItemSpecNo": "SPEC-0003"}
+          ]
+        }
+      ]
+    },
+    {
+      "code": "01179",
+      "title": "입찰공고작성[물품](개발용)",
+      "seqKeys": ["bidPbancOrd"],
+      "sections": [
+        {
+          "heading": "공고 정보",
+          "fields": [
+            ["bidPbancNo", "입찰공고번호", "R26BK00000001"],
+            ["bidPbancOrd", "공고차수", "000"],
+            ["bidPbancNm", "공고명", "가상 사무용품 구매(개발용)"],
+            ["pbancKndCd", "공고종류", "공440002", "실공고"],
+            ["pbancSttsCd", "공고상태", "공400001", "일반공고"],
+            ["pbancPstgDt", "게시일시", "2026/01/12 10:00:00"],
+            ["pbancChgRsn", "변경사유", ""],
+            ["lcrtTyCd", "계약법구분", "계040001", "국가계약법"],
+            ["dmstcOvrsSeCd", "국내/국제", "국010001", "국내입찰"],
+            ["bidMthdCd", "입찰방식", "입180002", "전자입찰"],
+            ["stdCtrtMthdCd", "계약방법", "계030001", "일반경쟁"],
+            ["ctrtTyCd", "계약구분", "계120001", "총액계약"],
+            ["scsbdMthdCd", "낙찰방법", "낙030001", "적격심사제"],
+            ["scsbdLwlmRat", "낙찰하한율", "87.745"],
+            ["pnprDcsnMthoCd", "예정가격결정방법", "예050001", "비예가"],
+            ["rbidPrmsYn", "재입찰허용", "Y", "예"],
+            ["prttnDlvgdsPsbltyYn", "분할납품", "N", "아니오"],
+            ["fprdYn", "외자여부", "N", "아니오"],
+            ["rschDvlpItemYn", "연구개발물품", "N", "아니오"],
+            ["rgnLmtYn", "지역제한", "N"],
+            ["prfmncLmtYn", "실적제한", "N", "아니오"],
+            ["mnftrItemLmtYn", "제조물품제한", "N"],
+            ["bfSpecRegNo", "사전규격등록번호", "0000000000"]
+          ]
+        },
+        {
+          "heading": "금액",
+          "fields": [
+            ["bizAmt", "사업금액", "33000000", "33,000,000"],
+            ["alotBgtAmt", "배정예산", "33000000", "33,000,000"],
+            ["prspPrce", "추정가격", "30000000", "30,000,000"],
+            ["vatAmt", "부가세", "3000000", "3,000,000"],
+            ["bizAmtFeeSumAmt", "사업금액수수료합계", "33000000", "33,000,000"]
+          ]
+        },
+        {
+          "heading": "일정",
+          "fields": [
+            ["slprRcptBgngDay", "입찰서 접수 시작일", "20260113", "2026/01/13"],
+            ["slprRcptBgngTime", "입찰서 접수 시작시각", "1000", "10:00"],
+            ["slprRcptDdlnDay", "입찰서 접수 마감일", "20260120", "2026/01/20"],
+            ["slprRcptDdlnTime", "입찰서 접수 마감시각", "1000", "10:00"],
+            ["onbsPrnmntDay", "개찰일", "20260120", "2026/01/20"],
+            ["onbsPrnmntTime", "개찰시각", "1100", "11:00"],
+            ["bidQlfcRegDay", "참가자격등록 마감일", "20260119", "2026/01/19"],
+            ["bidQlfcRegTime", "참가자격등록 마감시각", "1800", "18:00"],
+            ["dlvgdsTermCn", "납품기한", "계약일로부터 60일"],
+            ["fctrRspbNbyr", "하자담보 연수", "1"],
+            ["fctrRspbMhct", "하자담보 월수", "0"]
+          ]
+        },
+        {
+          "heading": "담당",
+          "fields": [
+            ["pbancInstUntyGrpNm", "공고기관", "가상조달청"],
+            ["pbancPicNm", "공고담당자", "홍길동"],
+            ["fncrNm", "재무관", "홍길동"],
+            ["bidBlffNm", "집행관", "김철수"]
+          ]
+        }
+      ],
+      "tables": [
+        {
+          "id": "mf_wfm_container_tabCont_contents_itemTabs6_body_wframe1_grdAliasDmTtl01List",
+          "heading": "구매 대상 물품",
+          "items": true,
+          "ordinal": ["bidPbancItemSqno", "ctrtDmndRcptItemSqno"],
+          "rows": [
+            {"bidClsfNo": "0", "bidPbancItemSqno": "1", "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000",
+             "ctrtDmndRcptItemSqno": "001", "ndfsPrcmDmndNo": "REQ0000001", "dmstUntyGrpNo": "AA0000001",
+             "dmstUntyGrpNm": "가상시 가상구청", "dtlsPrnmNo": "0000000001", "dtlsPrnmNm": "사무용의자",
+             "itemIdnfNo": "00000001", "itemClsfNo": "00000001", "itemIdnfNm": "사무용의자, 가상규격 A",
+             "itemDtlSpecCn": "가상규격 A", "ndfsItemSpecNo": "SPEC-0001", "prchsDtlItemQty": "100",
+             "prchsDtlItemUntVal": "개", "prchsDtlItemUprc": "100000", "dlvgdsTermNody": "60",
+             "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 1층", "devyCndtCd": "인010001"},
+            {"bidClsfNo": "0", "bidPbancItemSqno": "2", "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000",
+             "ctrtDmndRcptItemSqno": "002", "ndfsPrcmDmndNo": "REQ0000001", "dmstUntyGrpNo": "AA0000001",
+             "dmstUntyGrpNm": "가상시 가상구청", "dtlsPrnmNo": "0000000002", "dtlsPrnmNm": "사무용책상",
+             "itemIdnfNo": "00000002", "itemClsfNo": "00000002", "itemIdnfNm": "사무용책상, 가상규격 B",
+             "itemDtlSpecCn": "가상규격 B", "ndfsItemSpecNo": "SPEC-0002", "prchsDtlItemQty": "50",
+             "prchsDtlItemUntVal": "개", "prchsDtlItemUprc": "300000", "dlvgdsTermNody": "60",
+             "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 2층", "devyCndtCd": "인010002"},
+            {"bidClsfNo": "0", "bidPbancItemSqno": "3", "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000",
+             "ctrtDmndRcptItemSqno": "003", "ndfsPrcmDmndNo": "REQ0000001", "dmstUntyGrpNo": "AA0000001",
+             "dmstUntyGrpNm": "가상시 가상구청", "dtlsPrnmNo": "0000000003", "dtlsPrnmNm": "서류함",
+             "itemIdnfNo": "00000003", "itemClsfNo": "00000003", "itemIdnfNm": "서류함, 가상규격 C",
+             "itemDtlSpecCn": "가상규격 C", "ndfsItemSpecNo": "SPEC-0003", "prchsDtlItemQty": "100",
+             "prchsDtlItemUntVal": "개", "prchsDtlItemUprc": "80000", "dlvgdsTermNody": "60",
+             "dlvgdsTermDt": "20260331", "dlvgdsPlacNm": "가상구청 3층", "devyCndtCd": "인010003"}
+          ]
+        },
+        {
+          "id": "mf_wfm_container_tabCont_contents_itemTabs1_body_wframe6_grdAliasDmTtl06List",
+          "heading": "수요기관 담당자",
+          "rows": [
+            {"dmstUntyGrpNo": "AA0000001", "dmstPicId": "test01", "dmstUntyGrpNm": "가상시 가상구청",
+             "deptNm": "가상과", "picNm": "홍길동", "tlphNo": "000-0000-0000", "faxNo": "000-0000-0001"}
+          ]
+        },
+        {
+          "id": "mf_wfm_container_tabCont_contents_itemTabs2_body_wframe7_grdAliasDmTtl07LeftList",
+          "heading": "참가제한 업종",
+          "rows": [
+            {"bidLmtUntyNm": "가상 업종 가"}
+          ]
+        },
+        {
+          "id": "mf_wfm_container_grdFile",
+          "heading": "첨부",
+          "rows": [
+            {"atchFileSqno": "1", "atchFileDscr": "공고서", "orgnlAtchFileNm": "가상 공고서.hwp"}
+          ]
+        }
+      ]
+    },
+    {
+      "code": "01579",
+      "title": "물품·일반용역 계약서(개발용)",
+      "seqKeys": ["ctrtNoOrd", "ctrtChgOrd"],
+      "sections": [
+        {
+          "heading": "계약 정보",
+          "fields": [
+            ["ctrtNoOrd", "계약번호", "R26TA00000001-00"],
+            ["ctrtNm", "계약명", "가상 사무용품 구매(개발용)"],
+            ["bidPbancNo", "입찰공고번호", "R26BK00000001"],
+            ["ctrtDmndRcptNo", "조달요구 접수번호", "RC00000001"],
+            ["ctrtDt", "계약일", "20260202", "2026/02/02"],
+            ["frstCtrtDt", "최초계약일", "20260202", "2026/02/02"],
+            ["lcrtTyCd", "계약법구분", "계040001", "국가계약법"],
+            ["ctrtMthdCd", "계약방법", "계030001", "일반경쟁"],
+            ["ctrtTyCd", "계약구분", "계120001", "총액계약"],
+            ["ctrtChrsSeCd", "계약성격", "0001", "물품의 제조 · 구매"],
+            ["atcsNm", "근거조항", "가상 조항 제0조(개발용)"],
+            ["ctrtPrdCn", "계약기간", "계약일로부터 60일"],
+            ["prttnDlvgdsPsbltyYn", "분할납품", "N", "아니오"],
+            ["fprdYn", "외자여부", "N", "아니오"],
+            ["prflcAplcnCrtrCd", "물가변동적용기준", "물130002", "품목조정율"],
+            ["rlsYn", "공개여부", "Y"]
+          ]
+        },
+        {
+          "heading": "보증과 대금",
+          "fields": [
+            ["ctrtGtnrt", "계약보증률", "10"],
+            ["ctrtGrnteAmt", "계약보증금", "2900000", "2,900,000"],
+            ["ctwtSbmsnMthdCd", "보증서 제출방법", "계260002", "전자접수 및 직접수납"],
+            ["dcmtGtnrt", "하자보증률", "2"],
+            ["fctrRspbNbyr", "하자담보 연수", "1"],
+            ["fctrRspbMtnb", "하자담보 월수", "0"],
+            ["lqdmRat", "지체상금률", "0.075"],
+            ["ctrtFee", "계약수수료", "0"],
+            ["cgntTxam", "인지세", "0"],
+            ["drpmSbpySeCd", "대금지급방법", "직130001", "직불"],
+            ["advcPinfrmYn", "선금지급여부", "N", "아니오"],
+            ["advcPinfrmPsbltyRat", "선금지급비율", "0"]
+          ]
+        },
+        {
+          "heading": "수요기관",
+          "fields": [
+            ["dmstUntyGrpNm", "수요기관", "가상시 가상구청"],
+            ["dmstPicId", "수요기관 담당자 ID", "test01"],
+            ["ctrtPicNm", "계약담당자", "홍길동"]
+          ]
+        }
+      ],
+      "tables": [
+        {
+          "id": "mf_wfm_container_tacCtrt_contents_content2_body_grdCtrtLis",
+          "heading": "계약 품목",
+          "items": true,
+          "ordinal": ["ctrtItemSqno", "bidPbancItemSqno"],
+          "rows": [
+            {"ctrtNo": "R26TA00000001", "ctrtChgOrd": "00", "ctrtItemSqno": 1, "bidClsfNo": "0", "bidPbancItemSqno": "1",
+             "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ndfsPrcmDmndNo": "REQ0000001",
+             "itemClsfNo": "00000001", "itemIdnfNo": "00000001", "ctrtItemNm": "사무용의자", "itemSpecVal": "가상규격 A",
+             "ctrtUntVal": "개", "ctrtQty": 100, "ctrtUprc": 90000, "ctrtAmt": 9000000, "devyCndtCd": "인010001",
+             "dmstUntyGrpNo": "AA0000001", "dmstUntyGrpNm": "가상시 가상구청", "dlvgdsTermYmd": "20260403",
+             "dlvgdsTermNody": 60, "dlvgdsPlacNm": "가상구청 1층", "odn1PlorNtnNm": "대한민국"},
+            {"ctrtNo": "R26TA00000001", "ctrtChgOrd": "00", "ctrtItemSqno": 2, "bidClsfNo": "0", "bidPbancItemSqno": "2",
+             "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ndfsPrcmDmndNo": "REQ0000001",
+             "itemClsfNo": "00000002", "itemIdnfNo": "00000002", "ctrtItemNm": "사무용책상", "itemSpecVal": "가상규격 B",
+             "ctrtUntVal": "개", "ctrtQty": 50, "ctrtUprc": 270000, "ctrtAmt": 13500000, "devyCndtCd": "인010002",
+             "dmstUntyGrpNo": "AA0000001", "dmstUntyGrpNm": "가상시 가상구청", "dlvgdsTermYmd": "20260403",
+             "dlvgdsTermNody": 60, "dlvgdsPlacNm": "가상구청 2층", "odn1PlorNtnNm": "대한민국"},
+            {"ctrtNo": "R26TA00000001", "ctrtChgOrd": "00", "ctrtItemSqno": 3, "bidClsfNo": "0", "bidPbancItemSqno": "3",
+             "ctrtDmndRcptNo": "RC00000001", "ctrtDmndRcptOrd": "000", "ndfsPrcmDmndNo": "REQ0000001",
+             "itemClsfNo": "00000003", "itemIdnfNo": "00000003", "ctrtItemNm": "서류함", "itemSpecVal": "가상규격 C",
+             "ctrtUntVal": "개", "ctrtQty": 100, "ctrtUprc": 65000, "ctrtAmt": 6500000, "devyCndtCd": "인010003",
+             "dmstUntyGrpNo": "AA0000001", "dmstUntyGrpNm": "가상시 가상구청", "dlvgdsTermYmd": "20260403",
+             "dlvgdsTermNody": 60, "dlvgdsPlacNm": "가상구청 3층", "odn1PlorNtnNm": "대한민국"}
+          ]
+        },
+        {
+          "id": "mf_wfm_container_grdEtpsLst",
+          "heading": "계약 업체",
+          "rows": [
+            {"ctentUntyGrpNo": "P000000001", "ctentUntyGrpNm": "(주)가상상사", "bzmnRegNo": "123-45-67890",
+             "rprsvNm": "홍길동", "etpsAddr": "가상시 가상구 가상로 0", "etpsTlphNo": "000-0000-0002",
+             "etpsFaxNo": "000-0000-0003", "ctrtSharRat": "100", "ctrtSharAmt": "29000000",
+             "jintSyddCmnMthoNm": "단독계약"}
+          ]
+        },
+        {
+          "id": "mf_wfm_container_grdFile",
+          "heading": "첨부",
+          "rows": [
+            {"atchFileSqno": "1", "atchFileDscr": "계약서", "orgnlAtchFileNm": "가상 계약서.pdf"}
+          ]
+        }
+      ]
+    },
+    {
+      "code": "00000",
+      "title": "수집하지 않는 화면(개발용)",
+      "seqKeys": [],
+      "sections": [
+        {
+          "heading": "목록 조건",
+          "fields": [
+            ["srchBgngYmd", "조회 시작일", "20260101", "2026/01/01"],
+            ["srchEndYmd", "조회 종료일", "20260131", "2026/01/31"],
+            ["srchNm", "검색어", "가상"]
+          ]
+        }
+      ],
+      "tables": [
+        {
+          "id": "mf_wfm_container_grdList",
+          "heading": "목록",
+          "items": true,
+          "ordinal": ["rowSqno"],
+          "rows": [
+            {"rowSqno": "1", "bidPbancNo": "R26BK00000001", "bidPbancNm": "가상 사무용품 구매(개발용)", "pbancPstgDt": "2026/01/12 10:00:00"}
+          ]
+        }
+      ]
+    }
+  ]
+}

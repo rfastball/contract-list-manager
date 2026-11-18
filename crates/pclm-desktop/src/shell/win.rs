@@ -1,4 +1,4 @@
-//! 창이 Windows 에 곧바로 하는 작은 일들 — 알림 상자(C# `MessageBox.Show`), 등록부(파일 연결), 창을 내려 둔 채 띄우기.
+//! 창이 Windows 에 곧바로 하는 작은 일들 — 알림 상자, 등록부(파일 연결), 창을 내려 둔 채 띄우기.
 
 #![allow(unsafe_code)]
 
@@ -18,7 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::association::Registry;
 
-/// 제목(C# 의 알림 상자는 모두 「계약 목록」).
+/// 알림 상자의 제목 — 모두 「계약 목록」.
 pub const CAPTION: &str = "계약 목록";
 
 /// NUL 로 끝나는 UTF-16. 글 안의 NUL 은 그 앞에서 끊긴다.
@@ -37,7 +37,7 @@ pub enum Icon {
     Error,
 }
 
-/// `MessageBox.Show(text, "계약 목록", OK, icon)`. `owner` 가 있으면 그 창의 모달이다.
+/// 알림 상자를 띄운다. `owner` 가 있으면 그 창의 모달이다.
 pub fn message_box(owner: Option<HWND>, text: &str, icon: Icon) {
     let style: MESSAGEBOX_STYLE = MB_OK
         | match icon {
@@ -57,7 +57,7 @@ pub fn message_box(owner: Option<HWND>, text: &str, icon: Icon) {
     }
 }
 
-/// WPF 의 `ShowActivated = false` + `WindowState = Minimized` — 작업 표시줄에 내려 둔 채 띄우고 앞에 내지 않는다.
+/// 창을 작업 표시줄에 내려 둔 채 띄우고 앞에 내지 않는다.
 pub fn show_minimized_without_activating(window: HWND) {
     // SAFETY: 살아 있는 창 손잡이.
     unsafe {
@@ -197,7 +197,7 @@ impl Registry for CurrentUser {
     }
 }
 
-/// 오류 기록 한 줄의 때 — C# `DateTime.Now.ToString("O")`(지역 시각과 그 차이).
+/// 오류 기록 한 줄의 때 — 왕복 가능한 꼴(지역 시각과 UTC 와의 차이).
 pub fn now_round_trip() -> String {
     let now = pclm_home::win::local_now();
     let utc = std::time::SystemTime::now()
@@ -219,7 +219,7 @@ pub fn now_round_trip() -> String {
     )
 }
 
-/// C# `App.Report` — 오류를 기록 파일에 덧붙이고 알림 상자로 보인다. 기록조차 못 남기면 알림 상자로 족하다.
+/// 오류를 기록 파일에 덧붙이고 알림 상자로 보인다. 기록조차 못 남기면 알림 상자로 족하다.
 pub fn report(log: &Path, message: &str, detail: &str) {
     let entry = format!("{}\r\n{detail}\r\n\r\n", now_round_trip());
     if let Some(parent) = log.parent() {

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { call } from "./bridge";
-import { 관리이름, 받침, 브라우저이름, 열기대상, 을를, 이가, type SourceState } from "./Nara";
+import { 과와, 은는, 을를, 이가 } from "./flow/josa";
+import { 관리이름, 브라우저이름, 열기대상, type SourceState } from "./Nara";
 import type { ImportResult, MirrorField, MirrorMissing, MirrorShot, MirrorState, MirrorStatus, MirrorTab, ScreenRow, SupportedScreen } from "./types";
 
 /**
@@ -13,9 +14,6 @@ import type { ImportResult, MirrorField, MirrorMissing, MirrorShot, MirrorState,
  * <p>비출 것이 없으면(연결 안 됨 · 준비 전 · 열람 창 · 열린 탭 없음) 레일로 접혀 작업 영역에 폭을 돌려준다. 사람이 접을
  * 수도 있다 — 그렇게 접은 것만 다시 켜도 남고, 탭이 새로 들어와도 사람이 펼칠 때까지 접힌 채로 둔다.</p>
  */
-
-const 과와 = (w: string) => w + (받침(w) ? "과" : "와");
-const 은는 = (w: string) => w + (받침(w) ? "은" : "는");
 
 type Tone = "new" | "wait" | "saved" | "off" | "error" | "reading";
 
@@ -143,7 +141,7 @@ export function Dock(props: Props) {
   const [sameOpen, setSameOpen] = useState(false);
   /**
    * 내보내기를 요청한 탭 — 요청할 때 그 탭이 알던 마지막 결과의 때. 그보다 늦은 결과가 오면 그것이 이 요청의 답이다.
-   * 끝내 오지 않으면(옛 확장) 요청했다는 말로 끝난다 — 성공이라고 단정하지 않는다.
+   * 끝내 오지 않으면(탭이 닫힘 · 연결 끊김) 요청했다는 말로 끝난다 — 성공이라고 단정하지 않는다.
    */
   const exportWait = useRef<Record<string, number>>({});
 
@@ -342,9 +340,9 @@ export function Dock(props: Props) {
               <h2 id="dock-title" tabIndex={-1}>지금 보는 화면</h2>
               {connected && <>
                 <button type="button" className={`dock-icon${follow ? " on" : ""}`} aria-pressed={follow} aria-label={`${이름} 따라가기`}
-                  title={`${이름} 따라가기 — ${이름}에서 탭을 옮기면 여기도 따라 옮깁니다`} onClick={toggleFollow}>{아이콘.follow}</button>
+                  title={`${이름} 따라가기`} onClick={toggleFollow}>{아이콘.follow}</button>
                 <button type="button" className="dock-icon" aria-label={wide ? "좁히기" : "넓히기"}
-                  title={wide ? "지금 보는 화면 좁히기" : "지금 보는 화면 넓히기 — 화면과 저장될 칸을 나란히 봅니다"} onClick={() => props.onWide(!wide)}>
+                  title={wide ? "지금 보는 화면 좁히기" : "지금 보는 화면 넓히기"} onClick={() => props.onWide(!wide)}>
                   {wide ? 아이콘.narrow : 아이콘.wide}
                 </button>
               </>}
@@ -391,7 +389,7 @@ export function Dock(props: Props) {
           {!connected ? <Unknown readOnly={readOnly} kind={source.kind} name={이름} />
             : !mirror ? <Quiet title={`${이름}의 나라장터 탭을 읽는 중입니다.`} />
             : !mirror.reporting ? <Quiet title="확장이 아직 열린 탭을 보내지 않았습니다."
-                sub={source.kind === "stale" ? "확장이 옛 판이라 열린 탭을 보내지 않습니다. 새 판으로 바뀌면 여기에 나타납니다." : "잠시 뒤 자동으로 나타납니다."} />
+                sub={source.kind === "stale" ? "확장이 옛 판이라 열린 탭을 보내지 않습니다." : undefined} />
             : !shown ? mirror.settings?.siteAccess === false
               ? (
                 <section className="dock-note" aria-label="사이트 접근 안 됨">
@@ -400,7 +398,7 @@ export function Dock(props: Props) {
                   <button type="button" className="action" onClick={() => manage(mirror.settings!.browser)}>{관리이름(mirror.settings!.browser)}</button>
                 </section>
               )
-              : <Quiet title={`${이름}에 열린 나라장터 탭이 없습니다.`} sub="나라장터에서 접수·공고·계약 상세 화면을 열면 여기에 나타납니다." />
+              : <Quiet title={`${이름}에 열린 나라장터 탭이 없습니다.`} sub="나라장터에서 접수·공고·계약서 화면을 열면 여기에 나타납니다." />
             : wide && (shown.state === "unsupported" || shot) ? (
               <Wide key={`${shown.id}|${shown.readAt}`} name={이름} tab={shown} shot={shot} reading={reading} done={isDone ? finished! : undefined}
                 picks={picks} onChoose={choose} screens={mirror.screens ?? []} onExport={() => command(shown, "export")}
@@ -443,11 +441,11 @@ function Quiet({ title, sub }: { title: string; sub?: string }) {
 }
 
 function Unknown({ readOnly, kind, name }: { readOnly: boolean; kind: SourceState["kind"]; name: string }) {
-  const [title, sub] = readOnly
-    ? ["열람 창에서는 지금 보는 화면을 쓸 수 없습니다.", "작업자료 창에서 보고 가져올 수 있습니다."]
+  const [title, sub]: [string, string | undefined] = readOnly
+    ? ["열람 창에서는 지금 보는 화면을 쓸 수 없습니다.", undefined]
     : kind === "offline"
       ? [`${이가(name)} 연결되어 있지 않아 지금 보는 화면을 알 수 없습니다.`,
-        `${을를(name)} 켜면 자동으로 다시 연결되고, 앞에 있는 나라장터 탭이 여기에 나타납니다.`]
+        `${을를(name)} 켜면 다시 연결됩니다.`]
       : [`확장을 준비하면 ${name}에서 보고 있는 나라장터 화면이 여기에 나타납니다.`, "확장 준비는 왼쪽 「나라장터」에서 합니다."];
   return <Quiet title={title} sub={sub} />;
 }
@@ -487,16 +485,16 @@ function 판정(shot: MirrorShot, done: Done | undefined) {
       ? `${shot.kind} ${shot.base}에 ${을를(`차수 ${shot.seq}`)} 추가했습니다.`
       : done.cleared + done.kept > 0
         ? `${done.cleared ? `고친 값 ${done.cleared}개를 지우고 ` : ""}${done.kept
-          ? `${done.cleared ? `나머지 ${done.kept}개는` : "고친 값은"} 그대로 두고 저장했습니다. 수집 원값은 따로 남아 있습니다.`
+          ? `${done.cleared ? `나머지 ${done.kept}개는` : "고친 값은"} 그대로 두고 저장했습니다.`
           : "저장했습니다."}`
         : done.status === "저장됨" ? "작업자료와 같아 바뀐 것이 없습니다."
         : `작업자료의 차수 ${shot.seq}에 화면의 값을 썼습니다.`
     : {
-      "새 자료": `작업자료에 아직 없는 ${shot.kind}입니다.`,
+      "새 자료": "",
       "새 차수": `작업자료에는 차수 ${shot.latestSeq}까지 있습니다. ${cmpHead} 다른 칸 ${changed}개, 품목 ${shot.itemChanges}행.`,
       "검토 대기": `작업자료의 차수 ${shot.seq}에서 사람이 고친 칸 ${overrides}개가 화면의 값과 다릅니다.`,
       "바뀐 칸": `작업자료의 ${cmpHead} 다른 칸 ${changed}개, 품목 ${shot.itemChanges}행.`,
-      "저장됨": `작업자료의 ${cmpHead} 같은 화면입니다.`,
+      "저장됨": "",
     }[shot.status];
   return { verdict, tone, sub };
 }
@@ -510,7 +508,7 @@ const 자리말 = (p: MirrorShot["place"][number]) =>
 
 /** 차수 한 줄의 말. */
 const 차수말 = (r: MirrorShot["rounds"][number], done: Done | undefined) =>
-  r.state === "ghost" ? (done ? `방금 저장 · ${done.at}` : "가져오면 여기에 추가됩니다")
+  r.state === "ghost" ? (done ? `방금 저장 · ${done.at}` : "")
   : r.state === "current" ? (done ? "이 화면 · 방금 다시 저장" : `이 화면${r.savedOn ? ` · ${r.savedOn} 저장` : ""}`)
   : r.savedOn ? `${r.savedOn} 저장` : "";
 
@@ -760,11 +758,9 @@ function Footer({ wide, shot, done, importing, reading, busy, picks, onChooseAll
     : shot.status === "새 차수" ? `가져오면 ${이가(`차수 ${shot.seq}`)} 새로 추가됩니다`
     : shot.changes > 0 ? `가져오면 ${shot.changes}곳이 바뀝니다`
     : "작업자료와 같습니다";
-  const sub = done ? `「들어온 자료」와 ${shot.kind} 목록에서 볼 수 있습니다.`
+  const sub = done ? ""
     : k > 0 ? `${k}곳을 지웁니다. 지운 값은 되돌릴 수 없습니다.`
     : kept > 0 ? `${kept}곳은 그대로 둡니다.`
-    : shot.status === "새 차수" ? `${은는(`차수 ${shot.latestSeq}`)} 그대로 남습니다.`
-    : shot.status === "저장됨" ? "가져와도 바뀌는 것이 없습니다."
     : "";
   const label = importing ? `${shot.number} 가져오는 중…`
     : k > 0 ? `${k}곳을 지우고 ${shot.number} 가져오기`
@@ -886,11 +882,7 @@ function Wide({ name, tab, shot, reading, done, picks, onChoose, screens, onExpo
     shot.fields.some((f) => f.kind === "changed" && f.sources.some((s) => 잇는가(s, r.source))) ||
     shot.items.some((it) => (it.before !== null || it.added) && it.source !== "" && it.source === r.source));
 
-  const caption = supported
-    ? `${name}에서 보고 있는 화면을 줄인 것입니다. 칸에 마우스를 올리거나 Tab·화살표로 옮기면 오른쪽에 그 값이 저장될 칸이 강조됩니다.` +
-      (fallback ? ` 가리키는 칸이 없으면 ${을를(fallback.column)} 강조합니다.` : "") +
-      (cmpHead ? ` 파란 점은 ${cmpHead} 다른 칸입니다.` : "")
-    : `${name}에서 보고 있는 화면을 줄인 것입니다.`;
+  const caption = `${name}에서 보고 있는 화면을 줄인 것입니다.`;
 
   return (
     <div className="wide-grid" onMouseLeave={leave} onBlur={blur}>
@@ -1104,7 +1096,7 @@ function WideShot({ shot, tab, reading, done, picks, onChoose, on, link, stopOf 
 
       {otherMissing.length > 0 && (
         <section aria-label="화면에 없는 행" className="wide-card">
-          <div className="wide-card-head"><h3>화면에 없는 행</h3><span className="soft tiny">그대로 두는 것이 기본입니다</span></div>
+          <div className="wide-card-head"><h3>화면에 없는 행</h3></div>
           {otherMissing.map((m, i) => (
             <KeepRow key={m.choiceId} label={없는행(m)} value={없는행값(m)} note="화면에 없음" action="지우기"
               choiceId={m.choiceId} picks={picks} onChoose={onChoose} index={i} />

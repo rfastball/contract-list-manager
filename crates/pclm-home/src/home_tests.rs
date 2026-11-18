@@ -1,4 +1,4 @@
-//! C# `HomeTests` 의 시작 몫 — 처음 실행·옛 자료 옮겨 오기·쪽지가 있을 때·백업·쪽지 쓰기·시작 화면의 두 동작. 쪽지 읽기·
+//! 시작 몫 — 처음 실행·쪽지가 있을 때·백업·쪽지 쓰기·시작 화면의 두 동작. 쪽지 읽기·
 //! 호스트의 묶기·출처·잠금은 `tests.rs` 에 있다.
 //!
 //! 지키는 것은 "오류 없이 다른 자료를 여는 일" 이다. 홈은 모두 임시 폴더다. 값은 전부 지어낸 것이다.
@@ -53,7 +53,7 @@ pub(crate) fn count(path: &Path, table: &str) -> i64 {
         .unwrap()
 }
 
-/// 표지가 생기기 전의 v19 작업자료(C# `PclmFileTests.LegacyV19`). `sql` 을 더 심는다. 뷰는 짓지 않는다 — 판올림이
+/// 표지가 생기기 전의 v19 작업자료. `sql` 을 더 심는다. 뷰는 짓지 않는다 — 판올림이
 /// 먼저 치운다.
 pub(crate) fn legacy(path: &Path, sql: &str) -> PathBuf {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -83,12 +83,12 @@ pub(crate) fn work(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-fn submission(root: &Root, name: &str) -> PathBuf {
+fn backup(root: &Root, name: &str) -> PathBuf {
     let source = work(&root.join(&format!("작업-{name}")));
     pclm_file::snapshot(
         &Database::new(&source, Access::Write),
         &root.join(name),
-        PclmRole::SUBMISSION,
+        PclmRole::BACKUP,
         false,
         &SystemEnv,
     )
@@ -96,7 +96,7 @@ fn submission(root: &Root, name: &str) -> PathBuf {
 }
 
 fn same(a: &Path, b: &Path) -> bool {
-    dotnet::eq_ignore_case(&a.to_string_lossy(), &b.to_string_lossy())
+    paths::eq_ignore_case(&a.to_string_lossy(), &b.to_string_lossy())
 }
 
 fn ready(state: HomeState) -> (Database, Vec<String>) {
@@ -128,9 +128,7 @@ fn names(folder: &Path) -> Vec<String> {
 
 fn fixture() -> (Root, Home) {
     let root = Root::new("home");
-    let home =
-        Home::with_legacy_roaming_config(root.join("홈"), root.join("roaming").join("config.json"))
-            .unwrap();
+    let home = Home::new(root.join("홈")).unwrap();
     (root, home)
 }
 
@@ -163,8 +161,8 @@ fn 처음_실행은_홈에_작업자료와_쪽지를_짓는다() {
 
 /// 지금 작업자료인지는 쪽지가 가리키는 파일로만 가린다 — 열람 창의 「다른 자료 열어 보기」 가 이것으로 내 작업자료를
 /// 거절한다.
-/// C# 은 연결 풀이 쓰기 연결을 마지막에 닫아 `-wal`·`-shm` 을 걷는다 — 신원을 읽는 읽기 전용 연결이 마지막에 닫히면
-/// 빈 곁파일이 남아 시작한 홈이 C# 과 갈린다(동등성 `resolve-*.tree` 가 잡았다).
+/// 쓰기 연결이 마지막에 닫혀야 `-wal`·`-shm` 이 걷힌다 — 신원을 읽는 읽기 전용 연결이 마지막에 닫히면
+/// 빈 곁파일이 남는다.
 #[test]
 fn 시작은_작업자료_곁에_wal_shm_을_남기지_않는다() {
     let (root, home) = fixture();
@@ -180,11 +178,13 @@ fn 시작은_작업자료_곁에_wal_shm_을_남기지_않는다() {
     let (again, _) = ready(home.resolve().unwrap());
     assert_eq!(sidecars(again.path()), 0, "쪽지가 가리키는 작업자료");
 
-    let moved = Home::new(root.join("옛 자료가 있는 홈")).unwrap();
-    legacy_request(&moved.directory().join("pclm.db"));
-    let (upgraded, notes) = ready(moved.resolve().unwrap());
+    let old = Home::new(root.join("옛 판 작업자료의 홈")).unwrap();
+    let legacy = legacy_request(&root.join("작업").join("옛것.pclm"));
+    old.write_config(&legacy, &info(&legacy).dataset_id.unwrap(), None)
+        .unwrap();
+    let (upgraded, notes) = ready(old.resolve().unwrap());
     assert_eq!(notes.len(), 1);
-    assert_eq!(sidecars(upgraded.path()), 0, "옛 자료를 옮겨 와 올리기");
+    assert_eq!(sidecars(upgraded.path()), 0, "옛 판 작업자료를 올리기");
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn 지금_작업자료인지는_쪽지가_가리키는_파일로_가린다() {
     let (database, _) = ready(home.resolve().unwrap());
 
     assert!(home.is_active_workfile(database.path()));
-    let upper = dotnet::to_upper_invariant(&database.path().to_string_lossy());
+    let upper = paths::to_upper_invariant(&database.path().to_string_lossy());
     assert!(home.is_active_workfile(Path::new(&upper)));
     assert!(!home.is_active_workfile(&work(&root.join("다른 작업자료.pclm"))));
     assert!(
@@ -203,101 +203,11 @@ fn 지금_작업자료인지는_쪽지가_가리키는_파일로_가린다() {
     );
 }
 
-/// 지금 쓰는 사람의 옛 자료는 **사본을 떠서** 올린다. 원본은 바이트 하나 바뀌지 않고, 신원은 이어진다.
-#[test]
-fn 홈의_옛_자료는_사본을_떠_올리고_원본은_그대로_둔다() {
-    let (_root, home) = fixture();
-    let legacy = legacy_request(&home.directory().join("pclm.db"));
-    let before = hash(&legacy);
-    let legacy_id = info(&legacy).dataset_id;
-
-    let (database, notes) = ready(home.resolve().unwrap());
-
-    assert_eq!(notes.len(), 1);
-    assert!(notes[0].contains("옛 자료를 옮겨 왔습니다"));
-    assert!(notes[0].contains("원본은 그대로"));
-    assert!(same(database.path(), &home.default_workfile()));
-
-    let copied = info(&home.default_workfile());
-    assert_eq!(
-        (
-            copied.kind,
-            copied.role.as_deref(),
-            copied.version,
-            &copied.dataset_id
-        ),
-        (
-            PclmKind::Ok,
-            Some(PclmRole::WORK),
-            schema::VERSION,
-            &legacy_id
-        )
-    );
-    assert_eq!(count(&home.default_workfile(), "request_series"), 1);
-    assert_eq!(home.read_config().config.unwrap().dataset_id, legacy_id);
-
-    assert_eq!(hash(&legacy), before);
-    assert_eq!(info(&legacy).version, schema::BASELINE_VERSION);
-
-    // 원본이 백업 노릇을 하므로 사본을 다시 백업하지 않는다. 임시 이름도 남지 않는다.
-    assert!(!home.backups_directory().exists());
-    assert!(!names(home.directory()).iter().any(|n| n.ends_with(".tmp")));
-}
-
-#[test]
-fn 옛_쪽지의_data_dir_자료가_홈의_옛_자료보다_먼저다() {
-    let (root, home) = fixture();
-    let roaming = legacy_request(&root.join("옛 자리").join("pclm.db"));
-    legacy_request(&home.directory().join("pclm.db"));
-    std::fs::create_dir_all(root.join("roaming")).unwrap();
-    std::fs::write(
-        root.join("roaming").join("config.json"),
-        serde_json::json!({ "dataDir": root.join("옛 자리") }).to_string(),
-    )
-    .unwrap();
-    let before = hash(&roaming);
-
-    let (_, notes) = ready(home.resolve().unwrap());
-
-    assert_eq!(notes.len(), 1);
-    assert!(notes[0].contains(&*roaming.to_string_lossy()));
-    assert_eq!(
-        info(&roaming).dataset_id,
-        info(&home.default_workfile()).dataset_id
-    );
-    assert_eq!(hash(&roaming), before);
-}
-
-/// 이사가 밀려 있던 옛 쪽지는 dataDir 이 아직 빈 새 자리다. 자료는 옛 자리(pendingMoveFrom)에 있다.
-#[test]
-fn 옛_쪽지에_밀린_이사가_있으면_옛_자리의_자료를_옮겨_온다() {
-    let (root, home) = fixture();
-    let real = legacy_request(&root.join("옛 자리").join("pclm.db"));
-    std::fs::create_dir_all(root.join("roaming")).unwrap();
-    std::fs::write(
-        root.join("roaming").join("config.json"),
-        serde_json::json!({ "dataDir": root.join("아직 빈 새 자리"), "pendingMoveFrom": root.join("옛 자리") })
-            .to_string(),
-    )
-    .unwrap();
-
-    let (_, notes) = ready(home.resolve().unwrap());
-
-    assert_eq!(notes.len(), 1);
-    assert!(notes[0].contains(&*real.to_string_lossy()));
-    assert_eq!(
-        info(&real).dataset_id,
-        info(&home.default_workfile()).dataset_id
-    );
-    assert!(!root.join("아직 빈 새 자리").exists());
-}
-
 #[test]
 fn 홈에_이미_작업자료가_있으면_덮지_않고_그것을_쓴다() {
     let (_root, home) = fixture();
     let existing = work(&home.default_workfile());
     let id = info(&existing).dataset_id;
-    legacy_request(&home.directory().join("pclm.db"));
 
     let (_, notes) = ready(home.resolve().unwrap());
 
@@ -306,21 +216,20 @@ fn 홈에_이미_작업자료가_있으면_덮지_않고_그것을_쓴다() {
     assert_eq!(home.read_config().config.unwrap().dataset_id, id);
 }
 
-/// 받을 수 없는 옛 자료가 있으면 빈 자료를 세우지 않는다 — 사람은 자료가 사라진 줄 안다.
+/// 홈에 남은 옛 판의 `pclm.db` 는 건네받지 않는다 — 처음 실행은 그것을 보지 않고 새 작업자료를 짓는다.
 #[test]
-fn 받을_수_없는_옛_자료가_있으면_짓지_않고_멈춘다() {
+fn 처음_실행은_홈의_pclm_db_를_보지_않는다() {
     let (_root, home) = fixture();
-    std::fs::create_dir_all(home.directory()).unwrap();
-    rusqlite::Connection::open(home.directory().join("pclm.db"))
-        .unwrap()
-        .execute_batch("CREATE TABLE t (x); PRAGMA user_version = 11;")
-        .unwrap();
+    let stray = legacy_request(&home.directory().join("pclm.db"));
+    let before = hash(&stray);
 
-    let (kind, _, _) = problem(home.resolve().unwrap());
+    let (database, notes) = ready(home.resolve().unwrap());
 
-    assert_eq!(kind, ProblemKind::TooOld);
-    assert!(!home.default_workfile().exists());
-    assert_eq!(home.read_config().state, ConfigState::Missing);
+    assert!(notes.is_empty());
+    assert!(same(database.path(), &home.default_workfile()));
+    assert_eq!(count(&home.default_workfile(), "request_series"), 0);
+    assert_ne!(info(&home.default_workfile()).dataset_id, info(&stray).dataset_id);
+    assert_eq!(hash(&stray), before);
 }
 
 // ── 쪽지가 있을 때 ───────────────────────────────────────────────────
@@ -329,9 +238,8 @@ fn 받을_수_없는_옛_자료가_있으면_짓지_않고_멈춘다() {
 fn 깨진_쪽지로는_기본_자리로_물러나지_않고_아무것도_짓지_않는다() {
     let (_root, home) = fixture();
     std::fs::create_dir_all(home.directory()).unwrap();
-    legacy_request(&home.directory().join("pclm.db"));
     for (text, why) in [
-        ("{ 깨진", "쪽지의 JSON 을 읽지 못했습니다."),
+        ("{ 깨진", "JSON 을 읽지 못했습니다."),
         (
             r#"{ "version": 2, "workfile": "C:\\x.pclm", "datasetId": "ab" }"#,
             "모르는 형식(version 2)입니다.",
@@ -342,7 +250,7 @@ fn 깨진_쪽지로는_기본_자리로_물러나지_않고_아무것도_짓지_
         ),
         (
             r#"{ "version": 1, "datasetId": "ab" }"#,
-            "작업자료 경로(workfile)가 없습니다.",
+            "작업자료 경로가 없습니다.",
         ),
     ] {
         std::fs::write(home.config_path(), text).unwrap();
@@ -354,8 +262,7 @@ fn 깨진_쪽지로는_기본_자리로_물러나지_않고_아무것도_짓지_
         assert_eq!(
             message,
             format!(
-                "작업자료를 가리키는 설정 파일을 읽을 수 없습니다({why}). 다른 자료를 대신 열지 않습니다 — \
-                 작업자료 파일을 찾아 주거나 새로 만드세요."
+                "작업자료를 가리키는 설정 파일을 읽을 수 없습니다({why}). 작업자료 파일을 찾거나 새로 만드세요."
             )
         );
         assert!(!home.default_workfile().exists());
@@ -384,18 +291,18 @@ fn 쪽지가_가리키는_파일이_없으면_아무것도_짓지_않는다() {
 }
 
 #[test]
-fn 쪽지가_제출본을_가리키면_그_자리에서_열지_않는다() {
+fn 쪽지가_백업을_가리키면_그_자리에서_열지_않는다() {
     let (root, home) = fixture();
-    let submission = submission(&root, "제출.pclm");
-    home.write_config(&submission, &info(&submission).dataset_id.unwrap(), None)
+    let backup = backup(&root, "받은.pclm");
+    home.write_config(&backup, &info(&backup).dataset_id.unwrap(), None)
         .unwrap();
-    let before = hash(&submission);
+    let before = hash(&backup);
 
     let (kind, _, message) = problem(home.resolve().unwrap());
 
     assert_eq!(kind, ProblemKind::NotWork);
-    assert!(message.contains("제출본"));
-    assert_eq!(hash(&submission), before);
+    assert!(message.contains("백업"));
+    assert_eq!(hash(&backup), before);
 }
 
 /// 판올림은 되돌릴 수 없다. 올리기 전에 홈의 backups 에 한 벌 뜬다(ADR-033).
@@ -548,10 +455,10 @@ fn 쪽지는_임시_파일을_남기지_않고_통째로_바뀐다() {
     assert_eq!(names(home.directory()), ["config.json"]);
 }
 
-/// 쪽지의 글은 C# `JsonSerializer`(들여쓰기·`UnicodeRanges.All`)와 같은 바이트다 — 한글은 그대로, `retired` 는 있을
+/// 쪽지의 글은 옛 판이 쓴 쪽지(들여쓰기)와 같은 바이트다 — 한글은 그대로, `retired` 는 있을
 /// 때만, 줄바꿈은 CR LF, 끝에 줄바꿈 없음.
 #[test]
-fn 쪽지의_글은_csharp_과_같은_꼴이다() {
+fn 쪽지의_글은_옛_판과_같은_꼴이다() {
     let (_root, home) = fixture();
     home.write_config(Path::new(r"C:\지어냄\계약자료.pclm"), "ab", None)
         .unwrap();
@@ -577,11 +484,11 @@ fn 쪽지의_글은_csharp_과_같은_꼴이다() {
 #[test]
 fn 파일_찾기는_작업자료만_받는다() {
     let (root, home) = fixture();
-    let submission = submission(&root, "제출.pclm");
-    let Err(Error::PclmFile(error)) = home.adopt(&submission) else {
-        panic!("제출본은 받지 않는다");
+    let backup = backup(&root, "받은.pclm");
+    let Err(Error::PclmFile(error)) = home.adopt(&backup) else {
+        panic!("백업은 받지 않는다");
     };
-    assert!(error.message.contains("제출본"));
+    assert!(error.message.contains("백업"));
     assert!(matches!(
         home.adopt(&root.join("없음.pclm")),
         Err(Error::PclmFile(_))

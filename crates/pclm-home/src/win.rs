@@ -1,7 +1,8 @@
-//! 이 층이 부르는 Windows API — 이름 붙은 뮤텍스, 로컬 시각, 프로세스 시작 시각, 폴더 변화 알림, 등록부, 난수.
+//! 이 층이 부르는 Windows API — 이름 붙은 뮤텍스, 로컬 시각, 프로세스 시작 시각, 폴더 변화 알림, 등록부, 문서 폴더, 난수.
+//! 위 층(다리 · 창)이 같이 쓰는 작은 손(`wide` · `wide_path` · `expand` · `documents`)도 여기 하나만 둔다.
 //!
-//! 의존을 더하지 않으려고(`windows-sys` 등) 쓰는 몇 개만 직접 선언한다. C# 이 `Mutex`·`DateTime.Now`·
-//! `Process.StartTime`·`FileSystemWatcher`·`Registry`·`Guid.NewGuid` 로 하던 일이다. 모두 Windows 전용이다 —
+//! 의존을 더하지 않으려고(`windows-sys` 등) 쓰는 몇 개만 직접 선언한다.
+//! 모두 Windows 전용이다 —
 //! 다른 체계에서는 이 크레이트가 지어지지 않는다(대조와 배포가 Windows 에서만 돈다).
 
 #![allow(unsafe_code)]
@@ -120,11 +121,34 @@ const DRIVE_REMOTE: u32 = 4;
 /// FILETIME(1601-01-01 부터 100ns)과 유닉스 시각(1970-01-01)의 차.
 const FILETIME_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
 
-fn wide(text: &str) -> Vec<u16> {
+#[link(name = "shell32")]
+unsafe extern "system" {
+    fn SHGetKnownFolderPath(id: *const Guid, flags: u32, token: Handle, path: *mut *mut u16) -> i32;
+}
+
+#[link(name = "ole32")]
+unsafe extern "system" {
+    fn CoTaskMemFree(memory: *const c_void);
+}
+
+#[repr(C)]
+struct Guid(u32, u16, u16, [u8; 8]);
+
+/// FOLDERID_Documents {FDD39AD0-238F-46AF-ADB4-6C85480369C7}.
+const FOLDERID_DOCUMENTS: Guid = Guid(
+    0xFDD3_9AD0,
+    0x238F,
+    0x46AF,
+    [0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7],
+);
+
+/// NUL 로 끝나는 UTF-16.
+pub fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn wide_path(path: &Path) -> Vec<u16> {
+/// 경로를 NUL 로 끝나는 UTF-16 으로.
+pub fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str()
         .encode_wide()
         .chain(std::iter::once(0))
@@ -137,7 +161,7 @@ fn wide_path(path: &Path) -> Vec<u16> {
 #[derive(Debug)]
 pub struct NamedMutex(Handle);
 
-// SAFETY: 커널 손잡이는 어느 실마리에서 닫아도 된다. 소유를 따지지 않고 있음만 본다(C# `Home.TryLock`).
+// SAFETY: 커널 손잡이는 어느 실마리에서 닫아도 된다. 소유를 따지지 않고 있음만 본다.
 unsafe impl Send for NamedMutex {}
 // SAFETY: 손잡이로 하는 일은 닫기뿐이다.
 unsafe impl Sync for NamedMutex {}
@@ -168,7 +192,7 @@ pub fn create_mutex(name: &str) -> io::Result<Option<NamedMutex>> {
 
 // ── 시각 ─────────────────────────────────────────────────────
 
-/// `DateTime.Now` — 이 기계의 로컬 시각(밀리초까지).
+/// 이 기계의 로컬 시각(밀리초까지).
 pub fn local_now() -> LocalDateTime {
     let mut t = SystemTime::default();
     // SAFETY: 구조체는 SYSTEMTIME 과 같은 꼴이다.
@@ -184,7 +208,7 @@ pub fn local_now() -> LocalDateTime {
     }
 }
 
-/// 그 UTC 순간의 이 기계 시간대 차이(초) — `DateTime.ToLocalTime()`·`DateTime.Now` 가 읽는 자리를 Windows 의
+/// 그 UTC 순간의 이 기계 시간대 차이(초) — Windows 의
 /// `SystemTimeToTzSpecificLocalTime`(지금 시간대, 그날의 일광 절약 규칙)으로 잰다. SYSTEMTIME 이 담지 못하는 해(1601 앞)거나
 /// 실패하면 0 이다.
 pub fn local_offset_seconds(unix_seconds: i64) -> i64 {
@@ -228,7 +252,7 @@ pub fn local_offset_seconds(unix_seconds: i64) -> i64 {
     local.unix_seconds() - unix_seconds
 }
 
-/// UTC 순간(유닉스 초와 그 아래 100ns 단위) → .NET `ToString("O")` 꼴 `yyyy-MM-ddTHH:mm:ss.fffffffZ`.
+/// UTC 순간(유닉스 초와 그 아래 100ns 단위) → 왕복 시각 꼴 `yyyy-MM-ddTHH:mm:ss.fffffffZ`.
 pub fn format_round_trip(unix_seconds: i64, ticks: u32) -> String {
     let at = LocalDateTime {
         year: 1970,
@@ -255,7 +279,7 @@ fn filetime_to_unix(ticks: u64) -> (i64, u32) {
     ((since / 10_000_000) as i64, (since % 10_000_000) as u32)
 }
 
-/// 이 프로세스가 시작한 UTC 순간(유닉스 초, 100ns) — `Process.GetCurrentProcess().StartTime.ToUniversalTime()`.
+/// 이 프로세스가 시작한 UTC 순간(유닉스 초, 100ns).
 pub fn process_start() -> io::Result<(i64, u32)> {
     // SAFETY: 의사 손잡이는 닫지 않아도 된다.
     let process = unsafe { GetCurrentProcess() };
@@ -273,7 +297,7 @@ fn start_of(process: Handle) -> io::Result<(i64, u32)> {
 }
 
 /// 그 번호의 프로세스가 아직 도는가, 돈다면 그 시작 순간. 없거나 끝났으면 `Ok(None)`, 들여다볼 수 없으면(권한) 오류 —
-/// C# `ExtensionPresence.Running` 이 `Process.GetProcessById` 로 가리던 세 갈래다.
+/// 세 갈래다.
 pub fn running_process_start(pid: i32) -> io::Result<Option<(i64, u32)>> {
     let Ok(pid) = u32::try_from(pid) else {
         return Ok(None);
@@ -295,7 +319,7 @@ pub fn running_process_start(pid: i32) -> io::Result<Option<(i64, u32)>> {
         if unsafe { GetExitCodeProcess(process, &mut code) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        // .NET 의 GetProcessById 는 끝난 프로세스(손잡이만 남은 것)를 목록에서 찾지 못한다.
+        // 끝난 프로세스(손잡이만 남은 것)는 없는 것으로 친다.
         if code != STILL_ACTIVE {
             return Ok(None);
         }
@@ -308,7 +332,7 @@ pub fn running_process_start(pid: i32) -> io::Result<Option<(i64, u32)>> {
 
 // ── 파일 ─────────────────────────────────────────────────────
 
-/// `File.Move(source, target, overwrite)` — .NET 처럼 `MoveFileExW(COPY_ALLOWED [| REPLACE_EXISTING])`. 덮지 않기로 했는데
+/// 파일을 옮긴다 — `MoveFileExW(COPY_ALLOWED [| REPLACE_EXISTING])`. 덮지 않기로 했는데
 /// 그 자리에 파일이 있으면 실패한다(`std::fs::rename` 은 언제나 덮는다).
 pub fn move_file(source: &Path, target: &Path, overwrite: bool) -> io::Result<()> {
     let (from, to) = (wide_path(source), wide_path(target));
@@ -325,7 +349,7 @@ pub fn move_file(source: &Path, target: &Path, overwrite: bool) -> io::Result<()
     Ok(())
 }
 
-/// `new DriveInfo(root).DriveType == DriveType.Network` — `GetDriveTypeW` 가 `DRIVE_REMOTE` 인가. `root` 는 `C:\` 꼴.
+/// 네트워크 드라이브인가 — `GetDriveTypeW` 가 `DRIVE_REMOTE` 인가. `root` 는 `C:\` 꼴.
 pub fn is_remote_drive(root: &str) -> bool {
     let root = wide(root);
     // SAFETY: 뿌리는 NUL 로 끝나는 UTF-16 이고 호출 동안 산다.
@@ -350,7 +374,7 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
     buffer
 }
 
-/// `Guid.NewGuid().ToString("N")` — 판 4·RFC 4122 변형 비트를 단 무작위 식별자, 소문자 16진 32자.
+/// 무작위 식별자 — 판 4·RFC 4122 변형 비트를 단 무작위 식별자, 소문자 16진 32자.
 pub fn new_guid_n() -> String {
     let mut bytes = random_bytes::<16>();
     bytes[6] = (bytes[6] & 0x0F) | 0x40;
@@ -360,7 +384,7 @@ pub fn new_guid_n() -> String {
 
 // ── 폴더 변화 알림 ─────────────────────────────────────────────
 
-/// 폴더의 파일 이름 변화(생김·지움·이름 바꿈)를 기다리는 것 — `FileSystemWatcher(NotifyFilters.FileName)` 의 자리.
+/// 폴더의 파일 이름 변화(생김·지움·이름 바꿈)를 기다리는 것.
 /// [`ChangeWait::stop`] 으로 기다림을 깨운다.
 pub struct ChangeWait {
     change: Option<Handle>,
@@ -381,8 +405,8 @@ pub enum Woke {
 }
 
 impl ChangeWait {
-    /// 폴더를 지켜보기 시작한다. 알림을 걸 수 없으면(폴더가 없음 등) 깨우기만 되고 시간이 다 될 때까지 잔다 — C# 도
-    /// 감시가 실패하면 짧은 간격의 다시 보기만 남는다.
+    /// 폴더를 지켜보기 시작한다. 알림을 걸 수 없으면(폴더가 없음 등) 깨우기만 되고 시간이 다 될 때까지 잔다 —
+    /// 짧은 간격의 다시 보기만 남는다.
     pub fn new(folder: &Path) -> io::Result<ChangeWait> {
         // SAFETY: 이름 없는 수동 재설정 사건.
         let stop = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
@@ -440,8 +464,8 @@ impl Drop for ChangeWait {
 
 // ── 등록부 ───────────────────────────────────────────────────
 
-/// `Registry.CurrentUser.OpenSubKey(subKey)?.GetValue("")` 가 글이면 그 글. 키가 없거나 글이 아니면 `None`.
-/// `REG_EXPAND_SZ` 는 .NET 처럼 환경 변수를 펴서 낸다.
+/// 현재 사용자 아래 `sub_key` 키의 기본 값이 글이면 그 글. 키가 없거나 글이 아니면 `None`.
+/// `REG_EXPAND_SZ` 는 환경 변수를 펴서 낸다.
 pub fn current_user_default_value(sub_key: &str) -> io::Result<Option<String>> {
     const HKEY_CURRENT_USER: isize = 0x8000_0001_u32 as i32 as isize;
     let sub = wide(sub_key);
@@ -517,7 +541,23 @@ pub fn current_user_default_value(sub_key: &str) -> io::Result<Option<String>> {
     result
 }
 
-fn expand(text: &str) -> String {
+/// 문서 폴더 — 구하지 못하면 `None`.
+pub fn documents() -> Option<String> {
+    let mut path: *mut u16 = std::ptr::null_mut();
+    // SAFETY: 받은 글은 NUL 로 끝나고, 성공 · 실패와 상관없이 CoTaskMemFree 로 놓는다.
+    unsafe {
+        let ok = SHGetKnownFolderPath(&FOLDERID_DOCUMENTS, 0, std::ptr::null_mut(), &mut path) >= 0;
+        let text = (ok && !path.is_null()).then(|| {
+            let length = (0..).take_while(|&i| *path.add(i) != 0).count();
+            String::from_utf16_lossy(std::slice::from_raw_parts(path, length))
+        });
+        CoTaskMemFree(path as *const c_void);
+        text
+    }
+}
+
+/// 환경 변수(`%NAME%`)를 편다. 펴지 못하면 받은 글 그대로.
+pub fn expand(text: &str) -> String {
     let source = wide(text);
     // SAFETY: 크기를 묻는다(대상 NULL, 크기 0).
     let needed = unsafe { ExpandEnvironmentStringsW(source.as_ptr(), std::ptr::null_mut(), 0) };
@@ -540,7 +580,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn round_trip_format_matches_dotnet() {
+    fn round_trip_format_has_seven_fraction_digits() {
         assert_eq!(
             format_round_trip(1_794_020_645, 1_234_567),
             "2026-11-07T03:04:05.1234567Z"

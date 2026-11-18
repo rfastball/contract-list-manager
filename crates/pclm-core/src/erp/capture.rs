@@ -1,4 +1,4 @@
-//! 수집 저장(C# `Erp/ErpCapture.cs`) — 확장과 파일 입력의 같은 미리보기·저장 경계. 부분 열 갱신만 허용한다.
+//! 수집 저장 — 확장과 파일 입력의 같은 미리보기·저장 경계. 부분 열 갱신만 허용한다.
 //!
 //! - **미리보기(inspect)** 는 원천을 매핑으로 옮겨 지금 쌓인 값과 견주고(ADR-041), 사람이 고른 것과 지금 상태의 지문
 //!   (`baseToken`)을 낸다. 사람이 고친 칸의 덮개는 이번 수집이 그 아래 값을 바꿀 때만 묻는다 — 같은 트랜잭션의
@@ -24,6 +24,7 @@ use super::element;
 use super::explicit_links::{self, ReferenceState};
 use super::mapping::{self, MappedDocument, MappedRow, MappingSet, Pairs, set_pair};
 use super::screens;
+use super::wire::is_guid;
 use crate::env::Env;
 use crate::error::{Error, Result};
 use crate::json::{self, Encoder};
@@ -33,15 +34,15 @@ use crate::storage::schema;
 use crate::storage::store::{self, EntityRef, face_key, face_view, json_of, text_of};
 use crate::text::eq_ignore_case;
 
-/// 확장이 한 번에 보낼 수 있는 요청의 크기(C# `NativeMessaging.MaxRequestBytes`). 인사가 알린다.
+/// 확장이 한 번에 보낼 수 있는 요청의 크기. 인사가 알린다.
 pub const MAX_REQUEST_BYTES: i64 = 768 * 1024;
 
-/// 쓰기 잠금 안에서 쪽지가 아직 이 파일을 가리키는가(C# `Home.PointsAt`). 확장 호스트와 창의 저장이 넣는다.
+/// 쓰기 잠금 안에서 쪽지가 아직 이 파일을 가리키는가. 확장 호스트와 창의 저장이 넣는다.
 pub trait Destination {
     fn points_at(&self, database_path: &Path, dataset_id: &str) -> bool;
 }
 
-/// 업무 호스트의 인사가 하는 일(C# `ExtensionStatus.DiskVersion`·`RecordContact`). 적지 못해도 인사는 성공이다 —
+/// 업무 호스트의 인사가 하는 일(디스크의 확장 판 읽기와 접촉 기록). 적지 못해도 인사는 성공이다 —
 /// 구현이 오류를 삼킨다.
 pub trait ExtensionHello {
     /// 디스크에 풀어 둔 확장의 판. 모르면 `None`.
@@ -52,8 +53,8 @@ pub trait ExtensionHello {
 
 // ── 입력과 미리보기 ─────────────────────────────────────────────
 
-/// C# `CaptureInput` — 수집 입력. `screen` 은 그 자료를 읽은 화면의 메뉴 번호다(비었으면 쓰지 않는다 — 같은 요청의
-/// 지문이 예전과 같다). `data` 가 `None` 이면 C# 의 기본값 `JsonElement`(Undefined)다.
+/// 수집 입력. `screen` 은 그 자료를 읽은 화면의 메뉴 번호다(비었으면 쓰지 않는다 — 같은 요청의
+/// 지문이 예전과 같다). `data` 가 `None` 이면 자료가 없는 요청이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptureInput {
     pub profile: Option<String>,
@@ -99,7 +100,7 @@ impl CaptureInput {
         self.profile.as_deref().unwrap_or("")
     }
 
-    /// `Mapping.Json` 으로 쓴 꼴. `screen` 은 있을 때만 쓴다.
+    /// 매핑 JSON 꼴(웹 옵션, 기본 인코더)로 쓴 것. `screen` 은 있을 때만 쓴다.
     pub fn to_value(&self) -> Value {
         let mut out = Map::new();
         out.insert("profile".into(), text_value(&self.profile));
@@ -114,28 +115,20 @@ impl CaptureInput {
         Value::Object(out)
     }
 
-    /// `element.Deserialize<CaptureInput>(Mapping.Json)` — 모르는 칸은 거절하고 이름은 대소문자를 가리지 않는다.
+    /// 매핑 JSON 꼴로 읽는다 — 모르는 칸은 거절하고 이름은 대소문자를 가리지 않는다.
     /// JSON `null` 이면 `None`.
     ///
-    /// 거절 글은 System.Text.Json 의 글 앞부분만 흉내 낸다 — .NET 은 원문의 줄·바이트 자리를 덧붙인다(같게 내지 않는다).
+    /// 꼴이 다른 칸은 그 길을 대어 거절한다.
     pub fn from_json(value: &Value) -> Result<Option<CaptureInput>> {
-        const TYPE: &str = "Pclm.Core.Erp.CaptureInput";
         let map = match value {
             Value::Null => return Ok(None),
             Value::Object(map) => map,
-            _ => {
-                return Err(Error::invalid(format!(
-                    "The JSON value could not be converted to {TYPE}. Path: $"
-                )));
-            }
+            _ => return Err(Error::invalid("수집 입력의 모양이 다릅니다: $")),
         };
-        let converted = |path: &str, to: &str| {
-            Error::invalid(format!(
-                "The JSON value could not be converted to {to}. Path: $.{path}"
-            ))
-        };
+        let converted =
+            |path: &str| Error::invalid(format!("수집 입력의 모양이 다릅니다: $.{path}"));
         let text = |key: &str, v: &Value| -> Result<Option<String>> {
-            json::read_string(v).map_err(|_| converted(key, "System.String"))
+            json::read_string(v).map_err(|_| converted(key))
         };
         let ints = |key: &str, v: &Value| -> Result<Option<Vec<(String, i32)>>> {
             match v {
@@ -146,15 +139,12 @@ impl CaptureInput {
                         let n = json::read_i32(item)
                             .ok()
                             .flatten()
-                            .ok_or_else(|| converted(&format!("{key}.{k}"), "System.Int32"))?;
+                            .ok_or_else(|| converted(&format!("{key}.{k}")))?;
                         Ok((k.clone(), n))
                     })
                     .collect::<Result<Vec<_>>>()
                     .map(Some),
-                _ => Err(converted(
-                    key,
-                    "System.Collections.Generic.Dictionary`2[System.String,System.Int32]",
-                )),
+                _ => Err(converted(key)),
             }
         };
         let mut input = CaptureInput {
@@ -186,7 +176,7 @@ impl CaptureInput {
                 Some(6) => input.screen = text(key, v)?,
                 _ => {
                     return Err(Error::invalid(format!(
-                        "The JSON property '{key}' could not be mapped to any .NET member contained in type '{TYPE}'."
+                        "수집 입력에 모르는 칸이 있습니다: {key}"
                     )));
                 }
             }
@@ -203,7 +193,7 @@ impl CaptureInput {
     }
 }
 
-/// C# `CaptureChange` — 칸 하나의 바뀜. `field` 가 `__row` 면 화면에 없는 행(지우기를 고른다), `__override` 면 사람이
+/// 칸 하나의 바뀜. `field` 가 `__row` 면 화면에 없는 행(지우기를 고른다), `__override` 면 사람이
 /// 고친 칸의 덮개(걷기를 고른다)다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureChange {
@@ -232,14 +222,14 @@ impl CaptureChange {
     }
 }
 
-/// 업무 표의 줄 하나 — 열 이름과 저장된 값, 열 차례 그대로(Dapper 의 동적 행).
+/// 업무 표의 줄 하나 — 열 이름과 저장된 값, 열 차례 그대로.
 pub type StoredRow = Vec<(String, Sql)>;
 
 fn stored_value<'r>(row: &'r StoredRow, name: &str) -> Option<&'r Sql> {
     row.iter().find(|(k, _)| k == name).map(|(_, v)| v)
 }
 
-/// 동적 행을 System.Text.Json 으로 쓴 꼴 — 사전처럼 열 이름이 열쇠다.
+/// 저장된 행을 JSON 객체로 — 사전처럼 열 이름이 열쇠다.
 pub fn stored_row_value(row: &StoredRow) -> Value {
     Value::Object(
         row.iter()
@@ -258,7 +248,7 @@ fn line_of(row: &StoredRow) -> i64 {
     }
 }
 
-/// C# `RowMatch` — 작업자료에 있는 줄과 짝이 없는 화면의 줄. `existing` 은 그 표의 지금 줄들이다.
+/// 작업자료에 있는 줄과 짝이 없는 화면의 줄. `existing` 은 그 표의 지금 줄들이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RowMatch {
     pub id: String,
@@ -281,7 +271,7 @@ impl RowMatch {
     }
 }
 
-/// C# `CapturePreview` — 미리보기. `entity` 는 `본번호-차수`(계약도 줄표를 넣는다 — C# 그대로).
+/// 미리보기. `entity` 는 `본번호-차수`(계약도 줄표를 넣는다).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturePreview {
     pub dataset_id: String,
@@ -331,7 +321,7 @@ pub enum SaveResult {
 
 impl SaveResult {
     /// 부르는 쪽이 받는 꼴. 처음 저장은 다리·확장(Web) 꼴이라 연결의 칸이 camelCase 이고, 재전송은 적어 둔 영수증
-    /// (옵션 없는 직렬화 — 연결의 칸이 PascalCase)이다. C# 이 그렇게 갈린다.
+    /// (옵션 없는 직렬화 — 연결의 칸이 PascalCase)이다 — 옛 판이 써 둔 영수증과 맞추려고 둘이 갈린다.
     pub fn to_value(&self) -> Value {
         match self {
             SaveResult::Stored(stored) => stored.to_value(false),
@@ -405,18 +395,15 @@ fn choices_value(choices: &Choices) -> Value {
     )
 }
 
-/// `Deserialize<Dictionary<string, string>>(Mapping.Json)` — 값은 글(또는 null). null 은 빈 글로 든다.
+/// 매핑 JSON 꼴로 읽은 글 사전 — 값은 글(또는 null). null 은 빈 글로 든다.
 pub fn choices_from_json(value: &Value) -> Result<Choices> {
-    let map = value.as_object().ok_or_else(|| {
-        Error::invalid("The JSON value could not be converted to System.Collections.Generic.Dictionary`2[System.String,System.String]. Path: $")
-    })?;
+    let map = value
+        .as_object()
+        .ok_or_else(|| Error::invalid("고른 값의 모양이 다릅니다: $"))?;
     map.iter()
         .map(|(k, v)| {
-            let text = json::read_string(v).map_err(|_| {
-                Error::invalid(format!(
-                    "The JSON value could not be converted to System.String. Path: $.{k}"
-                ))
-            })?;
+            let text = json::read_string(v)
+                .map_err(|_| Error::invalid(format!("고른 값의 모양이 다릅니다: $.{k}")))?;
             Ok((k.clone(), text.unwrap_or_default()))
         })
         .collect()
@@ -424,30 +411,7 @@ pub fn choices_from_json(value: &Value) -> Result<Choices> {
 
 // ── 다리 ─────────────────────────────────────────────
 
-/// `Guid.TryParse` — `N`(32자)·`D`(줄표)·`B`(중괄호)·`P`(괄호) 꼴. 앞뒤 공백은 걷는다.
-pub(crate) fn is_guid(text: Option<&str>) -> bool {
-    let Some(text) = text else { return false };
-    let t = text.trim();
-    let hex = |s: &str| s.bytes().all(|b| b.is_ascii_hexdigit());
-    let dashed = |s: &str| {
-        let parts: Vec<&str> = s.split('-').collect();
-        parts.len() == 5
-            && parts
-                .iter()
-                .zip([8, 4, 4, 4, 12])
-                .all(|(p, n)| p.len() == n && hex(p))
-    };
-    (t.len() == 32 && hex(t))
-        || dashed(t)
-        || t.strip_prefix('{')
-            .and_then(|s| s.strip_suffix('}'))
-            .is_some_and(dashed)
-        || t.strip_prefix('(')
-            .and_then(|s| s.strip_suffix(')'))
-            .is_some_and(dashed)
-}
-
-/// C# `ErpCapture` — 바인딩된 파일 하나 위의 수집 경계. 연산마다 연결을 새로 연다.
+/// 바인딩된 파일 하나 위의 수집 경계. 연산마다 연결을 새로 연다.
 pub struct ErpCapture<'a> {
     path: PathBuf,
     env: &'a dyn Env,
@@ -493,7 +457,11 @@ impl<'a> ErpCapture<'a> {
         &self.path
     }
 
-    /// `ErpCapture.Open` — 쓰기 연결. 파일을 만들거나 판올림하지 않는다.
+    pub(crate) fn env(&self) -> &'a dyn Env {
+        self.env
+    }
+
+    /// 쓰기 연결. 파일을 만들거나 판올림하지 않는다.
     pub(crate) fn open(&self) -> Result<Connection> {
         if !self.path.is_file() {
             return Err(Error::invalid(
@@ -506,10 +474,10 @@ impl<'a> ErpCapture<'a> {
         if version == i64::from(schema::VERSION) {
             return Ok(c);
         }
-        Err(Error::invalid("메인 프로그램에서 DB 판올림을 완료하세요."))
+        Err(Error::invalid("메인 프로그램에서 작업자료 판올림을 완료하세요."))
     }
 
-    /// `ErpCapture.Dispatch` — 확장의 요청 하나에 답한다. 답은 확장이 받는 꼴(Web, camelCase)이다. `files_allowed` 는
+    /// 확장의 요청 하나에 답한다. 답은 확장이 받는 꼴(Web, camelCase)이다. `files_allowed` 는
     /// 창의 고급 도구처럼 파일 입력·작업자료가 아닌 파일을 받는가.
     ///
     /// 자료 자리를 보거나 옮기는 요청(`dataLocation`·`stageDataMove`)은 받지 않는다(ADR-032).
@@ -537,12 +505,12 @@ impl<'a> ErpCapture<'a> {
             || get_int32(element::get(request, "protocolVersion")?)? != 2
         {
             return Err(Error::invalid(
-                "앱과 확장을 함께 업데이트하세요. 프로토콜 2가 필요합니다.",
+                "앱과 확장을 함께 업데이트하세요.",
             ));
         }
         let c = self.open()?;
         let dataset_id = query_single_text(&c, "SELECT dataset_id FROM pclm_file")?;
-        // 확장이 쓰는 것은 작업자료뿐이다. 제출본·취합본·백업은 그때의 기록이다.
+        // 확장이 쓰는 것은 작업자료뿐이다. 백업은 그때의 기록이다.
         if !files_allowed && query_single_text(&c, "SELECT role FROM pclm_file")? != PclmRole::WORK
         {
             return Err(Error::invalid(
@@ -551,14 +519,14 @@ impl<'a> ErpCapture<'a> {
         }
         let method = element::string(element::get(request, "method")?)?;
         if method == Some("hello") {
+            let hello = element::get(request, "params")?;
             let mapping = mapping::active_in(&c)?;
             let mut extension_version = None;
             if let Some(extension) = self.extension {
                 extension_version = extension.disk_version();
-                // 옛 확장은 params 없이 인사한다. 적지 못해도 인사는 성공이다.
-                if let Some(Value::Object(hello)) = request.get("params")
-                    && let (Some(Value::String(version)), Some(Value::String(browser))) =
-                        (hello.get("extensionVersion"), hello.get("browser"))
+                // 모양이 틀린 판·브라우저는 적지 않는다. 적지 못해도 인사는 성공이다.
+                if let (Some(Value::String(version)), Some(Value::String(browser))) =
+                    (hello.get("extensionVersion"), hello.get("browser"))
                 {
                     extension.record_contact(version, browser);
                 }
@@ -590,112 +558,25 @@ impl<'a> ErpCapture<'a> {
         if element::string(element::get(args, "datasetId")?)? != Some(dataset_id.as_str()) {
             return Err(Error::invalid("저장 대상이 바뀌었습니다. 다시 확인하세요."));
         }
-        if method == Some("captureStatus") {
-            let id = element::string(element::get(args, "captureId")?)?;
-            let stored: Option<String> = c
-                .query_row(
-                    "SELECT result_json FROM erp_capture WHERE capture_id=?1",
-                    [id],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            return Ok(match stored {
-                None => {
-                    let mut out = Map::new();
-                    out.insert("status".into(), Value::String("not_found".into()));
-                    Value::Object(out)
-                }
-                Some(text) => parse_stored(&text)?,
-            });
-        }
         drop(c);
-        let input = CaptureInput::from_json(element::get(args, "snapshot")?)?.ok_or_else(|| {
-            Error::invalid("Object reference not set to an instance of an object.")
-        })?;
-        if !files_allowed && input.scope.as_deref() != Some("live") {
-            return Err(Error::invalid(
-                "확장은 실제 화면 수집만 저장할 수 있습니다.",
-            ));
-        }
-        if method == Some("inspect") {
-            let view = self.inspect(&input)?;
-            let mut document = Map::new();
-            document.insert(
-                "rows".into(),
-                Value::Array(
-                    view.document
-                        .rows
-                        .iter()
-                        .take(1)
-                        .map(MappedRow::to_value)
-                        .collect(),
-                ),
-            );
-            let mut out = Map::new();
-            out.insert("datasetId".into(), Value::String(view.dataset_id));
-            out.insert("entity".into(), Value::String(view.entity));
-            out.insert("entityType".into(), Value::String(view.entity_type));
-            out.insert("baseToken".into(), Value::String(view.base_token));
-            out.insert(
-                "mappingRevision".into(),
-                Value::String(view.mapping_revision),
-            );
-            out.insert("document".into(), Value::Object(document));
-            out.insert("itemCount".into(), view.item_count.into());
-            out.insert(
-                "changes".into(),
-                Value::Array(
-                    view.changes
-                        .iter()
-                        .filter(|ch| ch.conflict)
-                        .map(CaptureChange::to_value)
-                        .collect(),
-                ),
-            );
-            out.insert(
-                "unmatched".into(),
-                Value::Array(
-                    view.unmatched
-                        .iter()
-                        .map(|r| {
-                            let mut o = Map::new();
-                            o.insert("id".into(), Value::String(r.id.clone()));
-                            o.insert("table".into(), Value::String(r.table.clone()));
-                            o.insert("sourceKey".into(), Value::String(r.source_key.clone()));
-                            Value::Object(o)
-                        })
-                        .collect(),
-                ),
-            );
-            return Ok(Value::Object(out));
-        }
-        if method == Some("capture") {
-            let base_token = element::string(element::get(args, "baseToken")?)?.map(str::to_string);
-            let capture_id = element::string(element::get(args, "captureId")?)?.map(str::to_string);
-            let choices = match args.get("choices") {
-                Some(choices) => choices_from_json(choices)?,
-                None => Vec::new(),
-            };
-            return Ok(self
-                .save(
-                    &input,
-                    base_token.as_deref(),
-                    capture_id.as_deref(),
-                    &choices,
-                )?
-                .to_value());
+        // 문서 만들기 패널(ADR-045) — 저장은 아래 save 를, 읽기는 exe 에 실린 통합 뷰를 탄다(ADR-047).
+        if method == Some("document") {
+            return super::document::dispatch(self, args, files_allowed);
         }
         Err(Error::invalid("지원하지 않는 요청입니다."))
     }
 
-    /// `ErpCapture.Inspect` — 미리보기. 읽기 사진 한 벌 안에서 견주고, 써 본 것은 되돌린다.
+    /// 미리보기. 읽기 사진 한 벌 안에서 견주고, 써 본 것은 되돌린다.
+    ///
+    /// 덮개가 있으면 savepoint 안에서 써 보므로 처음부터 쓰기 잠금을 쥔다 — 읽고 나서 올리면 그 사이 남이 커밋한 WAL 에서
+    /// busy_timeout 없이 곧장 SQLITE_BUSY_SNAPSHOT 으로 떨어진다(`mirror::project` 와 같은 까닭).
     pub fn inspect(&self, input: &CaptureInput) -> Result<CapturePreview> {
         let c = self.open()?;
-        let tx = Transaction::new_unchecked(&c, TransactionBehavior::Deferred)?;
+        let tx = Transaction::new_unchecked(&c, TransactionBehavior::Immediate)?;
         inspect_in(&tx, self.env, input)
     }
 
-    /// `ErpCapture.Save` — 쓰기 잠금 안에서 미리보기를 다시 하고, 지문과 고른 것이 맞을 때만 쓴다.
+    /// 쓰기 잠금 안에서 미리보기를 다시 하고, 지문과 고른 것이 맞을 때만 쓴다.
     pub fn save(
         &self,
         input: &CaptureInput,
@@ -710,7 +591,7 @@ impl<'a> ErpCapture<'a> {
         let c = self.open()?;
         let tx = Transaction::new_unchecked(&c, TransactionBehavior::Immediate)?;
         // 대상 확인을 쓰기 잠금 안에서 다시 한다. 창은 나가는 자료의 쓰기 잠금을 쥔 채 쪽지를 고치므로(ADR-032),
-        // 잠금을 얻은 뒤 읽은 쪽지가 지금의 진실이다. 옮긴 뒤의 옛 파일은 역할이 retired 라 여기서 막힌다.
+        // 잠금을 얻은 뒤 읽은 쪽지가 지금의 진실이다. 옮겨 간 옛 파일은 역할이 retired 라 여기서 막힌다.
         let (dataset_id, role): (String, String) =
             tx.query_row("SELECT dataset_id, role FROM pclm_file", [], |r| {
                 Ok((r.get(0)?, r.get(1)?))
@@ -906,7 +787,20 @@ impl<'a> ErpCapture<'a> {
     }
 }
 
-fn reply(request_id: &Option<String>, ok: bool, key: &str, value: Value) -> Value {
+/// 요청의 `snapshot` — 확장이 보낸 것이면 실제 화면 범위(`live`)만 받는다.
+pub(crate) fn live_input(args: &Value, files_allowed: bool) -> Result<CaptureInput> {
+    let input = CaptureInput::from_json(element::get(args, "snapshot")?)?
+        .ok_or_else(super::tools::null_input)?;
+    if !files_allowed && input.scope.as_deref() != Some("live") {
+        return Err(Error::invalid(
+            "확장은 실제 화면 수집만 저장할 수 있습니다.",
+        ));
+    }
+    Ok(input)
+}
+
+/// 확장이 받는 답의 꼴 — 호스트가 이것을 그대로 한 줄 JSON 으로 보낸다.
+pub(crate) fn reply(request_id: &Option<String>, ok: bool, key: &str, value: Value) -> Value {
     let mut out = Map::new();
     out.insert("protocolVersion".into(), 2.into());
     out.insert("requestId".into(), text_value(request_id));
@@ -915,46 +809,43 @@ fn reply(request_id: &Option<String>, ok: bool, key: &str, value: Value) -> Valu
     Value::Object(out)
 }
 
-/// `JsonElement.GetInt32()` — 수가 아니면 꼴 오류, `int` 로 나타낼 수 없으면 `FormatException`.
+/// 32비트 정수 — 수가 아니면 꼴 오류, 정수가 아니거나 범위를 벗어나면 그 수를 대어 거절한다.
 fn get_int32(value: &Value) -> Result<i32> {
     match value {
         Value::Number(n) => {
             let text = n.to_string();
             let body = text.strip_prefix('-').unwrap_or(&text);
+            let wrong = || Error::invalid(format!("정수가 아닙니다: {text}"));
             if body.bytes().all(|b| b.is_ascii_digit()) {
-                text.parse().map_err(|_| {
-                    Error::invalid("One of the identified items was in an invalid format.")
-                })
+                text.parse().map_err(|_| wrong())
             } else {
-                Err(Error::invalid(
-                    "One of the identified items was in an invalid format.",
-                ))
+                Err(wrong())
             }
         }
-        other => Err(element::wrong_type("Number", other)),
+        other => Err(element::wrong_type("수", other)),
     }
 }
 
-/// Dapper `QuerySingle<string>` — 줄이 꼭 하나여야 한다.
+/// 줄이 꼭 하나여야 한다.
 fn query_single_text(c: &Connection, sql: &str) -> Result<String> {
     let mut statement = c.prepare(sql)?;
     let mut rows = statement.query([])?;
     let Some(first) = rows.next()? else {
-        return Err(Error::invalid("Sequence contains no elements"));
+        return Err(Error::invalid("있어야 할 줄이 없습니다."));
     };
     let value = text_of(first.get_ref(0)?).unwrap_or_default();
     if rows.next()?.is_some() {
-        return Err(Error::invalid("Sequence contains more than one element"));
+        return Err(Error::invalid("한 줄이어야 할 결과가 여러 줄입니다."));
     }
     Ok(value)
 }
 
-/// 적어 둔 영수증 글(`JsonSerializer.Deserialize<JsonElement>`).
+/// 적어 둔 영수증 글을 JSON 값으로 읽는다.
 fn parse_stored(text: &str) -> Result<Value> {
-    json::parse(text).map_err(|_| Error::invalid("저장된 수집 영수증을 읽지 못했습니다."))
+    json::parse(text).map_err(|_| Error::invalid("저장된 수집 기록을 읽지 못했습니다."))
 }
 
-/// `ErpCapture.ScreenOf` — 그 입력을 읽은 화면의 메뉴 번호. 실제 화면은 확장이 실은 번호뿐이다. 파일은 실린 번호(수집
+/// 그 입력을 읽은 화면의 메뉴 번호. 실제 화면은 확장이 실은 번호뿐이다. 파일은 실린 번호(수집
 /// 이력의 재검토)가 있으면 그것을, 없으면 원본 JSON 의 메뉴 경로를 본다. 모르면 `None`.
 pub fn screen_of(input: &CaptureInput) -> Option<String> {
     if input.scope.as_deref() == Some("live") || input.screen.is_some() {
@@ -966,7 +857,7 @@ pub fn screen_of(input: &CaptureInput) -> Option<String> {
     }
 }
 
-/// `ErpCapture.RevisionView` — 덮개 아래 값을 읽는 뷰. 계약면 뷰는 최신 차수만 내므로 차수 뷰에서 읽는다. 접수는 차수
+/// 덮개 아래 값을 읽는 뷰. 계약면 뷰는 최신 차수만 내므로 차수 뷰에서 읽는다. 접수는 차수
 /// 뷰가 없다.
 pub fn revision_view(entity_type: &str) -> &'static str {
     match entity_type {
@@ -976,12 +867,11 @@ pub fn revision_view(entity_type: &str) -> &'static str {
     }
 }
 
-/// `ErpCapture.RowId`.
 pub fn row_id(row: &MappedRow) -> String {
     format!("{}/{}", row.table, row.source_key)
 }
 
-/// `ErpCapture.ReadRows` — 그 차수의 그 표 줄들, 열 차례 그대로.
+/// 그 차수의 그 표 줄들, 열 차례 그대로.
 pub(crate) fn read_rows(
     c: &Connection,
     doc: &MappedDocument,
@@ -1009,7 +899,7 @@ pub(crate) fn read_rows(
     Ok(rows)
 }
 
-/// `ErpCapture.Inspect(connection, transaction, input)` — 열린 트랜잭션 안의 미리보기. 저장과 창의 투영이 같은 것을 쓴다.
+/// 열린 트랜잭션 안의 미리보기. 저장과 창의 투영이 같은 것을 쓴다.
 pub(crate) fn inspect_in(
     c: &Connection,
     env: &dyn Env,
@@ -1018,7 +908,7 @@ pub(crate) fn inspect_in(
     let mapping = mapping::active_in(c)?;
     let revision = mapping::revision(&mapping);
     if input.mapping_revision.as_deref() != Some(revision.as_str()) {
-        return Err(Error::invalid("매핑이 바뀌었습니다. 다시 확인하세요."));
+        return Err(Error::invalid("수집 규칙이 바뀌었습니다. 다시 확인하세요."));
     }
     if !matches!(input.scope.as_deref(), Some("file" | "live")) {
         return Err(Error::invalid("수집 범위가 잘못되었습니다."));
@@ -1279,7 +1169,7 @@ fn preview_of(
     })
 }
 
-/// `ErpCapture.Underlying` — 덮개마다 그 덮개 하나만 걷었을 때 계약면에 보이는 값. 읽지 못하면 `None`.
+/// 덮개마다 그 덮개 하나만 걷었을 때 계약면에 보이는 값. 읽지 못하면 `None`.
 fn underlying(
     c: &Connection,
     doc: &MappedDocument,
@@ -1325,7 +1215,7 @@ fn underlying(
     Ok(values)
 }
 
-/// `ErpCapture.Write` — 업무 표에 수집값을 쓴다. 저장과, 덮개 아래 값이 바뀌는지 미리 보는 미리보기가 함께 쓴다 — 두
+/// 업무 표에 수집값을 쓴다. 저장과, 덮개 아래 값이 바뀌는지 미리 보는 미리보기가 함께 쓴다 — 두
 /// 벌이면 미리 본 모습과 실제 저장이 갈린다. `field_override` 에는 쓰지 않는다(ADR-020).
 pub(crate) fn write<'c>(
     c: &Connection,
@@ -1432,7 +1322,7 @@ pub(crate) fn write<'c>(
     Ok(())
 }
 
-/// `ErpCapture.RemoveRow` — 화면에 없는 행(`__row`)을 지운다 — 업무 표의 줄과 그 추적을 함께.
+/// 화면에 없는 행(`__row`)을 지운다 — 업무 표의 줄과 그 추적을 함께.
 pub(crate) fn remove_row(
     c: &Connection,
     doc: &MappedDocument,
@@ -1452,7 +1342,7 @@ pub(crate) fn remove_row(
     Ok(())
 }
 
-/// `ErpCapture.TotalsMatch` — 계약의 머리 총액이 품목 금액의 합(10원 미만 버림)과 같은가. 계약이 아니면 늘 같다. 저장이
+/// 계약의 머리 총액이 품목 금액의 합(10원 미만 버림)과 같은가. 계약이 아니면 늘 같다. 저장이
 /// 이것으로 막고, 창의 투영이 같은 셈으로 미리 알린다.
 pub(crate) fn totals_match(c: &Connection, doc: &MappedDocument) -> Result<bool> {
     use super::decimal::Decimal;

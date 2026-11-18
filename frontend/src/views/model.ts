@@ -120,7 +120,7 @@ export function nameProblems(columns: Col[]): Map<string, string> {
   for (const c of columns) {
     const name = c.name.trim();
     if (!name) out.set(c.id, "이름을 적으세요.");
-    else if ((count.get(name) ?? 0) > 1) out.set(c.id, `‘${name}’ 이름이 겹칩니다. 서식은 이름으로 값을 찾습니다.`);
+    else if ((count.get(name) ?? 0) > 1) out.set(c.id, `‘${name}’ 이름이 겹칩니다.`);
   }
   return out;
 }

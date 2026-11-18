@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, getConfig, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Grid, parseClipboard } from "./Grid";
 import type { BatchChange, Row, Sheet, SheetExport, UserColumn } from "./types";
 
@@ -12,7 +12,8 @@ beforeAll(() => {
 });
 
 // globals 를 켜지 않아 자동 정리가 걸리지 않는다. 안 치우면 렌더가 쌓여 요소가 겹쳐 잡힌다.
-afterEach(cleanup);
+const asyncWrapper = getConfig().asyncWrapper;
+afterEach(() => { cleanup(); vi.useRealTimers(); configure({ asyncWrapper }); });
 
 const columns: UserColumn[] = [
   { entityType: "contract", fieldName: "담당", kind: "text", choices: [] },
@@ -157,7 +158,14 @@ describe("Grid", () => {
   });
 
   it("범위의 「원래 값 복원…」 이 바꿀 것이 없거나 「복사」 가 성공하면 띠에 보이는 글로 알리고 잠시 뒤 걷는다 — 오류와 가른다", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers();
+    // RTL의 기본 microtask 정리는 Jest 시계만 진행하므로 Vitest 시계도 직접 연결한다.
+    configure({ asyncWrapper: async callback => {
+      const result = await callback();
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      return result;
+    } });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onBatchEdit = vi.fn().mockResolvedValue(undefined);
     draw({ onBatchEdit });
     await user.click(cell(0, "김담당"));
@@ -171,7 +179,8 @@ describe("Grid", () => {
     expect(screen.getAllByRole("status").some((s) => s.textContent === "변경할 값이 없습니다.")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
     // 몇 초 뒤 보이는 글은 걷히고, 읽어 주던 알림은 남는다.
-    await waitFor(() => expect(seen()).toBeNull(), { timeout: 5000 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(seen()).toBeNull();
     expect(screen.getAllByRole("status").some((s) => s.textContent === "변경할 값이 없습니다.")).toBe(true);
 
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -179,7 +188,7 @@ describe("Grid", () => {
     await user.click(screen.getByRole("button", { name: "복사" }));
     expect(writeText).toHaveBeenCalledWith("김담당\r\n");
     await waitFor(() => expect(seen()?.textContent).toBe("복사했습니다."));
-  }, 10000);
+  });
 
   /** 통합 표에는 계약이 아직 없는 줄이 정상으로 섞인다 — 그 줄 하나 때문에 행 선택 일괄 입력 전체가 막히면 안 된다. */
   it("행 선택 일괄 입력은 계약 없는 줄을 건너뛰고 몇 줄인지 보이며, 범위 선택은 그대로 엄격하다", async () => {
@@ -268,9 +277,8 @@ describe("Grid", () => {
     await user.clear(screen.getByRole("textbox"));
     await user.keyboard("이담당{Enter}");
 
-    // 바깥이 sheet 를 제자리에서 갈아 끼운다 — 표 전체를 다시 읽지 않는다.
-    data.rows[0]["담당"] = "이담당";
-    redraw({ ...data, rows: [...data.rows] });
+    // 바깥이 sheet 를 제자리에서 갈아 끼운다 — 표 전체를 다시 읽지 않고, App 처럼 고친 줄만 새 객체로 바꾼다.
+    redraw({ ...data, rows: data.rows.map((r, i) => (i === 0 ? { ...r, 담당: "이담당" } : r)) });
 
     expect(cell(0, "이담당")).toBeTruthy();
   });
@@ -505,6 +513,25 @@ describe("Grid", () => {
     expect(screen.getByRole("textbox", { name: "담당, 2행 R26TA0200" })).toHaveProperty("value", "");
   });
 
+  it("화살표로 커서를 옮기면 떠난 칸과 닿은 칸만 다시 그린다", async () => {
+    const user = userEvent.setup();
+    draw();
+    await user.click(cell(0, "김담당"));
+
+    // 칸은 그릴 때마다 값이 수인지 정규식으로 묻는다 — 그 물음에 넘어온 값이 곧 다시 그린 칸이다.
+    const test = RegExp.prototype.test;
+    const drawn: string[] = [];
+    const spy = vi.spyOn(RegExp.prototype, "test").mockImplementation(function (this: RegExp, value: string) {
+      if (this.source === "^[\\d,.\\-]+$") drawn.push(value);
+      return test.call(this, value);
+    });
+    try { await user.keyboard("{ArrowDown}"); } finally { spy.mockRestore(); }
+
+    // 둘째 줄의 담당은 빈 값이라 묻지 않는다. 나머지 열네 칸은 다시 그려지지 않아야 한다.
+    expect(drawn).toContain("김담당");
+    expect(drawn.filter((v) => v !== "김담당")).toEqual([]);
+  });
+
   it("Tab은 표를 벗어나고, 머리글·편집·Shift+Tab은 각 위치로 돌아온다", async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn().mockResolvedValue(undefined);
@@ -544,7 +571,7 @@ describe("Grid", () => {
 
   it.each([
     { name: "금액", values: ["900", "1,000", "80"], expected: ["80", "900", "1,000"] },
-    { name: "숫자·글 혼합", values: ["2", "10", "1a"], expected: ["10", "1a", "2"] },
+    { name: "수가 절반 이하인 글", values: ["2", "10a", "1b"], expected: ["10a", "1b", "2"] },
     { name: "안전 정수 범위 밖", values: ["9007199254740993", "9007199254740992", "9007199254740994"], expected: ["9007199254740992", "9007199254740993", "9007199254740994"] },
   ])("$name 열은 일관된 순서로 정렬한다", async ({ values, expected }) => {
     const user = userEvent.setup();
@@ -557,6 +584,20 @@ describe("Grid", () => {
     expect(shown()).toEqual(expected);
     await user.click(screen.getByText("계약금액"));
     expect(shown()).toEqual([...expected].reverse());
+  });
+
+  it("금액 열에 수로 읽히지 않는 칸이 섞여도 수로 정렬하고, 그 칸은 수 뒤 · 빈 칸은 맨 뒤에 둔다", async () => {
+    const user = userEvent.setup();
+    const { data, redraw } = draw();
+    const values = ["9,000", "-", "164,872,340", ""];
+    redraw({ ...data, rows: [...data.rows, { ...data.rows[0], 계약번호: "R26TA0400" }].map((r, i) => ({ ...r, 계약금액: values[i] })) });
+
+    await user.click(screen.getByText("계약금액"));
+    const shown = () => screen.getAllByRole("row").slice(1)
+      .map((r) => within(r).getAllByRole("gridcell")[3].textContent);
+    expect(shown()).toEqual(["9,000", "164,872,340", "-", "—"]);
+    await user.click(screen.getByText("계약금액"));
+    expect(shown()).toEqual(["164,872,340", "9,000", "-", "—"]);
   });
 
   it("찾기가 행을 거르고 결과가 없으면 검색을 지워 복구한다", async () => {
@@ -781,5 +822,67 @@ describe("Grid · 가공열", () => {
     expect(onManageColumns).toHaveBeenCalledWith("품명과 번호");
     expect(onEdit).not.toHaveBeenCalled();
     expect(onCorrect).not.toHaveBeenCalled();
+  });
+});
+
+// ── 보이는 줄만 단다 ──────────────────────────────
+// jsdom 에는 배치가 없어 표가 0 높이로 재지고, 그러면 줄을 다 단다(위의 시험들). 여기서는 높이 370 의 상자와
+// 37 높이의 줄을 흉내 내어 천 줄 표가 보이는 줄 근처만 다는지 본다.
+describe("Grid 줄 창", () => {
+  let top = 0;
+  const many = (): Sheet => ({
+    ...sheet(), overrides: {},
+    rows: Array.from({ length: 1000 }, (_, i) => ({
+      계약번호: `R26TA${String(i).padStart(4, "0")}`, 계약건명: `측정기${i}`, 계약금액: String(i), 담당: "", 진행상태: "",
+    })),
+  });
+  const drawMany = () => render(<Grid sheet={many()} columns={columns} keyColumn="계약번호" identityColumns={["계약번호"]}
+    onEdit={vi.fn().mockResolvedValue(undefined)} onCorrect={vi.fn().mockResolvedValue(undefined)} />);
+  const board = () => document.querySelector<HTMLElement>(".grid-board")!;
+  const mounted = () => screen.getAllByRole("row").slice(1).map(r => Number(r.getAttribute("aria-rowindex")) - 2);
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const scrollTo = (y: number) => { top = y; fireEvent.scroll(board()); };
+
+  beforeEach(() => {
+    top = 0;
+    vi.spyOn(Element.prototype, "clientHeight", "get")
+      .mockImplementation(function (this: Element) { return this.classList.contains("grid-board") ? 370 : 0; });
+    vi.spyOn(Element.prototype, "scrollTop", "get")
+      .mockImplementation(function (this: Element) { return this.classList.contains("grid-board") ? top : 0; });
+    vi.spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) { return this.tagName === "TR" ? new DOMRect(0, 0, 0, 37) : new DOMRect(); });
+    vi.stubGlobal("requestAnimationFrame", (run: FrameRequestCallback) => { run(0); return 0; });
+  });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("천 줄이어도 보이는 줄과 위아래 여유만 달고, 빈 줄이 나머지 높이를 채운다", () => {
+    drawMany();
+    expect(mounted()).toEqual(range(0, 30));
+    expect(document.querySelector<HTMLElement>("tbody tr[aria-hidden] td")!.style.height).toBe(`${969 * 37}px`);
+  });
+
+  it("굴리면 범위가 따라 옮기고, 커서가 선 줄은 범위 밖이어도 달려 있다", () => {
+    drawMany();
+    scrollTo(3700);
+    expect(mounted()).toEqual([0, ...range(80, 130)]);
+    const gaps = [...document.querySelectorAll<HTMLElement>("tbody tr[aria-hidden] td")].map(td => td.style.height);
+    expect(gaps).toEqual([`${79 * 37}px`, `${869 * 37}px`]);
+  });
+
+  it("키보드로 범위 밖 줄에 가면 그 줄을 단다", () => {
+    drawMany();
+    fireEvent.keyDown(board(), { key: "End", ctrlKey: true });
+    expect(mounted()).toContain(999);
+    expect(document.getElementById(board().getAttribute("aria-activedescendant")!)).not.toBeNull();
+  });
+
+  it("편집 중인 줄은 굴려 지나도 달린 채 같은 편집 상자를 지킨다", () => {
+    drawMany();
+    fireEvent.click(screen.getByRole("gridcell", { name: /^담당, 1행 R26TA0000/ }));
+    fireEvent.keyDown(board(), { key: "F2" });
+    const editor = screen.getByRole("textbox", { name: /^담당, 1행/ });
+    scrollTo(3700);
+    expect(mounted()).toEqual([0, ...range(80, 130)]);
+    expect(screen.getByRole("textbox", { name: /^담당, 1행/ })).toBe(editor);
   });
 });

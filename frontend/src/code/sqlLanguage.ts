@@ -11,7 +11,9 @@ import { checkSqlMock, contractViews, sqlIdent } from "../flow/sql";
 const keywords = new Set(("select from where and or not as on join left inner cross outer group by order having limit offset case when then else end " +
   "distinct all is null in between like glob exists asc desc union cast collate escape true false").split(" "));
 export const sqlFunctions = ("abs avg ceil coalesce count date datetime floor group_concat hex ifnull iif instr julianday length lower ltrim " +
-  "max min nullif printf replace round rtrim strftime substr sum total trim upper zeroblob").split(" ");
+  "max min nullif printf replace round rtrim strftime substr sum total trim upper zeroblob " +
+  // 앱의 표기 함수 — 맞춤 뷰에서만 받는다(crates/pclm-core/src/sqlite.rs 의 TEXT_FUNCTIONS).
+  "원표기 공문서날짜 한글금액 년월일 년월").split(" ");
 const functionSet = new Set(sqlFunctions);
 const word = /^[\p{L}_][\p{L}\p{N}_$]*/u;
 /** 바깥 행의 별칭 — 가공열의 현재, 맞춤 뷰의 접수·공고·계약. */
@@ -86,7 +88,7 @@ function referenced(doc: string, schema: Record<string, string[]>) {
  * @param target 이 자료 종류의 계약면 뷰. <code>현재</code> 는 그 행이다.
  * @param outer 바깥 행의 별칭 → 계약면 뷰. 없으면 <code>현재</code> 하나(target). 맞춤 뷰는 접수·공고·계약 셋이다(docs/user-views.md §3).
  */
-export function sqlExtensions(schema: Record<string, string[]>, target: string, onIssues?: (n: number) => void,
+export function sqlExtensions(schema: Record<string, string[]>, target: string,
   outer: Record<string, string> = { 현재: target }): Extension[] {
   const fnOptions: Completion[] = sqlFunctions.map(f => ({ label: f, type: "function", apply: `${f}(`, detail: "함수" }));
   const complete = (ctx: CompletionContext): CompletionResult | null => {
@@ -119,7 +121,6 @@ export function sqlExtensions(schema: Record<string, string[]>, target: string, 
   };
   const lint = linter(view => {
     const issues = checkSqlMock(view.state.doc.toString());
-    onIssues?.(issues.length);
     const len = view.state.doc.length;
     return issues.map(i => ({ from: Math.min(i.from, len), to: Math.min(Math.max(i.to, i.from), len), severity: "error" as const, message: i.message }));
   }, { delay: 250 });

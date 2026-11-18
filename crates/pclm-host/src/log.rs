@@ -1,7 +1,7 @@
-//! 확장이 붙고 끊긴 기록(C# `Erp/ExtensionLog.cs`, ADR-035·036). 홈의 `extension-log.txt` 에 한 줄씩 — 탭으로 가른 다섯
-//! 칸(시각 · 사건 · 브라우저 · 판 · 앞의 판 또는 오류 코드).
+//! 확장이 붙고 끊긴 기록(ADR-035·036). 홈의 `extension-log.txt` 에 한 줄씩 — 탭으로 가른 다섯
+//! 칸(시각 · 사건 · 브라우저 · 판 · 앞의 판).
 //!
-//! Edge·Chrome 의 호스트(그리고 C# 호스트)가 함께 쓸 수 있다. 쓰는 쪽은 파일을 홀로 열고(읽기만 나눈다) 막히면 25ms 씩
+//! Edge·Chrome 의 호스트가 함께 쓸 수 있다. 쓰는 쪽은 파일을 홀로 열고(읽기만 나눈다) 막히면 25ms 씩
 //! 40번까지 다시 열어, 줄이 섞이지 않는다. 이레가 지난 줄과 500줄을 넘는 앞쪽을 버린다.
 
 use std::fs::{File, OpenOptions};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pclm_core::local_time::LocalDateTime;
-use pclm_home::dotnet;
+use pclm_home::paths;
 
 use crate::status::accepts;
 
@@ -19,17 +19,11 @@ pub const CONNECTED: &str = "connected";
 pub const DISCONNECTED: &str = "disconnected";
 /// 붙을 때 그 브라우저의 판이 바로 앞 기록과 다르다.
 pub const UPDATED: &str = "updated";
-/// 확장의 수집 흐름이 실패했다. 다섯째 칸이 그 코드다.
-pub const ERROR: &str = "error";
-/// 결과를 확인하지 못한 저장을 같은 요청으로 다시 보내 풀었다.
-pub const RECOVERED: &str = "recovered";
-/// 확장이 상시 포트로 보내는 사건의 메서드.
-pub const EVENT_METHOD: &str = "event";
 
 pub const MAX_LINES: usize = 500;
 pub const KEEP_DAYS: i64 = 7;
 
-/// 한 줄. `previous` 는 판 바뀜이면 그 앞의 판, 오류면 그 코드, 아니면 빈 글.
+/// 한 줄. `previous` 는 판 바뀜이면 그 앞의 판, 아니면 빈 글.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub at: String,
@@ -37,15 +31,6 @@ pub struct Entry {
     pub browser: String,
     pub version: String,
     pub previous: String,
-}
-
-/// 오류 하나. `recovered` 는 그 뒤 같은 브라우저가 다음 오류 전에 다시 보내 풀었는가.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Problem {
-    pub at: String,
-    pub browser: String,
-    pub code: String,
-    pub recovered: bool,
 }
 
 pub fn log_path(directory: &Path) -> PathBuf {
@@ -99,87 +84,6 @@ pub fn record_disconnected(
     })
 }
 
-/// 수집 흐름의 사건 — 오류(`code` 가 그 까닭) 또는 다시 보내 풀림. 모양이 틀리면 적지 않고 `false`.
-pub fn record_event(
-    directory: &Path,
-    browser: &str,
-    version: &str,
-    kind: &str,
-    code: Option<&str>,
-    now: LocalDateTime,
-) -> io::Result<bool> {
-    if !accepts(browser, version) {
-        return Ok(false);
-    }
-    if kind == ERROR && !code.is_some_and(code_shaped) {
-        return Ok(false);
-    }
-    if kind != ERROR && kind != RECOVERED {
-        return Ok(false);
-    }
-    let previous = if kind == ERROR {
-        code.unwrap_or_default()
-    } else {
-        ""
-    };
-    write(directory, now, |_| {
-        vec![entry(&now.second_text(), kind, browser, version, previous)]
-    })?;
-    Ok(true)
-}
-
-/// `\A[a-z][a-z_]{0,31}\z`.
-fn code_shaped(code: &str) -> bool {
-    let b = code.as_bytes();
-    !b.is_empty()
-        && b.len() <= 32
-        && b[0].is_ascii_lowercase()
-        && b.iter().all(|&c| c.is_ascii_lowercase() || c == b'_')
-}
-
-/// 오늘의 오류(일어난 차례대로)와 오늘 전의 마지막 오류.
-pub fn problems(directory: &Path, now: LocalDateTime) -> (Vec<Problem>, Option<Problem>) {
-    let entries = read(directory, now.add_days(-KEEP_DAYS));
-    let mut problems = Vec::new();
-    for (i, e) in entries.iter().enumerate() {
-        if e.event != ERROR {
-            continue;
-        }
-        let mut recovered = false;
-        for later in &entries[i + 1..] {
-            if later.browser != e.browser {
-                continue;
-            }
-            if later.event == ERROR {
-                break;
-            }
-            if later.event == RECOVERED {
-                recovered = true;
-                break;
-            }
-        }
-        problems.push(Problem {
-            at: e.at.clone(),
-            browser: e.browser.clone(),
-            code: e.previous.clone(),
-            recovered,
-        });
-    }
-    let today = now.date().second_text();
-    let earlier = problems
-        .iter()
-        .rev()
-        .find(|p| ordinal(&p.at) < ordinal(&today))
-        .cloned();
-    (
-        problems
-            .into_iter()
-            .filter(|p| ordinal(&p.at) >= ordinal(&today))
-            .collect(),
-        earlier,
-    )
-}
-
 fn ordinal(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
@@ -196,8 +100,8 @@ pub fn read(directory: &Path, since: LocalDateTime) -> Vec<Entry> {
         })?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        // StreamReader(stream, UTF8) — 머리표를 보고 푼다.
-        Ok(dotnet::decode_text(&bytes))
+        // 머리표를 보고 푼다.
+        Ok(paths::decode_text(&bytes))
     })();
     let Ok(text) = text else { return Vec::new() };
     parse(&text)
@@ -233,7 +137,7 @@ fn parse(text: &str) -> Vec<(String, Entry)> {
         if cells.len() != 5
             || pclm_core::erp::wire::utf16_len(cells[0]) != 19
             || !stamp_shaped(cells[0])
-            || ![CONNECTED, DISCONNECTED, UPDATED, ERROR, RECOVERED].contains(&cells[1])
+            || ![CONNECTED, DISCONNECTED, UPDATED].contains(&cells[1])
             || !accepts(cells[2], cells[3])
         {
             continue;
@@ -246,7 +150,7 @@ fn parse(text: &str) -> Vec<(String, Entry)> {
     entries
 }
 
-/// `DateTime.TryParseExact(s, "yyyy-MM-ddTHH:mm:ss", Invariant, None)` — 날짜가 실제로 있어야 한다.
+/// `yyyy-MM-ddTHH:mm:ss` 꼴인가 — 날짜가 실제로 있어야 한다.
 fn stamp_shaped(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 19
@@ -345,7 +249,7 @@ fn write(
 }
 
 /// 다른 호스트가 쥐고 있으면 잠깐 기다려 다시 연다. 오래 막히면 던진다 — 부르는 쪽이 삼킨다. 없는 파일·폴더와 권한
-/// 오류는 기다리지 않는다(C# 의 `FileNotFoundException`·`DirectoryNotFoundException`·`UnauthorizedAccessException`).
+/// 오류는 기다리지 않는다.
 fn retry(open: impl Fn() -> io::Result<File>) -> io::Result<File> {
     let mut attempt = 0;
     loop {

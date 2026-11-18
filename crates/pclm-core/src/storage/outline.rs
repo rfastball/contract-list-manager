@@ -1,10 +1,10 @@
-//! C# `Outline` — 축적된 것을 **생긴 모양 그대로** 낸다: 접수 → 공고(건) → 계약 → 명세.
+//! 축적된 것을 **생긴 모양 그대로** 낸다: 접수 → 공고(건) → 계약 → 명세.
 //!
 //! 값은 계약면 뷰에서 읽는다(금액 자릿점·날짜 표기를 여기서 다시 짜지 않는다). 건과 현행도 뷰의 `공고건`·`현행공고` 를
 //! 따른다 — 「무엇이 현행인가」 의 규칙을 여기 한 벌 더 두지 않는다. 차수는 접어서 이름표로만 낸다.
 //!
-//! 차례는 C# 과 같다: 건은 `v_공고` 에 처음 나온 차례로 돌고, 사슬은 마지막에 `SortsOn` 내림차순·`Key` 오름차순
-//! (Ordinal, 안정 정렬)으로 선다. `ToDictionary` 가 같은 열쇠에서 거절하는 자리는 .NET 의 글로 거절한다.
+//! 차례: 건은 `v_공고` 에 처음 나온 차례로 돌고, 사슬은 마지막에 `SortsOn` 내림차순·`Key` 오름차순
+//! (서수 비교, 안정 정렬)으로 선다. 같은 열쇠가 두 번 들어오는 자리는 거절한다([`insert_unique`]).
 
 use serde_json::{Map, Value};
 
@@ -84,7 +84,7 @@ pub struct OutlineChain {
 }
 
 impl OutlineChain {
-    /// C# `SortsOn` — 현행의 게시일, 없으면 대체된 것 중 가장 이른 게시일, 없으면 접수일, 없으면 첫 계약의 계약일.
+    /// 현행의 게시일, 없으면 대체된 것 중 가장 이른 게시일, 없으면 접수일, 없으면 첫 계약의 계약일.
     pub fn sorts_on(&self) -> String {
         if let Some(posted) = self
             .notice
@@ -126,7 +126,7 @@ pub struct OutlineTree {
 }
 
 impl OutlineTree {
-    /// C# `Bridge.ReadOutline` 이 싣는 꼴 — 이름은 camelCase, 없는 접수·건·현행은 `null`.
+    /// 다리가 싣는 꼴 — 이름은 camelCase, 없는 접수·건·현행은 `null`.
     pub fn to_json(&self) -> Value {
         let chains = self
             .chains
@@ -231,7 +231,6 @@ fn object(entries: Vec<(&str, Value)>) -> Value {
     Value::Object(map)
 }
 
-/// C# `Outline`.
 pub struct Outline {
     database: Database,
 }
@@ -241,7 +240,6 @@ impl Outline {
         Outline { database }
     }
 
-    /// `Outline.Build()`.
     pub fn build(&self) -> Result<OutlineTree> {
         let connection = self.database.open()?;
         let connection = &connection;
@@ -350,7 +348,7 @@ impl Outline {
                 request_numbers: row
                     .text("조달요구번호")
                     .split(',')
-                    .map(dotnet_trim)
+                    .map(trim_white)
                     .filter(|s| !s.is_empty())
                     .map(String::from)
                     .collect(),
@@ -363,7 +361,7 @@ impl Outline {
             connection,
             "SELECT contract_base, notice_group FROM project_link;",
         )?;
-        // 접수:건이 1:1 이라 건에서 접수로 되짚는다(C# 은 NoticeGroup 을 열쇠로 ToDictionary).
+        // 접수:건이 1:1 이라 건에서 접수로 되짚는다.
         let notice_to_request = links(
             connection,
             "SELECT notice_group, request_base FROM request_link;",
@@ -460,7 +458,7 @@ fn key(
     parts.join("/")
 }
 
-/// 계약일 늦은 것부터, 같으면 계약번호 차례(Ordinal, 안정).
+/// 계약일 늦은 것부터, 같으면 계약번호 차례(서수 비교, 안정).
 fn ordered(contracts: &mut [OutlineContract]) {
     contracts.sort_by(|a, b| {
         cmp_ordinal(&b.contracted_on, &a.contracted_on)
@@ -468,8 +466,8 @@ fn ordered(contracts: &mut [OutlineContract]) {
     });
 }
 
-/// `string.Trim()` — .NET 의 공백(유니코드 White_Space). Rust 의 `trim` 과 같은 집합이다.
-fn dotnet_trim(s: &str) -> &str {
+/// 앞뒤 공백을 걷는다 — 공백은 유니코드 White_Space 이고 Rust 의 `trim` 과 같은 집합이다.
+fn trim_white(s: &str) -> &str {
     s.trim()
 }
 

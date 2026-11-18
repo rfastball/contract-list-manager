@@ -8,6 +8,8 @@
 //! 얻는다. 저작권 줄은 크레이트에 든 라이선스 파일에서 옮기고, MIT · Apache-2.0 은 문서 끝의 전문을 가리키며, 그 밖의
 //! 라이선스(BSD · Zlib · Unicode · MPL …)는 그 파일을 항목 안에 싣는다(같은 글이 앞에 실렸으면 그 항목을 가리킨다).
 //!
+//! 실리는 것은 창(exe)과 exe 에 박힌 내장 확장의 문서 만들기 엔진(wasm)을 합친 것이다([`notices::shipped`]).
+//!
 //! 사람이 살펴야 할 자리에서는 지어내지 않고 멈춘다 — 라이선스 파일이 없는 크레이트, 아래 표가 아는 판에서 달라진
 //! WebView2 · SQLite 바인딩.
 
@@ -32,19 +34,68 @@ const BORROWED: &[(&str, &str, &str)] = &[(
     "https://github.com/dropbox/rust-alloc-no-stdlib",
 )];
 
-/// 패키지에 라이선스 파일이 없어 상류 저장소의 LICENSE 에서 저작권 줄을 옮긴 것(MIT 일 때만).
-const UPSTREAM: &[(&str, &str, &str)] = &[
+/// 패키지에 라이선스 파일이 없어 상류 저장소의 LICENSE 에서 저작권 줄을 옮긴 것(문서 끝의 MIT · Apache-2.0 전문으로
+/// 채울 수 있는 라이선스일 때만). 상류 LICENSE 에 저작권 줄이 없으면 `None` — 저작자는 패키지의 authors 로 적는다.
+const UPSTREAM: &[(&str, Option<&str>, &str)] = &[
     (
         "webview2-com",
-        "Copyright (c) 2021 Bill Avery",
+        Some("Copyright (c) 2021 Bill Avery"),
         "https://github.com/wravery/webview2-rs",
     ),
     (
         "webview2-com-sys",
-        "Copyright (c) 2021 Bill Avery",
+        Some("Copyright (c) 2021 Bill Avery"),
         "https://github.com/wravery/webview2-rs",
     ),
+    // 엔진(wasm) — 문서나르미가 쓰는 서식 문자열 해석기와 유니코드 분류.
+    (
+        "rustpython-format",
+        Some("Copyright (c) 2020 RustPython Team"),
+        "https://github.com/RustPython/Parser",
+    ),
+    (
+        "rustpython-literal",
+        Some("Copyright (c) 2020 RustPython Team"),
+        "https://github.com/RustPython/Parser",
+    ),
+    (
+        "unic-char-property",
+        None,
+        "https://github.com/open-i18n/rust-unic",
+    ),
+    (
+        "unic-char-range",
+        None,
+        "https://github.com/open-i18n/rust-unic",
+    ),
+    (
+        "unic-common",
+        None,
+        "https://github.com/open-i18n/rust-unic",
+    ),
+    (
+        "unic-ucd-category",
+        None,
+        "https://github.com/open-i18n/rust-unic",
+    ),
+    (
+        "unic-ucd-version",
+        None,
+        "https://github.com/open-i18n/rust-unic",
+    ),
 ];
+
+/// 패키지 폴더가 아니라 저장소 뿌리(작업공간)에 라이선스 파일을 둔 git 의존 — 크레이트 폴더에서 두 칸 위.
+const ROOT_LICENSE: &[(&str, &str)] = &[
+    ("hwpx-core", "https://github.com/rfastball/hwpx-filler"),
+    ("hwpx-filler", "https://github.com/rfastball/hwpx-filler"),
+];
+
+/// 저작권을 포기한 라이선스 — 실을 전문이 없다. 출처만 적는다.
+const PUBLIC_DOMAIN: &[(&str, &str)] = &[(
+    "CC0-1.0",
+    "https://creativecommons.org/publicdomain/zero/1.0/",
+)];
 
 /// webview2-com-sys 가 정적으로 링크하는 WebView2LoaderStatic.lib 의 출처 — 판이 바뀌면 SDK 판도 다시 살핀다.
 const WEBVIEW2_SYS: (&str, &str) = ("0.39.1", "1.0.3800.47");
@@ -110,8 +161,8 @@ fn metadata(cargo: &Path, workspace: &Path) -> Result<BTreeMap<(String, String),
             "--format-version",
             "1",
             "--locked",
-            "--filter-platform",
-            notices::TARGET,
+            // 대상을 거르지 않는다 — 창(windows)과 엔진(wasm32)의 크레이트를 함께 찾는다. 이름 · 판으로만 찾으므로 남는 것은
+            // 쓰지 않는다.
             "--features",
             "pclm-desktop/shell",
         ])
@@ -233,7 +284,8 @@ fn section(
 ) -> Result<String, String> {
     let mut out = format!(
         "{BAR}\n{TITLE}\n{BAR}\n\n\
-         배포 exe 에 실려 나가는 Rust 크레이트(운영 의존 · windows 대상 · 창 기능). scripts/generate-crate-notices.ps1 이\n\
+         배포 exe 에 실려 나가는 Rust 크레이트(운영 의존 · windows 대상 · 창 기능)와, exe 에 박힌 내장 확장의 문서 만들기\n\
+         엔진(extension/engine.wasm · wasm32 대상)에 든 크레이트. scripts/generate-crate-notices.ps1 이\n\
          cargo tree 에서 짓는다 — 손으로 고치지 않는다(시험이 실제 해석과 대조한다).\n\n"
     );
     // 이미 실은 전문 → 그것을 실은 항목
@@ -249,7 +301,35 @@ fn section(
         let identity = format!("{} {}", item.name, item.version);
         let mut notes: Vec<String> = Vec::new();
 
+        if item.license.is_empty() {
+            return Err(format!(
+                "{identity}: 라이선스가 적혀 있지 않습니다 — 상류를 살펴 notices::UNDECLARED 에 더하세요."
+            ));
+        }
         let mut files = license_files(&package.directory);
+        if files.is_empty()
+            && let Some((_, source)) = ROOT_LICENSE.iter().find(|(n, _)| *n == item.name)
+        {
+            let root = package
+                .directory
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| format!("{identity}: 저장소 뿌리를 찾지 못했습니다."))?;
+            files = license_files(root);
+            notes.push(format!(
+                "패키지 폴더에 라이선스 파일이 없어 저장소({source}) 뿌리의 파일을 따릅니다."
+            ));
+        }
+        // 저작권을 포기한 라이선스이고 파일도 없으면 실을 전문이 없다 — 출처만 적고 전문을 찾지 않는다.
+        let public_domain = PUBLIC_DOMAIN
+            .iter()
+            .find(|(l, _)| *l == item.license)
+            .filter(|_| files.is_empty());
+        if let Some((license, about)) = public_domain {
+            notes.push(format!(
+                "{license} — 저작권을 포기한 퍼블릭 도메인 헌정이라 실을 전문이 없습니다({about})."
+            ));
+        }
         if files.is_empty()
             && let Some((_, from, source)) = BORROWED.iter().find(|(n, _, _)| *n == item.name)
         {
@@ -268,7 +348,7 @@ fn section(
         }
         let texts: Vec<String> = files.iter().map(|f| read(f)).collect::<Result<_, _>>()?;
         let mut owners = copyrights(&texts);
-        if files.is_empty() {
+        if files.is_empty() && public_domain.is_none() {
             let (_, line, source) = UPSTREAM
                 .iter()
                 .find(|(n, _, _)| *n == item.name)
@@ -277,16 +357,23 @@ fn section(
                         "{identity}: 패키지에 라이선스 파일이 없습니다 — 상류를 살펴 표에 더하세요."
                     )
                 })?;
-            if item.license != "MIT" {
+            if notices::texts(&item.license).contains(&Text::Inline) {
                 return Err(format!(
                     "{identity}: 라이선스가 {} 로 바뀌었습니다 — 상류를 다시 살피세요.",
                     item.license
                 ));
             }
-            owners.push((*line).to_owned());
-            notes.push(format!(
-                "패키지에 라이선스 파일이 없어 상류 저장소({source})의 LICENSE 에서 옮겼습니다."
-            ));
+            match line {
+                Some(line) => {
+                    owners.push((*line).to_owned());
+                    notes.push(format!(
+                        "패키지에 라이선스 파일이 없어 상류 저장소({source})의 LICENSE 에서 옮겼습니다."
+                    ));
+                }
+                None => notes.push(format!(
+                    "패키지에 라이선스 파일이 없어 상류 저장소({source})의 LICENSE 를 따릅니다(저작권 줄이 없어 저작자를 적습니다)."
+                )),
+            }
         }
         if owners.is_empty() {
             owners.push(if package.authors.is_empty() {
@@ -327,7 +414,7 @@ fn section(
                 Text::Inline => inline = true,
             }
         }
-        if inline {
+        if inline && public_domain.is_none() {
             if item.license.contains("MPL") {
                 let source = package.repository.clone().unwrap_or_else(|| {
                     format!("https://crates.io/crates/{}/{}", item.name, item.version)

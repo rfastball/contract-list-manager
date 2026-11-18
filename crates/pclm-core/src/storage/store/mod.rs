@@ -1,12 +1,12 @@
-//! C# `Store`(Store.cs·StoreColumns.cs·StoreUserViews.cs·StoreViewPackages.cs·BatchOperations.cs) — 들어온 자료 위에서
+//! 들어온 자료 위에서
 //! 사람이 하는 일(사람 열·덮개·지우기·맞춤 뷰·보기 구성)과 키 해석.
 //!
 //! 자료를 들이는 길은 이 모듈에 없다(ADR-028). `user_field`·`field_override` 는 들이는 길이 쓰지 않는다 — 사람이
 //! 적은 값이 다시 수집해도 지워지지 않게 하는 구조적 보장이다(ADR-007·020).
 //!
-//! **화면이 받는 꼴 그대로 낸다.** C# 의 `object` 를 내는 연산(익명 형식·Dapper 의 동적 행)은 [`Value`] 로, 레코드는
-//! 형식으로 내고 `to_json` 이 다리(`Bridge.Json` — camelCase, 사전 열쇠는 그대로)가 쓰는 꼴을 짓는다. 시계와 식별자는
-//! 모두 [`Env`] 로 짓는다 — `DateTime.UtcNow.ToString("O")` 는 [`Env::now_utc`], `Guid.NewGuid().ToString("N")` 은
+//! **화면이 받는 꼴 그대로 낸다.** 정해진 형식이 없는 연산 결과는 [`Value`] 로, 레코드는
+//! 형식으로 내고 `to_json` 이 다리가 쓰는 꼴(camelCase, 사전 열쇠는 그대로)을 짓는다. 시계와 식별자는
+//! 모두 [`Env`] 로 짓는다 — 지금 시각(UTC 의 ISO 8601)은 [`Env::now_utc`], 식별자는
 //! [`Env::new_id`] 다.
 //!
 //! 시험 픽스처(`UpsertNotice`·`UpsertContract`·`UpsertRequest`)는 옮기지 않는다 — 프로덕션 호출자가 없고, 이 크레이트의
@@ -32,19 +32,21 @@ use crate::storage::flow_check::FlowIssue;
 use crate::storage::flow_compiler::{self, SELF, Target};
 use crate::storage::views::{self, UserColumnDefinition};
 use crate::storage::{computed_column, sql_column, user_view_builder};
-use crate::text::{dotnet_double_r, eq_ignore_case, ignore_case_key, utf16_len};
+use crate::text::{double_round_trip, eq_ignore_case, ignore_case_key, utf16_len};
 
 pub use batch::{BatchDeletionPlan, CellChange};
 pub use columns::FreezePlan;
 pub use user_views::{USER_VIEW_EDGES, UserViewInfo};
 pub use view_packages::{
     ViewPackage, ViewPackageColumn, ViewPackagePlannedColumn, ViewPackagePlannedView,
-    ViewPackagePreview, ViewPackageView, builtin_view_package, example_view_package_v26,
-    read_view_package, stored_definition,
+    DOCUMENT_VIEW_ID, ViewPackagePreview, ViewPackageView, builtin_view_package,
+    example_view_package_v26, example_view_package_v33, read_view_package, stored_definition,
 };
-pub(crate) use view_packages::{seed_example_views, upgrade_example_views};
+pub(crate) use view_packages::{
+    retire_example_views, seed_example_views, sync_document_view, upgrade_example_views,
+};
 
-/// C# `EntityRef(EntityType, Base, Seq)` — 접수·공고·계약 하나를 가리키는 것. **본번호와 차수가 실제 키다.**
+/// 접수·공고·계약 하나를 가리키는 것. **본번호와 차수가 실제 키다.**
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EntityRef {
     pub entity_type: String,
@@ -61,7 +63,7 @@ impl EntityRef {
         }
     }
 
-    /// `EntityRef.Display` — 사람에게 보여줄 때 쓰는 한 덩어리 표기. 계약만 끝 두 자리를 그대로 붙인다.
+    /// 사람에게 보여줄 때 쓰는 한 덩어리 표기. 계약만 끝 두 자리를 그대로 붙인다.
     pub fn display(&self) -> String {
         if self.entity_type == "contract" {
             format!("{}{}", self.base, self.seq)
@@ -75,7 +77,7 @@ impl EntityRef {
         self.json_with(["entityType", "base", "seq", "display"])
     }
 
-    /// 옵션 없는 `JsonSerializer.Serialize` 의 꼴(이름 그대로) — 일괄 삭제의 지문이 쓴다.
+    /// 이름을 그대로 쓰는 꼴 — 일괄 삭제의 지문이 쓴다.
     fn to_pascal_json(&self) -> Value {
         self.json_with(["EntityType", "Base", "Seq", "Display"])
     }
@@ -90,7 +92,7 @@ impl EntityRef {
     }
 }
 
-/// C# `FieldOverride(Base, Seq, ColumnName, Original)` — 사람이 고쳐 둔 칸 하나. `original` 은 처음 고칠 때 그 자리에
+/// 사람이 고쳐 둔 칸 하나. `original` 은 처음 고칠 때 그 자리에
 /// 있던 값이다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FieldOverride {
@@ -111,7 +113,7 @@ impl FieldOverride {
     }
 }
 
-/// C# `DeletionPlan` — 지우면 무엇이 함께 사라지는가. **묻기 전에 세어 보여 준다.**
+/// 지우면 무엇이 함께 사라지는가. **묻기 전에 세어 보여 준다.**
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeletionPlan {
     pub entity_type: String,
@@ -160,17 +162,17 @@ pub fn user_column_json(column: &UserColumnDefinition) -> Value {
     ])
 }
 
-/// 다리(`Bridge.Json` — 기본 인코더)가 쓰는 JSON 글. 대조 도구가 결과를 적을 때 쓴다.
+/// 다리가 쓰는 JSON 글(기본 인코더). 대조 도구가 결과를 적을 때 쓴다.
 pub fn bridge_json(value: &Value) -> String {
     json::to_compact(value, Encoder::Default)
 }
 
-/// [`Error`] 의 C# `Exception.Message` — `SqliteException` 은 `SQLite Error {코드}: '{글}'.` 꼴이다.
+/// [`Error`] 의 글 — SQLite 오류는 `SQLite 오류 {코드}: {글}` 꼴이다.
 pub fn error_message(error: &Error) -> String {
     sql_column::error_message(error)
 }
 
-/// C# `Store` — 파일 하나 위의 편집. 연산마다 연결을 새로 연다(C# 과 같다).
+/// 파일 하나 위의 편집. 연산마다 연결을 새로 연다.
 pub struct Store<'e> {
     database: Database,
     env: &'e dyn Env,
@@ -191,20 +193,14 @@ impl<'e> Store<'e> {
 
     // ── 사람 열 ──────────────────────────────────────────────
 
-    /// `Store.UserColumns` — 사람이 채우는 열의 정의. `entity_type` 이 없으면 전부.
+    /// 사람이 채우는 열의 정의. `entity_type` 이 없으면 전부.
     pub fn user_columns(&self, entity_type: Option<&str>) -> Result<Vec<UserColumnDefinition>> {
-        let connection = self.database.open()?;
-        read_user_columns(
-            &connection,
-            "SELECT entity_type, field_name, kind, options, sort_order\n\
-             FROM user_column\n\
-             WHERE (?1 IS NULL OR entity_type = ?1)\n\
-             ORDER BY entity_type, sort_order;",
-            params![entity_type],
-        )
+        let mut columns = database::read_user_columns(&self.database.open()?)?;
+        columns.retain(|c| entity_type.is_none_or(|e| c.entity_type == e));
+        Ok(columns)
     }
 
-    /// `Store.AddUserColumn` — 사람이 채우는 열을 새로 만든다. 만들고 나면 뷰를 다시 지어 표에 곧바로 선다.
+    /// 사람이 채우는 열을 새로 만든다. 만들고 나면 뷰를 다시 지어 표에 곧바로 선다.
     pub fn add_user_column(
         &self,
         entity_type: &str,
@@ -216,19 +212,21 @@ impl<'e> Store<'e> {
         check_kind(kind)?;
         {
             let connection = self.database.open()?;
-            check_free(&connection, entity_type, &name, None)?;
-            connection.execute(
+            let transaction = database::begin(&connection)?;
+            check_free(&transaction, entity_type, &name, None)?;
+            transaction.execute(
                 "INSERT INTO user_column (entity_type, field_name, kind, options, sort_order)\n\
                  VALUES (?1, ?2, ?3, ?4,\n\
                          COALESCE((SELECT MAX(sort_order) FROM user_column\n\
                                    WHERE entity_type = ?1), 0) + 10);",
                 params![entity_type, name, kind, pack(kind, choices)],
             )?;
+            transaction.commit()?;
         }
         self.database.refresh_views()
     }
 
-    /// `Store.SaveComputedColumn` — 가공열을 저장한다. **화면을 믿지 않고 다시 검사한다**(§11.2): JSON 모양 → 꼴
+    /// 가공열을 저장한다. **화면을 믿지 않고 다시 검사한다**(§11.2): JSON 모양 → 꼴
     /// 검사 → 컴파일 → 그 열이 붙는 모든 뷰를 한 트랜잭션에서 다시 짓고 읽어 본다. 하나라도 실패하면 되돌린다.
     pub fn save_computed_column(
         &self,
@@ -298,11 +296,7 @@ impl<'e> Store<'e> {
         if let Some(previous) = previous_name
             && previous != name
         {
-            let (table, _) = table_for(entity_type)?;
-            transaction.execute(
-                &format!("UPDATE {table} SET field_name = ?1 WHERE field_name = ?2;"),
-                params![name, previous],
-            )?;
+            rename_values(&transaction, entity_type, previous, &name)?;
             // 그 열을 읽던 맞춤 뷰 필드도 새 이름을 따라간다(docs/user-views.md §5).
             user_view_builder::rename_field(&transaction, entity_type, previous, &name)?;
         }
@@ -337,7 +331,7 @@ impl<'e> Store<'e> {
                         Some(located) => located,
                         None => format!(
                             "가공식을 계산하지 못했습니다: {}",
-                            sql_column::dotnet_message(&error)
+                            sql_column::sqlite_message(&error)
                         ),
                     },
                 ));
@@ -348,7 +342,7 @@ impl<'e> Store<'e> {
         Ok(())
     }
 
-    /// `Store.LocateComputedFailure` — 실행에서 실패한 식이 몇 단계에서 깨지는지 찾는다. 앞부분을 하나씩 늘려 지금
+    /// 실행에서 실패한 식이 몇 단계에서 깨지는지 찾는다. 앞부분을 하나씩 늘려 지금
     /// 저장된 면 뷰의 표본 위에서 돌려 본다. 쓰지 않는 읽기 연결이라 저장하던 트랜잭션과 섞이지 않는다.
     fn locate_computed_failure(
         &self,
@@ -379,7 +373,7 @@ impl<'e> Store<'e> {
                             index: k,
                             message: format!(
                                 "계산하지 못했습니다 — {}",
-                                sql_column::dotnet_message(&error)
+                                sql_column::sqlite_message(&error)
                             ),
                             r#final: false,
                         }
@@ -392,7 +386,7 @@ impl<'e> Store<'e> {
         Ok(None)
     }
 
-    /// `Store.PreviewComputedColumn` — 표본(최신 문서 다섯)마다 이 식이 낼 값. v1·v2 아무것이나 받는다.
+    /// 표본(최신 문서 다섯)마다 이 식이 낼 값. v1·v2 아무것이나 받는다.
     pub fn preview_computed_column(&self, entity_type: &str, json: &str) -> Result<Value> {
         let expression = computed_column::expression(
             entity_type,
@@ -415,7 +409,7 @@ impl<'e> Store<'e> {
         Ok(Value::Array(rows_json(&connection, &sql, [])?))
     }
 
-    /// `Store.ColumnContext` — 열 정의 작업공간의 실제 부모 표와 같은 차수 품목. 읽기 전용 사진 한 벌만 읽는다.
+    /// 열 정의 작업공간의 실제 부모 표와 같은 차수 품목. 읽기 전용 사진 한 벌만 읽는다.
     pub fn column_context(&self, entity_type: &str) -> Result<Value> {
         let fields = computed_column::field_names(entity_type)?;
         let parents_sql = latest_column_parents(entity_type)?;
@@ -486,7 +480,7 @@ impl<'e> Store<'e> {
         ]))
     }
 
-    /// `Store.UpdateUserColumn` — 열 하나를 고친다. 이름을 바꾸면 **적어 둔 값도 함께 옮긴다** — 값은 열 이름으로
+    /// 열 하나를 고친다. 이름을 바꾸면 **적어 둔 값도 함께 옮긴다** — 값은 열 이름으로
     /// 매달려 있어서, 정의만 고치면 적어 둔 것이 통째로 미아가 된다.
     pub fn update_user_column(
         &self,
@@ -500,11 +494,11 @@ impl<'e> Store<'e> {
         check_kind(kind)?;
         {
             let connection = self.database.open()?;
-            check_exists(&connection, entity_type, field_name)?;
-            refuse_computed_write(&connection, entity_type, field_name)?;
-            check_free(&connection, entity_type, &name, Some(field_name))?;
-
             let transaction = database::begin(&connection)?;
+            check_exists(&transaction, entity_type, field_name)?;
+            refuse_computed_write(&transaction, entity_type, field_name)?;
+            check_free(&transaction, entity_type, &name, Some(field_name))?;
+
             // 굳혀 둔 식(값으로 굳히기가 비활성으로 남긴 가공식)은 고르기가 후보로 덮기 전까지 남긴다 — 다시 켤 수 있게.
             let kept = single_or_default(
                 &transaction,
@@ -521,11 +515,7 @@ impl<'e> Store<'e> {
                 params![entity_type, field_name, name, kind, options],
             )?;
             if name != field_name {
-                let (table, _) = table_for(entity_type)?;
-                transaction.execute(
-                    &format!("UPDATE {table} SET field_name = ?1 WHERE field_name = ?2;"),
-                    params![name, field_name],
-                )?;
+                rename_values(&transaction, entity_type, field_name, &name)?;
                 // 그 열을 읽던 맞춤 뷰 필드도 새 이름을 따라간다(docs/user-views.md §5).
                 user_view_builder::rename_field(&transaction, entity_type, field_name, &name)?;
             }
@@ -534,7 +524,7 @@ impl<'e> Store<'e> {
         self.database.refresh_views()
     }
 
-    /// `Store.RemoveUserColumn` — 열을 없앤다. **적어 둔 값은 남긴다** — 같은 이름으로 다시 만들면 그대로 되살아난다
+    /// 열을 없앤다. **적어 둔 값은 남긴다** — 같은 이름으로 다시 만들면 그대로 되살아난다
     /// (ADR-007).
     pub fn remove_user_column(&self, entity_type: &str, field_name: &str) -> Result<()> {
         let connection = self.database.open()?;
@@ -549,14 +539,15 @@ impl<'e> Store<'e> {
         Ok(())
     }
 
-    /// `Store.MoveUserColumn` — 열의 차례를 한 칸 옮긴다(`delta` 가 음수면 앞으로). 옮긴 뒤 **번호를 다시 매긴다** —
+    /// 열의 차례를 한 칸 옮긴다(`delta` 가 음수면 앞으로). 옮긴 뒤 **번호를 다시 매긴다** —
     /// 같은 `sort_order` 를 가진 열이 있으면 맞바꾸기만으로는 차례가 정해지지 않는다.
     pub fn move_user_column(&self, entity_type: &str, field_name: &str, delta: i32) -> Result<()> {
         {
             let connection = self.database.open()?;
-            check_exists(&connection, entity_type, field_name)?;
+            let transaction = database::begin(&connection)?;
+            check_exists(&transaction, entity_type, field_name)?;
             let mut order = strings(
-                &connection,
+                &transaction,
                 "SELECT field_name FROM user_column\n\
                  WHERE entity_type = ?1 ORDER BY sort_order, field_name;",
                 [entity_type],
@@ -571,7 +562,6 @@ impl<'e> Store<'e> {
             }
             let moved = order.remove(at as usize);
             order.insert(to as usize, moved);
-            let transaction = database::begin(&connection)?;
             for (i, name) in order.iter().enumerate() {
                 transaction.execute(
                     "UPDATE user_column SET sort_order = ?3\n\
@@ -586,7 +576,7 @@ impl<'e> Store<'e> {
 
     // ── 사람 값 ──────────────────────────────────────────────
 
-    /// `Store.SetUserField` — 사람이 적은 값을 넣는다. 값은 **차수가 아니라 계열**에 붙는다(ADR-012). 빈 값이면 지운다.
+    /// 사람이 적은 값을 넣는다. 값은 **차수가 아니라 계열**에 붙는다(ADR-012). 빈 값이면 지운다.
     pub fn set_user_field(
         &self,
         entity: &EntityRef,
@@ -600,7 +590,7 @@ impl<'e> Store<'e> {
     // ── 파서가 읽은 값을 사람이 고치기 ───────────────────────────
     // 사람 값과 나란히 서지만 매다는 자리가 다르다 — 이쪽은 "이 문서의 이 칸" 에 대한 정정이라 차수에 붙는다.
 
-    /// `Store.SetOverride` — 계약면 칸 하나를 사람이 고친다. 공고종류를 고치면 공고 건과 연결을 다시 짓는다.
+    /// 계약면 칸 하나를 사람이 고친다. 공고종류를 고치면 공고 건과 연결을 다시 짓는다.
     pub fn set_override(&self, entity: &EntityRef, column_name: &str, value: &str) -> Result<()> {
         let connection = self.database.open()?;
         let transaction = database::begin(&connection)?;
@@ -612,7 +602,7 @@ impl<'e> Store<'e> {
         Ok(())
     }
 
-    /// `Store.ClearOverride` — 고친 칸을 수집 원값으로 되돌린다(그 차수의 덮개를 지운다).
+    /// 고친 칸을 수집 원값으로 되돌린다(그 차수의 덮개를 지운다).
     pub fn clear_override(&self, entity: &EntityRef, column_name: &str) -> Result<()> {
         let connection = self.database.open()?;
         let transaction = database::begin(&connection)?;
@@ -624,19 +614,19 @@ impl<'e> Store<'e> {
         Ok(())
     }
 
-    /// `Store.CheckCorrectable` — 이 칸을 덮개로 고칠 수 있는가. 키 열·가공열·사람 열·면 뷰에 없는 열은 거절한다.
+    /// 이 칸을 덮개로 고칠 수 있는가. 키 열·가공열·사람 열·면 뷰에 없는 열은 거절한다.
     pub fn check_correctable(&self, entity: &EntityRef, column_name: &str) -> Result<()> {
         let connection = self.database.open()?;
         check_correctable_on(&connection, entity, column_name)
     }
 
-    /// `Store.FaceValue` — 면 뷰가 지금 그 칸에 내는 값(덮개를 씌운 뒤의 것). 없으면 빈 글.
+    /// 면 뷰가 지금 그 칸에 내는 값(덮개를 씌운 뒤의 것). 없으면 빈 글.
     pub fn face_value(&self, entity: &EntityRef, column_name: &str) -> Result<String> {
         let connection = self.database.open_read_only()?;
         face_value_on(&connection, entity, column_name)
     }
 
-    /// `Store.Overrides` — 이 종류에 걸린 덮개 전부.
+    /// 이 종류에 걸린 덮개 전부.
     pub fn overrides(&self, entity_type: &str) -> Result<Vec<FieldOverride>> {
         let connection = self.database.open()?;
         query(
@@ -657,13 +647,13 @@ impl<'e> Store<'e> {
 
     // ── 지우기 ───────────────────────────────────────────────────
 
-    /// `Store.PlanDeletion` — 지우면 무엇이 함께 사라지는가를 센다. 지우기 전에 반드시 이것을 보인다.
+    /// 지우면 무엇이 함께 사라지는가를 센다. 지우기 전에 반드시 이것을 보인다.
     pub fn plan_deletion(&self, entity: &EntityRef, whole_series: bool) -> Result<DeletionPlan> {
         let connection = self.database.open()?;
         plan_deletion_on(&connection, entity, whole_series)
     }
 
-    /// `Store.Delete` — 지운다. 되돌릴 수 없다 — 묘비를 두지 않는다.
+    /// 지운다. 되돌릴 수 없다 — 묘비를 두지 않는다.
     pub fn delete(&self, entity: &EntityRef, whole_series: bool) -> Result<()> {
         let connection = self.database.open()?;
         let transaction = database::begin(&connection)?;
@@ -672,7 +662,7 @@ impl<'e> Store<'e> {
         Ok(())
     }
 
-    /// `Store.Resolve` — 사람이 적은 번호 하나를 레코드로. 계약번호 → 공고번호 → 접수번호 → 아무 조달요구번호 차례다.
+    /// 사람이 적은 번호 하나를 레코드로. 계약번호 → 공고번호 → 접수번호 → 아무 조달요구번호 차례다.
     pub fn resolve(&self, key: &str) -> Result<Option<EntityRef>> {
         let connection = self.database.open()?;
         resolve_on(&connection, key)
@@ -783,7 +773,7 @@ fn check_correctable_on(
         .any(|c| c == column_name)
     {
         return Err(Error::InvalidOperation(format!(
-            "계약면에 없는 열입니다: {column_name}"
+            "표에 없는 열입니다: {column_name}"
         )));
     }
     Ok(())
@@ -828,7 +818,7 @@ fn plan_deletion_on(
     // 마지막 차수를 지우면 계열은 남을 자리가 없다 — 사람 값과 링크가 미아가 되기 전에 함께 걷는다.
     let series_goes = whole_series || revisions.len() <= 1;
     let mut child_rows = 0i32;
-    for table in shape.children {
+    for table in shape.counted() {
         child_rows += if whole_series {
             scalar_i64(
                 connection,
@@ -898,7 +888,7 @@ fn plan_deletion_on(
     })
 }
 
-/// `Store.LinkCount` — 계열이 걷히면 함께 걷히는 연결 수. 공고는 건(`notice_group`)에 매달린 연결을 센다.
+/// 계열이 걷히면 함께 걷히는 연결 수. 공고는 건(`notice_group`)에 매달린 연결을 센다.
 fn link_count(connection: &Connection, entity: &EntityRef, base_column: &str) -> Result<i64> {
     if entity.entity_type == "notice" {
         scalar_i64(
@@ -926,7 +916,7 @@ fn link_count(connection: &Connection, entity: &EntityRef, base_column: &str) ->
     }
 }
 
-/// `Store.Delete(connection, transaction, entity, wholeSeries, rebuild)` — [`plan_deletion_on`] 이 센 것을 걷는다.
+/// [`plan_deletion_on`] 이 센 것을 걷는다.
 fn delete_on(
     connection: &Connection,
     entity: &EntityRef,
@@ -1039,7 +1029,7 @@ fn resolve_on(connection: &Connection, key: &str) -> Result<Option<EntityRef>> {
 
 // ── 열 검사 ───────────────────────────────────────────────
 
-/// `Store.RefuseComputedWrite` — 가공열의 값은 직접 고칠 수 없다.
+/// 가공열의 값은 직접 고칠 수 없다.
 fn refuse_computed_write(
     connection: &Connection,
     entity_type: &str,
@@ -1058,7 +1048,7 @@ fn refuse_computed_write(
     Ok(())
 }
 
-/// `Store.Pack` — 후보는 `choice` 일 때만 담는다.
+/// 후보는 `choice` 일 때만 담는다.
 fn pack(kind: &str, choices: &[String]) -> Option<String> {
     if kind != "choice" {
         return None;
@@ -1072,7 +1062,6 @@ fn pack(kind: &str, choices: &[String]) -> Option<String> {
     (!clean.is_empty()).then(|| clean.join("|"))
 }
 
-/// `Store.CheckKind`.
 fn check_kind(kind: &str) -> Result<()> {
     if !matches!(kind, "text" | "choice" | "date" | "number") {
         return Err(Error::InvalidOperation(format!(
@@ -1082,8 +1071,9 @@ fn check_kind(kind: &str) -> Result<()> {
     Ok(())
 }
 
-/// `Store.CleanName` — 열 이름을 다듬고 쓸 수 있는지 본다. **이름이 SQL 에 그대로 박히고 뷰는 열릴 때마다 다시
-/// 지어지므로** 따옴표가 섞인 이름은 앱이 뜨지 못하게 만든다 — 다리로 직접 부를 수 있으니 여기서 막는다.
+/// 열 이름을 다듬고 쓸 수 있는지 본다. 계약면 뷰는 이름을 감싸 넣어 손으로 고친 파일의 따옴표 섞인 이름에도
+/// 서지만, 이름은 가공식 · 맞춤 뷰 · 서식의 칸으로도 흘러가 그 모든 길이 감싸 준다고 장담하지 못한다 — 다리로
+/// 직접 부를 수 있으니 여기서 막는다.
 fn clean_name(field_name: &str) -> Result<String> {
     let name = field_name.trim();
     if name.is_empty() {
@@ -1103,7 +1093,6 @@ fn clean_name(field_name: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
-/// `Store.CheckExists`.
 fn check_exists(connection: &Connection, entity_type: &str, field_name: &str) -> Result<()> {
     if scalar_i64(
         connection,
@@ -1119,7 +1108,7 @@ fn check_exists(connection: &Connection, entity_type: &str, field_name: &str) ->
     Ok(())
 }
 
-/// `Store.CheckFree` — 이 이름을 써도 되는가. 뷰가 이미 내는 이름과 부딪히면 SQLite 가 조용히 뒤엣것을 `이름:1` 로
+/// 이 이름을 써도 되는가. 뷰가 이미 내는 이름과 부딪히면 SQLite 가 조용히 뒤엣것을 `이름:1` 로
 /// 바꾸므로, 뷰가 실제로 내는 열 이름을 읽어 견준다. 계약은 `v_통합`·`v_통합차수` 를 함께 본다.
 fn check_free(
     connection: &Connection,
@@ -1157,7 +1146,28 @@ fn check_free(
     Ok(())
 }
 
-/// `Store.ViewColumns` — 뷰가 실제로 내는 열 이름(`PRAGMA table_info`).
+/// 적어 둔 값을 새 열 이름으로 옮긴다. 지운 열의 값이 그 이름으로 남아 있으면 거절한다 — 섞거나 지우면
+/// 그 이름으로 열을 다시 만들 때 되살아날 값(ADR-007)이 사라진다.
+fn rename_values(connection: &Connection, entity_type: &str, from: &str, to: &str) -> Result<()> {
+    let (table, _) = table_for(entity_type)?;
+    if scalar_i64(
+        connection,
+        &format!("SELECT count(*) FROM {table} WHERE field_name = ?1;"),
+        [to],
+    )? > 0
+    {
+        return Err(Error::InvalidOperation(format!(
+            "지운 열의 값이 그 이름으로 남아 있습니다: {to} — 그 이름으로 열을 더하면 값이 돌아옵니다"
+        )));
+    }
+    connection.execute(
+        &format!("UPDATE {table} SET field_name = ?1 WHERE field_name = ?2;"),
+        params![to, from],
+    )?;
+    Ok(())
+}
+
+/// 뷰가 실제로 내는 열 이름(`PRAGMA table_info`).
 fn view_columns(connection: &Connection, view: &str) -> Result<Vec<String>> {
     query(
         connection,
@@ -1167,7 +1177,7 @@ fn view_columns(connection: &Connection, view: &str) -> Result<Vec<String>> {
     )
 }
 
-/// `Store.ComputedViews` — 가공열이 붙는 뷰: 면 뷰와 차수 뷰, 계약이면 통합 둘까지.
+/// 가공열이 붙는 뷰: 면 뷰와 차수 뷰, 계약이면 통합 둘까지.
 fn computed_views(entity_type: &str) -> Result<&'static [&'static str]> {
     Ok(match entity_type {
         "notice" => &["v_공고", "v_공고차수"],
@@ -1177,7 +1187,7 @@ fn computed_views(entity_type: &str) -> Result<&'static [&'static str]> {
     })
 }
 
-/// `Store.LatestColumnParents` — 열마다 최신 차수의 문서 다섯.
+/// 열마다 최신 차수의 문서 다섯.
 fn latest_column_parents(entity_type: &str) -> Result<String> {
     computed_column::fields(entity_type)?; // 표 이름을 넣기 전에 종류를 검증한다.
     Ok(format!(
@@ -1188,7 +1198,7 @@ fn latest_column_parents(entity_type: &str) -> Result<String> {
     ))
 }
 
-/// `Store.Available` — 가공식 편집기의 재료(원천 필드·연결 문서·읽을 수 있는 뷰의 열).
+/// 가공식 편집기의 재료(원천 필드·연결 문서·읽을 수 있는 뷰의 열).
 fn available(connection: &Connection, entity_type: &str) -> Result<Value> {
     let env = Flow::env_for(entity_type)?;
     let linked = env
@@ -1212,7 +1222,7 @@ fn available(connection: &Connection, entity_type: &str) -> Result<Value> {
     ]))
 }
 
-/// `SqlColumn.Readable.ToDictionary(v => v, v => ViewColumns(connection, v))`.
+/// 읽을 수 있는 면 뷰마다의 열을 {뷰: 열} 로.
 fn readable_schema(connection: &Connection) -> Result<Value> {
     let mut schema = Map::new();
     for view in sql_column::READABLE {
@@ -1224,23 +1234,29 @@ fn readable_schema(connection: &Connection) -> Result<Value> {
     Ok(Value::Object(schema))
 }
 
-/// `Store.Shape` 의 결과.
 struct Shape {
     head: &'static str,
     base_column: &'static str,
     series: &'static str,
     user_fields: &'static str,
     children: &'static [&'static str],
+    /// 외래키 연쇄로 함께 지워지는 ERP 표. 딸린 행으로 세기만 한다 — 삭제 승인의 지문(`children`)에는 들지 않는다.
+    cascaded: &'static [&'static str],
 }
 
-/// .NET `ArgumentOutOfRangeException(nameof(entityType), entityType, "모르는 종류입니다.")` 의 글.
+impl Shape {
+    /// 지울 때 함께 가는 딸린 행의 표 — 셀 때 쓴다.
+    fn counted(&self) -> impl Iterator<Item = &'static str> {
+        self.children.iter().chain(self.cascaded).copied()
+    }
+}
+
+/// 접수 · 공고 · 계약 밖의 종류.
 fn unknown_kind(entity_type: &str) -> Error {
-    Error::Argument(format!(
-        "모르는 종류입니다. (Parameter 'entityType')\r\nActual value was {entity_type}."
-    ))
+    Error::Argument(format!("모르는 종류입니다: {entity_type}"))
 }
 
-/// `Store.Shape` — 종류마다 머리 표·본번호 열·계열 표·사람 값 표·딸린 표.
+/// 종류마다 머리 표·본번호 열·계열 표·사람 값 표·딸린 표.
 fn shape(entity_type: &str) -> Result<Shape> {
     Ok(match entity_type {
         "contract" => Shape {
@@ -1249,6 +1265,7 @@ fn shape(entity_type: &str) -> Result<Shape> {
             series: "contract_series",
             user_fields: "contract_user_field",
             children: &["contract_item", "contract_attachment"],
+            cascaded: &["erp_partner"],
         },
         "notice" => Shape {
             head: "notice",
@@ -1262,6 +1279,7 @@ fn shape(entity_type: &str) -> Result<Shape> {
                 "notice_relation",
                 "notice_restricted_industry",
             ],
+            cascaded: &["erp_notice_attachment"],
         },
         "request" => Shape {
             head: "request",
@@ -1269,12 +1287,13 @@ fn shape(entity_type: &str) -> Result<Shape> {
             series: "request_series",
             user_fields: "request_user_field",
             children: &["request_item"],
+            cascaded: &[],
         },
         _ => return Err(unknown_kind(entity_type)),
     })
 }
 
-/// `Store.TableFor` — 사람 값 표와 본번호 열.
+/// 사람 값 표와 본번호 열.
 fn table_for(entity_type: &str) -> Result<(&'static str, &'static str)> {
     Ok(match entity_type {
         "contract" => ("contract_user_field", "contract_base"),
@@ -1284,7 +1303,7 @@ fn table_for(entity_type: &str) -> Result<(&'static str, &'static str)> {
     })
 }
 
-/// `Store.FaceView` — 이 종류를 통째로 내는 계약면 뷰. 덮개를 씌울 수 있는 열은 이 뷰의 열이다.
+/// 이 종류를 통째로 내는 계약면 뷰. 덮개를 씌울 수 있는 열은 이 뷰의 열이다.
 pub fn face_view(entity_type: &str) -> &'static str {
     match entity_type {
         "notice" => "v_공고",
@@ -1293,7 +1312,7 @@ pub fn face_view(entity_type: &str) -> &'static str {
     }
 }
 
-/// `Store.FaceKey` — 그 면 뷰의 줄 열쇠 열.
+/// 그 면 뷰의 줄 열쇠 열.
 pub fn face_key(entity_type: &str) -> &'static str {
     match entity_type {
         "notice" => "입찰공고번호",
@@ -1302,9 +1321,9 @@ pub fn face_key(entity_type: &str) -> &'static str {
     }
 }
 
-// ── Dapper 자리 ─────────────────────────────────────────────
+// ── 값 읽기 ─────────────────────────────────────────────
 
-/// `connection.BeginTransaction(deferred: true)` — `BEGIN DEFERRED`. 읽기 전용 연결에서 사진 한 벌을 잡는다.
+/// `BEGIN DEFERRED` 트랜잭션. 읽기 전용 연결에서 사진 한 벌을 잡는다.
 fn begin_deferred(connection: &Connection) -> Result<Transaction<'_>> {
     Ok(Transaction::new_unchecked(
         connection,
@@ -1312,25 +1331,25 @@ fn begin_deferred(connection: &Connection) -> Result<Transaction<'_>> {
     )?)
 }
 
-/// Dapper 가 `string` 으로 읽는 값 — `Convert.ToString` 처럼 수도 글로 바꾼다. NULL 은 `None`. 다리(`pclm-bridge`)의 표 칸도 이것이다.
+/// 글로 읽는 값 — 수도 글로 바꾼다. NULL 은 `None`. 다리(`pclm-bridge`)의 표 칸도 이것이다.
 pub fn text_of(value: ValueRef<'_>) -> Option<String> {
     match value {
         ValueRef::Null => None,
         ValueRef::Integer(i) => Some(i.to_string()),
-        ValueRef::Real(d) => Some(dotnet_double_r(d)),
+        ValueRef::Real(d) => Some(double_round_trip(d)),
         ValueRef::Text(t) => Some(String::from_utf8_lossy(t).into_owned()),
-        ValueRef::Blob(_) => Some("System.Byte[]".into()),
+        ValueRef::Blob(_) => Some("(바이너리)".into()),
     }
 }
 
-/// Dapper 동적 행의 값 하나를 System.Text.Json 이 쓰는 꼴로 — `long`·`double` 은 수, 글은 글, BLOB 은 base64.
+/// 동적 행의 값 하나를 JSON 으로 — `long`·`double` 은 수, 글은 글, BLOB 은 base64.
 pub(crate) fn json_of(value: ValueRef<'_>) -> Value {
     match value {
         ValueRef::Null => Value::Null,
         ValueRef::Integer(i) => i.into(),
         ValueRef::Real(d) if d.is_finite() => json::number(&json::format_double(d)),
-        // .NET 은 유한하지 않은 double 을 쓰지 못한다(예외). SQLite 는 NaN 을 NULL 로 두므로 무한대만 남는다.
-        ValueRef::Real(d) => Value::String(dotnet_double_r(d)),
+        // 유한하지 않은 double 은 JSON 수로 쓰지 못한다. SQLite 는 NaN 을 NULL 로 두므로 무한대만 남는다.
+        ValueRef::Real(d) => Value::String(double_round_trip(d)),
         ValueRef::Text(t) => Value::String(String::from_utf8_lossy(t).into_owned()),
         ValueRef::Blob(b) => Value::String(base64(b)),
     }
@@ -1414,7 +1433,7 @@ fn scalar_i64<P: Params>(connection: &Connection, sql: &str, args: P) -> Result<
     })
 }
 
-/// Dapper `QuerySingleOrDefault` — 줄이 없으면 `None`, 둘 이상이면 .NET 의 그 말로 거절한다.
+/// 줄이 없으면 `None`, 둘 이상이면 오류로 거절한다.
 fn single_or_default<T, P: Params>(
     connection: &Connection,
     sql: &str,
@@ -1428,12 +1447,12 @@ fn single_or_default<T, P: Params>(
     };
     let value = map(first)?;
     if rows.next()?.is_some() {
-        return Err(Error::invalid("Sequence contains more than one element"));
+        return Err(Error::invalid("한 줄이어야 할 결과가 여러 줄입니다."));
     }
     Ok(Some(value))
 }
 
-/// Dapper `QuerySingle` — 꼭 한 줄.
+/// 꼭 한 줄.
 fn single<T, P: Params>(
     connection: &Connection,
     sql: &str,
@@ -1441,23 +1460,7 @@ fn single<T, P: Params>(
     map: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
 ) -> Result<T> {
     single_or_default(connection, sql, args, map)?
-        .ok_or_else(|| Error::invalid("Sequence contains no elements"))
-}
-
-fn read_user_columns<P: Params>(
-    connection: &Connection,
-    sql: &str,
-    args: P,
-) -> Result<Vec<UserColumnDefinition>> {
-    query(connection, sql, args, |r| {
-        Ok(UserColumnDefinition {
-            entity_type: r.get(0)?,
-            field_name: r.get(1)?,
-            kind: r.get(2)?,
-            options: r.get(3)?,
-            sort_order: r.get(4)?,
-        })
-    })
+        .ok_or_else(|| Error::invalid("있어야 할 줄이 없습니다."))
 }
 
 fn object<const N: usize>(entries: [(&str, Value); N]) -> Value {
@@ -1476,7 +1479,7 @@ fn opt_string(value: Option<String>) -> Value {
     value.map_or(Value::Null, Value::String)
 }
 
-/// `Access.Read` 손잡이에서 쓰기를 거절하는 말.
+/// `Access::Read` 손잡이에서 쓰기를 거절하는 말.
 fn refuse_read(database: &Database, message: &str) -> Result<()> {
     if database.access() == Access::Read {
         return Err(Error::invalid(message));
@@ -1489,7 +1492,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base64_matches_dotnet() {
+    fn base64_pads_standard_alphabet() {
         assert_eq!(base64(b""), "");
         assert_eq!(base64(b"f"), "Zg==");
         assert_eq!(base64(b"fo"), "Zm8=");

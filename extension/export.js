@@ -13,7 +13,7 @@ function pclmExportPage() {
   if ([...document.querySelectorAll('#__processbarIFrame')].some(visible))
     throw new Error("화면을 불러오는 중입니다. 로딩이 끝난 뒤 다시 내보내세요.");
   const clean = value => String(value ?? "").trim();
-  const internal = /password|passwd|pwd|token|session|cookie|csrf|account(?!ing)|actno|prsnno|rrno|rrn|atflpath|ipar|비밀번호|주민등록|계좌번호/i;
+  const internal = /password|passwd|pwd|token|session|cookie|csrf|account(?!ing)|actno|prsnno|rrno|rrn|atflpath|ipar|비밀번호|주민등록|주민번호|jumin|ihidnum|rsdnt(?:rgst)?no|계좌번호/i;
   const excluded = 'script, style, button, input[type="hidden"], input[type="password"], input[type="button"], input[type="submit"], input[type="reset"], input[type="file"], input[type="image"]';
   const component = id => { try { return window.$p?.getComponentById?.(id); } catch { return null; } };
   const label = e => clean(pclmLabel(e));
@@ -138,8 +138,11 @@ function pclmExportPage() {
   if (!sheets.length) throw new Error(warnings[0] || "내보낼 필드나 표가 없습니다. 자료가 있는 업무 화면을 열어 주세요.");
   const title = clean(document.getElementById("mf_wfm_cntsHeader_spnHeaderTitle")?.textContent || document.title) || "나라장터";
   const url = location.origin + location.pathname; // 세션 값이 포함될 수 있는 query/hash는 기록하지 않는다.
+  // 지역 시각 — background.js 의 localStamp 와 같은 꼴(페이지 안에서 돌아 그것을 부르지 못한다).
+  const d = new Date(), two = n => String(n).padStart(2, "0");
+  const at = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
   sheets.push({ name: "수집 정보", source: "", rows: [["항목", "내용"], ["화면", title], ["출처", url],
-    ["수집 시각", new Date().toISOString()], ["범위", "현재 화면의 표시 필드와 로딩된 표 데이터. 다른 페이지·미개방 탭·전체 건수는 확인하지 않음."],
+    ["수집 시각", at], ["범위", "현재 화면의 표시 필드와 로딩된 표 데이터. 다른 페이지·미개방 탭·전체 건수는 확인하지 않음."],
     ...sheets.map(s => [s.name, `${s.source} · ${s.rows.length - 1}행`]), ...warnings.map(w => ["미수집", w])] });
   return { title, sheets, warnings };
 }

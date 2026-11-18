@@ -884,7 +884,7 @@
    }
   },
   {
-   "name": "합계 천단위 — 빈 목록은 빈 값",
+   "name": "합계 서식 — 빈 목록은 빈 값",
    "entity": "contract",
    "formula": {
     "version": 2,
@@ -900,7 +900,8 @@
        "field": "금액"
       },
       {
-       "op": "thousands"
+       "op": "format",
+       "text": "#,##0"
       }
      ]
     }
@@ -1947,6 +1948,169 @@
    }
   },
   {
+   "name": "반올림 — 소수 자리 15 까지",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "round",
+       "n": 15
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1.5"
+   }
+  },
+  {
+   "name": "반올림 — 소수 자리 -15 까지",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "round",
+       "n": -15
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "0"
+   }
+  },
+  {
+   "name": "꼴 오류 — 반올림 소수 자리가 15 를 넘는다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "round",
+       "n": 16
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "꼴 오류 — 버림 소수 자리가 -15 아래다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "floor",
+       "n": -16
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "앞채우기 — 길이 1000 까지",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "가"
+     },
+     "steps": [
+      {
+       "op": "padStart",
+       "length": 1000,
+       "text": "*"
+      },
+      {
+       "op": "substr",
+       "n": 998,
+       "length": 3
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "**가"
+   }
+  },
+  {
+   "name": "꼴 오류 — 앞채우기 길이가 1000 을 넘는다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "가"
+     },
+     "steps": [
+      {
+       "op": "padStart",
+       "length": 1001,
+       "text": "*"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
    "name": "곱하기 다음 그대로",
    "entity": "contract",
    "formula": {
@@ -2091,7 +2255,7 @@
    }
   },
   {
-   "name": "날짜서식",
+   "name": "날짜 서식 — 년 월 일",
    "entity": "contract",
    "formula": {
     "version": 2,
@@ -2107,8 +2271,8 @@
        "op": "toDate"
       },
       {
-       "op": "dateFormat",
-       "text": "YYYY년 M월 D일"
+       "op": "format",
+       "text": "yyyy년 m월 d일"
       }
      ]
     }
@@ -2889,6 +3053,783 @@
    ],
    "final": {
     "K1": "첫줄\n둘째 '문구'"
+   }
+  },
+  {
+   "name": "수 서식 — 쉼표와 뒤 글자, 못 읽은 수는 빈 글",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "#,##0원"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "number",
+    "value"
+   ],
+   "final": {
+    "K1": "1,500,000원",
+    "K3": ""
+   }
+  },
+  {
+   "name": "수 서식 — 소수 고정 자리",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1234.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "#,##0.00"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1,234.50"
+   }
+  },
+  {
+   "name": "수 서식 — 0 채움",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 7
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "000"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "007"
+   }
+  },
+  {
+   "name": "수 서식 — 쉼표와 0 채움",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 7
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "0,000"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "0,007"
+   }
+  },
+  {
+   "name": "수 서식 — 쉼표와 0 채움, 세 자리 덩이",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 7
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "#,000"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "007"
+   }
+  },
+  {
+   "name": "수 서식 — 쉼표는 0 채움보다 긴 수에도",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 1234567
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "0,000"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1,234,567"
+   }
+  },
+  {
+   "name": "수 서식 — 정수로 반올림",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1234.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "0"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1235"
+   }
+  },
+  {
+   "name": "수 서식 — 반올림은 0 에서 먼 쪽",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "-2.5"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "0"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "-3"
+   }
+  },
+  {
+   "name": "수 서식 — 소수 자리에서 반올림",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "0.125"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "0.00"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "0.13"
+   }
+  },
+  {
+   "name": "수 서식 — 반올림해 0 이면 부호를 떼다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "-0.4"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "0"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "0"
+   }
+  },
+  {
+   "name": "수 서식 — 음수는 앞 글자보다 앞에 부호",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "-1500"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "\"약 \"#,##0\\원"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "-약 1,500원"
+   }
+  },
+  {
+   "name": "수 서식 — 소수점만",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 5
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "0."
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "5."
+   }
+  },
+  {
+   "name": "날짜 서식 — 시각 없는 값은 0시",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약일자"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m. d. hh:mm"
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "value",
+    "date",
+    "value"
+   ],
+   "final": {
+    "K1": "2026. 8. 1. 00:00",
+    "K3": "2026. 12. 31. 00:00"
+   }
+  },
+  {
+   "name": "날짜 서식 — 월과 분을 가린다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/01/02 03:04:05"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "yy-mm-dd h:mm:ss"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "26-01-02 3:04:05"
+   }
+  },
+  {
+   "name": "날짜 서식 — 공문서 일시",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/10/20 09:30"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m. d. hh:mm"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026. 10. 20. 09:30"
+   }
+  },
+  {
+   "name": "날짜 서식 — 못 읽은 날짜는 빈 글",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "납품기한"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m."
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026. 9.",
+    "K2": ""
+   }
+  },
+  {
+   "name": "시각을 지닌 날짜 — 끝 글은 날짜만",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/10/20 09:30:15"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026/10/20"
+   }
+  },
+  {
+   "name": "시각을 지닌 날짜 — 초까지 지닌다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/10/20 09:30:15"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "hh:mm:ss"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "09:30:15"
+   }
+  },
+  {
+   "name": "시각을 지닌 날짜 — 날짜더하기는 시각을 붙여 둔다",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/01/31 23:59"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateAdd",
+       "n": 1,
+       "unit": "day"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m. d. hh:mm"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026. 2. 1. 23:59"
+   }
+  },
+  {
+   "name": "시각을 지닌 날짜 — 날짜차이는 날짜만으로",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/08/02 23:00"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "dateDiff",
+       "field": "계약일자"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "1"
+   }
+  },
+  {
+   "name": "올바르지 않은 시각은 버리고 날짜만",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/08/02 24:00"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m. d. hh:mm"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "2026. 8. 2. 00:00"
+   }
+  },
+  {
+   "name": "시각 뒤에 글이 붙으면 날짜만",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "2026/08/02 09:30 이후"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "hh:mm"
+      }
+     ]
+    }
+   },
+   "final": {
+    "K1": "00:00"
+   }
+  },
+  {
+   "name": "오늘 — 날짜 꼴(값은 날마다 달라 각 쪽 단위 시험이 본다)",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "today"
+     },
+     "steps": [
+      {
+       "op": "dateAdd",
+       "n": 10,
+       "unit": "day"
+      },
+      {
+       "op": "format",
+       "text": "yyyy. m. d."
+      }
+     ]
+    }
+   },
+   "shapes": [
+    "date",
+    "date",
+    "value"
+   ],
+   "final": {}
+  },
+  {
+   "name": "꼴 오류 — 수 서식에 날짜 자리",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 1
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "yyyy"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 날짜 서식에 수 자리",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약일자"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "0"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "꼴 오류 — 지원하지 않는 서식 코드",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "number",
+      "value": 1
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "0%"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
+   }
+  },
+  {
+   "name": "꼴 오류 — 지원하지 않는 날짜 자리",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약일자"
+     },
+     "steps": [
+      {
+       "op": "toDate"
+      },
+      {
+       "op": "format",
+       "text": "mmm"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "꼴 오류 — 가공열의 [DBNum4]",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "field",
+      "field": "계약금액"
+     },
+     "steps": [
+      {
+       "op": "toNumber"
+      },
+      {
+       "op": "format",
+       "text": "[DBNum4]"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 2
+   }
+  },
+  {
+   "name": "꼴 오류 — 글에 서식 코드",
+   "entity": "contract",
+   "formula": {
+    "version": 2,
+    "id": "",
+    "source": "flow",
+    "flow": {
+     "from": {
+      "kind": "text",
+      "text": "1"
+     },
+     "steps": [
+      {
+       "op": "format",
+       "text": "#,##0"
+      }
+     ]
+    }
+   },
+   "error": {
+    "index": 1
    }
   }
  ]

@@ -1,4 +1,4 @@
-//! 열 관리의 다리 쪽(docs/column-management.md §11.4·§11.5) — C# `ColumnBridgeTests` 전부: SQL 열과 그 검증, 깨진
+//! 열 관리의 다리 쪽(docs/column-management.md §11.4·§11.5) — SQL 열과 그 검증, 깨진
 //! 열의 격리, 값 흐름 보표, 값으로 굳히기. 값은 모두 지어낸 것이다.
 
 mod common;
@@ -57,12 +57,11 @@ fn setup(name: &str) -> Fixture {
     f
 }
 
-/// C# `Sql` — 기본 옵션 `JsonSerializer.Serialize` 의 꼴.
+/// 기본 옵션 직렬화의 꼴.
 fn sql(text: &str) -> String {
     bridge_json(&json!({"version": 2, "id": "", "source": "sql", "sql": text}))
 }
 
-/// C# `Flow(from, steps)`.
 fn flow(from: Value, steps: &[Value]) -> String {
     bridge_json(
         &json!({"version": 2, "id": "", "source": "flow", "flow": {"from": from, "steps": steps}}),
@@ -73,7 +72,7 @@ fn items() -> Value {
     json!({"kind": "items"})
 }
 
-/// C# `Read` — 앱 함수 없는 독립 읽기 전용 연결에서 `QuerySingle<string>`. NULL 이면 C# 은 null 을 내 비교가 실패한다.
+/// 앱 함수 없는 독립 읽기 전용 연결에서 한 칸을 글로 읽는다. NULL 이면 비교가 실패한다.
 fn read(f: &Fixture, sql: &str) -> String {
     let consumer = common::raw_read(&f.path);
     let mut statement = consumer.prepare(sql).unwrap();
@@ -87,7 +86,7 @@ fn read(f: &Fixture, sql: &str) -> String {
         Sql::Integer(i) => i.to_string(),
         Sql::Real(d) => d.to_string(),
         Sql::Text(t) => t,
-        Sql::Blob(_) => "System.Byte[]".into(),
+        Sql::Blob(_) => "(바이너리)".into(),
     };
     assert!(rows.next().unwrap().is_none(), "줄이 둘 이상입니다: {sql}");
     value
@@ -96,11 +95,11 @@ fn read(f: &Fixture, sql: &str) -> String {
 fn invalid<T: std::fmt::Debug>(result: pclm_core::Result<T>) -> String {
     match result {
         Err(Error::InvalidOperation(message)) => message,
-        other => panic!("InvalidOperationException 을 바랐는데: {other:?}"),
+        other => panic!("Error::InvalidOperation 을 바랐는데: {other:?}"),
     }
 }
 
-/// C# `Refused` — 「거절열」 로 저장하려다 받은 말.
+/// 「거절열」 로 저장하려다 받은 말.
 fn refused(store: &Store, entity: &str, text: &str) -> String {
     invalid(store.save_computed_column(entity, "거절열", &sql(text), None))
 }
@@ -124,8 +123,8 @@ fn has_column(store: &Store, name: &str) -> bool {
         .any(|c| c.field_name == name)
 }
 
-/// C# `ComputedColumn.ReadForEditing` — 편집 화면은 격리된 식도 원문과 진단을 함께 읽는다. Core 에 옮기지 않은 공개
-/// 정적 함수라 같은 몸을 여기 둔다(`Flow.ReadForIdentity` 뒤 `migrationError` 가 있으면 원문, 없으면 `Flow.Json` 꼴).
+/// 편집 화면은 격리된 식도 원문과 진단을 함께 읽는다. Core 에 옮기지 않은 공개
+/// 정적 함수라 같은 몸을 여기 둔다(식별용으로 읽은 뒤 `migrationError` 가 있으면 원문, 없으면 가공식 JSON 꼴).
 fn read_for_editing(json: &str) -> pclm_core::Result<Value> {
     let formula = Flow::read_for_identity(json)?;
     let root: Value = serde_json::from_str(json).unwrap();
@@ -609,7 +608,6 @@ fn diagnosed_case(source: &str) {
     );
     let raw = bridge_json(&editable);
     assert_eq!(invalid(computed_column::parse(&raw)), MESSAGE);
-    invalid(computed_column::expression_of("notice", &raw));
     invalid(store.save_computed_column("notice", "이름만수정", &raw, Some("진단열")));
 
     let mut edited = editable.clone();

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "브라우저 확장의 native messaging 호스트가 홈에 남기는 파일과 메시지 고리(#10). C# 창이 같은 파일을 읽고 쓴다 — 바이트가 같다."
+description = "브라우저 확장의 native messaging 호스트가 홈에 남기는 파일과 메시지 고리(#10). 창이 같은 파일을 읽고 쓴다."
 publish = false
 
 [dependencies]

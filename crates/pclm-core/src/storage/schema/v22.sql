@@ -1,7 +1,7 @@
--- C# 의 Schema.Steps[3] 과 한 군데 다르다: steps 부질의를 json(…) 으로 감쌌다. SQLite 3.54 는 스칼라 부질의를 지난
+-- steps 부질의를 json(…) 으로 감쌌다. SQLite 3.54 는 스칼라 부질의를 지난
 -- 값의 JSON 하위형을 떨어뜨려(3.53 은 넘긴다), 감싸지 않으면 steps 가 배열이 아니라 글로 담긴다. 감싸도 3.53 이 내던
--- 글자와 같다 — json_group_array 가 이미 줄인 꼴을 내므로 json() 이 바꿀 것이 없다(계기 migrate-v21 이 본다).
--- 읽을 수 없는 식(손으로 깨뜨린 글)은 건너뛴다 — 그 열은 뒤에 깨진 열로 선다(C# 과 같은 WHERE).
+-- 글자와 같다 — json_group_array 가 이미 줄인 꼴을 내므로 json() 이 바꿀 것이 없다.
+-- 읽을 수 없는 식(손으로 깨뜨린 글)은 건너뛴다 — 그 열은 뒤에 깨진 열로 선다.
 UPDATE user_column
 SET options = json_object(
     'version', 2,

@@ -1,11 +1,11 @@
-//! 가공식 v2 — 흐름식의 원본(docs/column-management.md §4.5). C# `Storage/Flow.cs` 의 **자료 모형과 읽기·쓰기**만
-//! 옮긴다. 꼴 검사(`Flow.Check`)·재료(`EnvFor`)·SQL 로 옮기기(`FlowCompiler`)는 가공식 단계(#9 커밋 5)가 채운다.
+//! 가공식 v2 — 흐름식의 원본(docs/column-management.md §4.5). 이 모듈은 **자료 모형과 읽기·쓰기**만
+//! 맡는다. 꼴 검사는 `flow_check`, SQL 로 옮기기는 `flow_compiler` 가 맡는다.
 //!
-//! 저장 꼴은 `Flow.Json` 이다 — `JsonSerializerDefaults.Web`(이름은 camelCase, 읽을 때 대소문자 무시, 수를 글로도
-//! 받음) + `WhenWritingNull`(빈 자리는 적지 않음) + `UnsafeRelaxedJsonEscaping`. 속성 차례는 C# 레코드의 매개변수
+//! 저장 꼴은 이렇다 — 이름은 camelCase, 읽을 때 대소문자 무시, 수를 글로도
+//! 받음, 빈 자리는 적지 않음, 비ASCII 글자를 이스케이프하지 않는 느슨한 인코딩. 속성 차례는 아래 구조체의 필드
 //! 차례다. 글과 바이트까지 같아야 화면과 소비자가 같은 식을 읽는다.
 //!
-//! 자리마다 `Option` 인 것은 C# 의 참조형이 JSON 에서 빠지거나 `null` 로 올 수 있어서다 — 그 경우를 가르는 것은
+//! 자리마다 `Option` 인 것은 JSON 에서 빠지거나 `null` 로 올 수 있어서다 — 그 경우를 가르는 것은
 //! 읽기가 아니라 [`Flow::parse`] 의 모양 검사(`Validate`)이고, 오류 글도 거기서 정한다.
 
 use serde_json::{Map, Value};
@@ -17,7 +17,6 @@ use crate::json::{
 };
 use crate::text::{eq_ignore_case, is_blank, utf16_len};
 
-/// C# `FlowFormula(int Version, string Id, string Source, FlowDefinition? Flow = null, string? Sql = null)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowFormula {
     pub version: i32,
@@ -27,15 +26,13 @@ pub struct FlowFormula {
     pub sql: Option<String>,
 }
 
-/// C# `FlowDefinition(FlowSource From, FlowStep[] Steps)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowDefinition {
     pub from: Option<FlowSource>,
     pub steps: Option<Vec<Option<FlowStep>>>,
 }
 
-/// C# `FlowSource(string Kind, string? Field, string? Link, bool? Items, string? Text, double? Value)`.
-/// `kind` 는 `items`·`field`·`linked`·`text`·`number`, `link` 는 `notice`·`request`·`contract`.
+/// `kind` 는 `items`·`field`·`linked`·`text`·`number`·`today`, `link` 는 `notice`·`request`·`contract`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlowSource {
     pub kind: Option<String>,
@@ -46,7 +43,7 @@ pub struct FlowSource {
     pub value: Option<f64>,
 }
 
-/// C# `FlowClause(string? Join, string Field, string Cmp, JsonElement? Value)`. `value` 는 받은 JSON 값 그대로다
+/// `value` 는 받은 JSON 값 그대로다
 /// (글이나 수 — 모양 검사가 가른다).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowClause {
@@ -56,14 +53,14 @@ pub struct FlowClause {
     pub value: Option<Value>,
 }
 
-/// C# `FlowBranch(FlowClause[] Cond, string Then)` — `경우` 의 갈래 하나.
+/// `경우` 의 갈래 하나.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowBranch {
     pub cond: Option<Vec<Option<FlowClause>>>,
     pub then: Option<String>,
 }
 
-/// C# `FlowStep` — 단계 하나. 자리는 C# 레코드의 차례 그대로다(쓰는 차례가 곧 저장 바이트다).
+/// 단계 하나. 자리 차례가 곧 쓰는 차례이고 저장 바이트다.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FlowStep {
     pub op: Option<String>,
@@ -84,7 +81,7 @@ pub struct FlowStep {
     pub branches: Option<Vec<Option<FlowBranch>>>,
 }
 
-/// C# `ColumnStep(string Op, string[]? Fields, string? Text, int? Index)` — 가공식 v1 의 단계.
+/// 가공식 v1 의 단계.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ColumnStep {
     pub op: Option<String>,
@@ -93,7 +90,7 @@ pub struct ColumnStep {
     pub index: Option<i32>,
 }
 
-/// C# `ColumnFormula(int Version, string Id, ColumnStep[] Steps)` — 가공식 v1. 읽을 때 v2 로 옮긴다.
+/// 가공식 v1. 읽을 때 v2 로 옮긴다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColumnFormula {
     pub version: i32,
@@ -101,18 +98,15 @@ pub struct ColumnFormula {
     pub steps: Option<Vec<Option<ColumnStep>>>,
 }
 
-/// C# `Flow` 정적 클래스의 읽기·쓰기 부분.
+/// 가공식 읽기·쓰기.
 pub struct Flow;
 
-/// `Flow.MaxSteps`.
 const MAX_STEPS: usize = 50;
-/// `Flow.MaxText`.
 const MAX_TEXT: usize = 1000;
 
-/// `Flow.LinkWords` 의 열쇠 — 연결 문서로 쓸 수 있는 종류.
+/// 연결 문서로 쓸 수 있는 종류.
 const LINKS: [&str; 3] = ["notice", "request", "contract"];
 
-/// `Flow.Compares`.
 const COMPARES: [&str; 9] = [
     "=",
     "≠",
@@ -126,20 +120,20 @@ const COMPARES: [&str; 9] = [
 ];
 
 impl Flow {
-    /// `Flow.Parse` — 저장된·화면이 보낸 가공식을 v2 로 읽는다. v1 은 그 자리에서 옮긴다(§4.5).
-    /// 모양이 틀리면 [`Error::InvalidOperation`] 이고 글은 C# 과 같다.
+    /// 저장된·화면이 보낸 가공식을 v2 로 읽는다. v1 은 그 자리에서 옮긴다(§4.5).
+    /// 모양이 틀리면 [`Error::InvalidOperation`] 이다.
     pub fn parse(json: &str) -> Result<FlowFormula> {
         read(json, false)
     }
 
-    /// `Flow.ReadForIdentity` — 판올림 진단(`migrationError`)이 걸려 있어도 식별자는 읽는다. 모양 검사는 그대로다.
+    /// 판올림 진단(`migrationError`)이 걸려 있어도 식별자는 읽는다. 모양 검사는 그대로다.
     pub fn read_for_identity(json: &str) -> Result<FlowFormula> {
         read(json, true)
     }
 
-    /// `Flow.Serialize` — `Flow.Json` 꼴의 한 줄. 빈 자리는 적지 않는다.
+    /// 저장 꼴의 한 줄. 빈 자리는 적지 않는다.
     ///
-    /// 유한하지 않은 수는 .NET 이 쓰기를 거절하므로(`ArgumentException`) 여기서도 [`Error::Argument`] 다 —
+    /// 유한하지 않은 수는 쓰지 않으므로 여기서도 [`Error::Argument`] 다 —
     /// [`Flow::parse`] 를 지난 식에는 그런 수가 없다.
     pub fn serialize(formula: &FlowFormula) -> Result<String> {
         Ok(json::to_compact(&formula_value(formula)?, Encoder::Relaxed))
@@ -208,14 +202,13 @@ impl Flow {
     }
 }
 
-/// `Flow.Read`.
 fn read(json: &str, identity_only: bool) -> Result<FlowFormula> {
     let bad_shape = || Error::invalid("가공식 형식이 올바르지 않습니다.");
     let bad_version = || Error::invalid("가공식의 판을 알 수 없습니다.");
 
     let root = json::parse(json).map_err(|_| bad_shape())?;
-    // 같은 키가 두 번 든 식은 형식 오류다 — 어느 것을 고를지 읽는 쪽마다 달라(C# 의 JsonNode 는 던지고 본문 읽기는 뒤의
-    // 것을 고른다) 저장된 식이 깨진 열로 서게 한다.
+    // 같은 키가 두 번 든 식은 형식 오류다 — 어느 것을 고를지 읽는 쪽마다 달라
+    // 저장된 식이 깨진 열로 서게 한다.
     if json::has_duplicate_keys(json) {
         return Err(bad_shape());
     }
@@ -261,7 +254,7 @@ fn read(json: &str, identity_only: bool) -> Result<FlowFormula> {
     }
 }
 
-/// `Flow.Validate` — JSON 이 담을 수 있는 모양인가(꼴은 `Check` 가 본다).
+/// JSON 이 담을 수 있는 모양인가(꼴은 `Check` 가 본다).
 fn validate(formula: &FlowFormula) -> Result<()> {
     fn bad(why: &str) -> Error {
         Error::invalid(format!("가공식 형식이 올바르지 않습니다: {why}"))
@@ -325,7 +318,7 @@ fn validate(formula: &FlowFormula) -> Result<()> {
         return Err(bad(&format!("단계는 {MAX_STEPS}개까지입니다")));
     }
     match from.kind.as_deref() {
-        Some("items" | "number") => {}
+        Some("items" | "number" | "today") => {}
         Some("text") => {
             if from.text.is_none() {
                 return Err(bad("글자 시작 데이터가 비었습니다"));
@@ -417,7 +410,7 @@ fn validate(formula: &FlowFormula) -> Result<()> {
     Ok(())
 }
 
-// ── 읽기(Flow.Json 으로 역직렬화) ──────────────────────────────────────
+// ── 읽기(저장 꼴로 역직렬화) ──────────────────────────────────────
 
 fn read_formula(value: &Value) -> JsonResult<FlowFormula> {
     let map = read_object(value)?.ok_or(JsonException)?;
@@ -502,7 +495,7 @@ fn read_clause(map: &Map<String, Value>) -> JsonResult<FlowClause> {
             0 => c.join = read_string(v)?,
             1 => c.field = read_string(v)?,
             2 => c.cmp = read_string(v)?,
-            // JsonElement? — 어떤 값이든 그대로 담는다. JSON null 은 빈 자리다.
+            // 어떤 값이든 그대로 담는다. JSON null 은 빈 자리다.
             _ => c.value = (!v.is_null()).then(|| v.clone()),
         }
         Ok(())
@@ -610,7 +603,7 @@ fn read_column_step(map: &Map<String, Value>) -> JsonResult<ColumnStep> {
     Ok(s)
 }
 
-// ── 쓰기(Flow.Json 으로 직렬화 — 빈 자리는 적지 않는다) ─────────────────
+// ── 쓰기(저장 꼴로 직렬화 — 빈 자리는 적지 않는다) ─────────────────
 
 struct Writer(Map<String, Value>);
 
@@ -761,9 +754,9 @@ mod tests {
         }
     }
 
-    /// 입력과 기대값은 C# `Flow.Serialize(Flow.Parse(입력))` 의 실측(scratch 콘솔, 값은 지어낸 것).
+    /// 입력은 지어낸 값이고, 기대값은 옛 판이 같은 입력으로 낸 글(실측)과 맞춘 것이다.
     #[test]
-    fn parse_then_serialize_matches_csharp() {
+    fn parse_then_serialize_normalizes() {
         let cases: &[(&str, &str)] = &[
             (
                 r#"{"version":2,"source":"flow","flow":{"from":{"kind":"number","value":"1.50"},"steps":[]}}"#,
@@ -851,7 +844,7 @@ mod tests {
         }
     }
 
-    /// C# `판은_대소문자를_가리지_않고_겹친_키는_형식_오류다` — 판은 본문처럼 대소문자를 가리지 않고 고르고(여럿이면 뒤의 것),
+    /// 판은 본문처럼 대소문자를 가리지 않고 고르고(여럿이면 뒤의 것),
     /// 같은 키가 두 번 든 식은 어디에 들었든 형식 오류다.
     #[test]
     fn version_is_case_insensitive_and_duplicate_keys_are_malformed() {
@@ -882,7 +875,7 @@ mod tests {
         }
     }
 
-    /// C# `정수가_아닌_판은_판을_알_수_없다` — 판이 정수가 아닌 수면 「가공식의 판을 알 수 없습니다.」 다. 저장·미리보기가
+    /// 판이 정수가 아닌 수면 「가공식의 판을 알 수 없습니다.」 다. 저장·미리보기가
     /// 받는 꼴(`parse_for`)도 같다.
     #[test]
     fn non_integer_version_is_unknown() {
@@ -905,8 +898,8 @@ mod tests {
         }
     }
 
-    /// C# `짝_없는_서로게이트와_너무_깊은_글은_형식_오류다` — 짝 없는 서로게이트 이스케이프가 든 글과 64 단계보다 깊은 글은
-    /// 읽을 수 없는 글이다. .NET 의 깊이 한도가 64 라 65~128 단계는 serde_json(한도 128)만 읽고 있었다.
+    /// 짝 없는 서로게이트 이스케이프가 든 글과 64 단계보다 깊은 글은
+    /// 읽을 수 없는 글이다. serde_json 의 깊이 한도는 128 이라 65~128 단계는 따로 막아야 한다.
     #[test]
     fn lone_surrogates_and_too_deep_text_are_malformed() {
         let body = r#""source":"flow","flow":{"from":{"kind":"items"},"steps":[]}}"#;

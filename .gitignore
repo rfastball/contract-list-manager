@@ -1,8 +1,4 @@
-bin/
-obj/
 artifacts/
-*.user
-.vs/
 
 # 산출 DB — 개인정보가 들어가므로 저장소에 올리지 않는다
 *.db
@@ -17,11 +13,18 @@ tests/Pclm.Core.Tests/golden/
 # 배포 산출물
 dist/
 
+# 문서 만들기 엔진 — scripts/build-engine.ps1 이 짓는 산출물. 내장 확장에 박혀 exe 로 나간다(ADR-045).
+/extension/engine.wasm
+
 # 프론트
 node_modules/
 
 # 이 기계의 Claude Code 로컬 권한 — 사람마다 다르고 절대경로가 박힌다
 .claude/settings.local.json
+
+# tiered-delegation 이 이 기계에 깔아 주는 것 — 플러그인 판에 따라 다시 지어지는 생성물이다
+.claude/agents/
+.claude/rules/
 
 # Impeccable 이 점검·결정 때 남기는 임시물 — 화면 캡처와 결정 페이지 상태. 판마다 공개 저장소로 나가는 트리에 싣지 않는다.
 .impeccable/review/

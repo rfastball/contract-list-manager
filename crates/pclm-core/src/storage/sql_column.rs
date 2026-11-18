@@ -1,4 +1,4 @@
-//! SQL 가공열(C# `Storage/SqlColumn.cs`) — 사람이 고친 스칼라 부질의(docs/column-management.md §5·§11.5). 뷰에 그 글이
+//! SQL 가공열 — 사람이 고친 스칼라 부질의(docs/column-management.md §5·§11.5). 뷰에 그 글이
 //! 그대로 박히므로 박기 전에 반드시 여기를 지난다.
 //!
 //! 막는 것은 두 겹이다. 글의 모양([`check_shape`])은 부질의 하나가 괄호 밖으로 새지 않음을 보고, 읽는 것([`prepare`])은
@@ -21,7 +21,7 @@ use crate::storage::store;
 use crate::storage::user_view_builder::UserViewFrame;
 use crate::text::{eq_ignore_case, ignore_case_key, utf16_len};
 
-/// `SqlColumn.Readable` — 사용자 SQL 이 읽을 수 있는 뷰(계약면 뷰 열 개). `v_가공열` 은 다른 열의 식을 담아 뺀다.
+/// 사용자 SQL 이 읽을 수 있는 뷰(계약면 뷰 열 개). `v_가공열` 은 다른 열의 식을 담아 뺀다.
 pub const READABLE: &[&str] = &[
     "v_통합",
     "v_통합차수",
@@ -35,8 +35,10 @@ pub const READABLE: &[&str] = &[
     "v_계약품목",
 ];
 
-/// `SqlColumn.Functions` — 쓸 수 있는 함수(대소문자를 가리지 않는다). 소비자 SQLite 에 늘 있는 핵심 함수만 둔다.
-/// `ceil`·`floor` 는 소비자에 수학 함수가 없으면 그 뷰를 읽지 못한다 — [`crate::sqlite::match_csharp`] 의 설명.
+/// 쓸 수 있는 함수(대소문자를 가리지 않는다). 소비자 SQLite 에 늘 있는 핵심 함수만 둔다.
+/// `ceil`·`floor` 는 소비자에 수학 함수가 없으면 그 뷰를 읽지 못한다 — [`crate::sqlite::configure_connection`] 의 설명.
+/// 그 밖에 맞춤 뷰에서만 앱의 표기 함수([`crate::sqlite::TEXT_FUNCTIONS`])를 쓴다 — 가공열은 면 뷰에 박혀 소비자가 읽으므로
+/// 거기서는 막는다.
 pub const FUNCTIONS: &[&str] = &[
     "abs",
     "avg",
@@ -94,28 +96,26 @@ pub const FUNCTIONS: &[&str] = &[
     "nth_value",
 ];
 
-/// `SqlColumn.Expression` — 뷰의 한 칸이 될 식. 글이 언제나 글로, 빈 값은 빈 글로 나간다.
+/// 뷰의 한 칸이 될 식. 글이 언제나 글로, 빈 값은 빈 글로 나간다.
 pub fn expression(sql: &str) -> String {
     format!("coalesce(CAST((\n{sql}\n) AS TEXT), '')")
 }
 
-/// `SqlColumn.OpenChecked` — 검증용 연결. 읽기 전용으로 열고 `query_only` 를 켠다.
+/// 검증용 연결. 읽기 전용으로 열고 `query_only` 를 켠다.
 pub fn open_checked(database: &Database) -> Result<Connection> {
     let connection = database.open_read_only()?;
     connection.execute_batch("PRAGMA query_only = ON;")?;
     Ok(connection)
 }
 
-/// `SqlColumn.Frame` — SQL 열이 서는 자리. 가공열은 면 뷰 한 줄(`현재`)이고, 맞춤 뷰는 사슬 위의 세 문서다.
+/// SQL 열이 서는 자리. 가공열은 면 뷰 한 줄(`현재`)이고, 맞춤 뷰는 사슬 위의 세 문서다.
 pub enum Frame<'a> {
-    /// `Frame.Face(entity)`.
     Face(&'a str),
-    /// `UserViewFrame.Sql`.
     UserView(&'a UserViewFrame),
 }
 
 impl Frame<'_> {
-    /// `Frame.Key` — 표본 열쇠의 식.
+    /// 표본 열쇠의 식.
     pub fn key(&self) -> String {
         match self {
             Frame::Face(entity) => format!("{SELF}.\"{}\"", store::face_key(entity)),
@@ -123,7 +123,7 @@ impl Frame<'_> {
         }
     }
 
-    /// `Frame.Statement(select, where, tail)` — 문장 하나.
+    /// 문장 하나.
     pub fn statement(&self, select: &str, where_: Option<&str>, tail: &str) -> String {
         match self {
             Frame::Face(entity) => format!(
@@ -136,7 +136,7 @@ impl Frame<'_> {
     }
 }
 
-/// `SqlColumn.CheckNames` — 글에 적힌 이름이 스키마의 표·뷰·색인·트리거이거나 `sqlite_`·`pragma_` 로 시작하면 계약면
+/// 글에 적힌 이름이 스키마의 표·뷰·색인·트리거이거나 `sqlite_`·`pragma_` 로 시작하면 계약면
 /// 뷰여야 한다. authorizer 만으로는 모자란다 — 뷰 위의 `count(*)` 를 밑 표 읽기로 바꿔 쓰면 바깥 읽기로 보고된다.
 fn check_names(connection: &Connection, named: &NameSet) -> Result<()> {
     let schema: HashSet<String> = connection
@@ -162,6 +162,8 @@ struct Gate<'a> {
     named: &'a NameSet,
     closed: HashSet<String>,
     refused: Option<String>,
+    /// 앱의 표기 함수를 받는가 — 맞춤 뷰만.
+    text_functions: bool,
 }
 
 const OK: c_int = 0;
@@ -206,8 +208,18 @@ impl Gate<'_> {
                 if in_view || FUNCTIONS.iter().any(|f| eq_ignore_case(f, name)) {
                     return OK;
                 }
-                self.refused
-                    .get_or_insert_with(|| format!("이 함수는 쓸 수 없습니다: {name}"));
+                let text_function =
+                    crate::sqlite::TEXT_FUNCTIONS.iter().any(|(f, _)| eq_ignore_case(f, name));
+                if text_function && self.text_functions {
+                    return OK;
+                }
+                self.refused.get_or_insert_with(|| {
+                    if text_function {
+                        format!("이 함수는 뷰에서만 쓸 수 있습니다: {name}")
+                    } else {
+                        format!("이 함수는 쓸 수 없습니다: {name}")
+                    }
+                });
                 DENY
             }
             _ => {
@@ -251,12 +263,13 @@ unsafe extern "C" fn authorize(
     .unwrap_or(DENY)
 }
 
-/// `SqlColumn.Guarded` — authorizer 를 건 채로 `run` 을 돌린다. 통과는 셋뿐이다 — `SQLITE_SELECT`, 계약면 뷰(또는 그
+/// authorizer 를 건 채로 `run` 을 돌린다. 통과는 셋뿐이다 — `SQLITE_SELECT`, 계약면 뷰(또는 그
 /// 뷰 안쪽)의 `SQLITE_READ`, 허용 함수의 `SQLITE_FUNCTION`. SQLite 가 실패하면 거절의 까닭(없으면 SQLite 의 말)을
 /// 담아 [`Error::InvalidOperation`] 으로 낸다.
 pub(crate) fn guarded<T>(
     connection: &Connection,
     named: &NameSet,
+    frame: &Frame<'_>,
     run: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
     // 안쪽 읽기를 막을 뷰 — 계약면이 아닌 뷰. 뷰 안의 CTE 이름은 스키마에 없으므로 여기 들지 않는다.
@@ -271,6 +284,7 @@ pub(crate) fn guarded<T>(
         named,
         closed,
         refused: None,
+        text_functions: matches!(frame, Frame::UserView(_)),
     };
     /// authorizer 를 걷는 일을 Drop 에 맡긴다 — `run` 이 panic 해도 연결에 `gate` 를 가리키는 authorizer 가
     /// 남지 않는다(남으면 다음 문장이 사라진 지역 변수를 읽는다).
@@ -298,24 +312,24 @@ pub(crate) fn guarded<T>(
     match result {
         Err(Error::Sqlite(error)) => {
             Err(Error::InvalidOperation(gate.refused.take().unwrap_or_else(
-                || format!("SQL을 읽지 못했습니다: {}", dotnet_message(&error)),
+                || format!("SQL을 읽지 못했습니다: {}", sqlite_message(&error)),
             )))
         }
         other => other,
     }
 }
 
-/// `SqlColumn.Prepare(connection, transaction, entity, sql)` — 이 자료 종류의 면 뷰 위에서 준비만 한다(`LIMIT 0`).
+/// 이 자료 종류의 면 뷰 위에서 준비만 한다(`LIMIT 0`).
 /// 구문 오류·없는 열·여러 열·순환이 여기서 잡힌다. 부르는 쪽의 트랜잭션이 있으면 그 안에서 돈다.
 pub fn prepare(connection: &Connection, entity: &str, sql: &str) -> Result<()> {
     prepare_on(connection, sql, &Frame::Face(entity))
 }
 
-/// `SqlColumn.Prepare(connection, transaction, sql, frame)` — 준비만 하는 것을 그 자리 위에서 한다(맞춤 뷰가 쓴다).
+/// 준비만 하는 것을 그 자리 위에서 한다(맞춤 뷰가 쓴다).
 pub fn prepare_on(connection: &Connection, sql: &str, frame: &Frame<'_>) -> Result<()> {
     let named = check_shape(Some(sql))?;
     check_names(connection, &named)?;
-    guarded(connection, &named, || {
+    guarded(connection, &named, frame, || {
         let statement = frame.statement(&expression(sql), None, "LIMIT 0") + ";";
         // ExecuteReader 처럼 준비하고 한 번 돌린다.
         let mut prepared = connection.prepare(&statement)?;
@@ -325,7 +339,7 @@ pub fn prepare_on(connection: &Connection, sql: &str, frame: &Frame<'_>) -> Resu
     })
 }
 
-/// `SqlColumn.Validate(connection, entity, sql, sampleKeys, scan)` — 면 뷰 위의 [`validate_on`].
+/// 면 뷰 위의 [`validate_on`].
 pub fn validate(
     connection: &Connection,
     entity: &str,
@@ -335,12 +349,12 @@ pub fn validate(
     validate_on(connection, sql, &Frame::Face(entity), sample_keys, 20)
 }
 
-/// `SqlColumn.Validate(connection, sql, frame, sampleKeys, scan)` — 검증(§5)의 전부: authorizer, 준비, 그리고 표본
+/// 검증(§5)의 전부: authorizer, 준비, 그리고 표본
 /// 실행. 표본 열쇠의 줄과 앞 `scan` 줄에서 한 행이 값을 둘 이상 내면 거절한다(스칼라 부질의는 첫 줄만 쓰고 나머지를
 /// 조용히 버린다). 표본마다 찍힐 값을 낸다. 연결은 [`open_checked`] 로 연다.
 ///
-/// C# 은 표본 열쇠를 Dapper 의 목록 펼치기(`IN @sampleKeys`)로 넘긴다 — 원소마다 매개변수 하나, 빈 목록이면
-/// `IN (SELECT @sampleKeys WHERE 1 = 0)`. 같은 꼴로 짓는다.
+/// 표본 열쇠는 목록 펼치기(`IN @sampleKeys`)로 넘긴다 — 원소마다 매개변수 하나, 빈 목록이면
+/// `IN (SELECT @sampleKeys WHERE 1 = 0)` 꼴로 짓는다.
 pub fn validate_on(
     connection: &Connection,
     sql: &str,
@@ -363,7 +377,7 @@ pub fn validate_on(
                 .join(",")
         )
     };
-    let counted: Vec<(Option<String>, i64)> = guarded(connection, &named, || {
+    let counted: Vec<(Option<String>, i64)> = guarded(connection, &named, frame, || {
         let mut rows = Vec::new();
         let mut first =
             connection.prepare(&frame.statement(&count, Some(&format!("{key} IN {list}")), ""))?;
@@ -381,7 +395,7 @@ pub fn validate_on(
         }
         Ok(rows)
     })?;
-    // C# 은 처음 걸린 줄의 열쇠가 NULL 이면(`many.Key is not null`) 거절하지 않는다 — 그대로 옮긴다.
+    // 처음 걸린 줄의 열쇠가 NULL 이면 거절하지 않는다.
     if let Some((Some(many_key), many)) = counted.iter().find(|(_, c)| *c > 1) {
         return Err(Error::InvalidOperation(format!(
             "한 행에서 값이 {many}개 나옵니다({many_key}). group_concat으로 잇거나 LIMIT 1로 하나만 고르세요."
@@ -391,7 +405,7 @@ pub fn validate_on(
     sample_keys
         .iter()
         .map(|k| {
-            guarded(connection, &named, || {
+            guarded(connection, &named, frame, || {
                 let mut prepared = connection.prepare(&statement)?;
                 let mut rows = prepared.query([k])?;
                 Ok(match rows.next()? {
@@ -403,38 +417,36 @@ pub fn validate_on(
         .collect()
 }
 
-/// Microsoft.Data.Sqlite 의 `SqliteException.Message` — `SQLite Error {기본 코드}: '{sqlite3_errmsg}'.`. 깨진 가공열의
-/// 까닭이 이 글로 뷰 정의에 박히므로(C# 과 같은 바이트) 같은 꼴로 짓는다.
-pub(crate) fn dotnet_message(error: &rusqlite::Error) -> String {
+/// SQLite 오류의 글 — `SQLite 오류 {기본 코드}: {sqlite3_errmsg}`. 깨진 가공열의 까닭도 이 글로 뷰 정의에 박힌다.
+pub(crate) fn sqlite_message(error: &rusqlite::Error) -> String {
     match error {
         rusqlite::Error::SqliteFailure(failure, message) => format!(
-            "SQLite Error {}: '{}'.",
+            "SQLite 오류 {}: {}",
             failure.extended_code & 0xff,
             message.clone().unwrap_or_else(|| failure.to_string())
         ),
         rusqlite::Error::SqlInputError { error, msg, .. } => {
-            format!("SQLite Error {}: '{msg}'.", error.extended_code & 0xff)
+            format!("SQLite 오류 {}: {msg}", error.extended_code & 0xff)
         }
         other => other.to_string(),
     }
 }
 
-/// [`Error`] 의 C# `Exception.Message`.
+/// [`Error`] 의 글 — SQLite 오류는 [`sqlite_message`] 의 꼴로.
 pub(crate) fn error_message(error: &Error) -> String {
     match error {
-        Error::Sqlite(e) => dotnet_message(e),
+        Error::Sqlite(e) => sqlite_message(e),
         other => other.to_string(),
     }
 }
 
-/// `SqlColumn.MaxLength`.
 const MAX_LENGTH: usize = 20_000;
 
-/// `SqlColumn.CheckShape` — 부질의 하나가 괄호 밖으로 새지 않는가. 글에 적힌 이름(식별자·따옴표 이름)을 낸다
+/// 부질의 하나가 괄호 밖으로 새지 않는가. 글에 적힌 이름(식별자·따옴표 이름)을 낸다
 /// — 대소문자를 가리지 않는 집합이라 [`NameSet::contains`] 로 묻는다.
 ///
-/// 글자 갈래는 .NET `char.IsWhiteSpace`·`IsLetter`·`IsLetterOrDigit` 대신 Rust 의 유니코드 속성으로 본다
-/// (`is_whitespace`·`is_alphabetic`·`is_alphanumeric`). 한글·영숫자에서는 같고, 결합 문자 같은 드문 글자에서만
+/// 글자 갈래는 Rust 의 유니코드 속성(`is_whitespace`·`is_alphabetic`·`is_alphanumeric`)으로 본다.
+/// 한글·영숫자에서는 옛 판의 판정과 같고, 결합 문자 같은 드문 글자에서만
 /// 이름의 경계가 갈릴 수 있다.
 pub fn check_shape(sql: Option<&str>) -> Result<NameSet> {
     let mut names = NameSet::default();
@@ -552,7 +564,7 @@ pub fn check_shape(sql: Option<&str>) -> Result<NameSet> {
     Ok(names)
 }
 
-/// 대소문자를 가리지 않는 이름 집합(`HashSet<string>(StringComparer.OrdinalIgnoreCase)`). 처음 넣은 꼴을 들고 있다.
+/// 대소문자를 가리지 않는 (서수 비교) 이름 집합. 처음 넣은 꼴을 들고 있다.
 #[derive(Clone, Debug, Default)]
 pub struct NameSet {
     keys: std::collections::HashSet<String>,

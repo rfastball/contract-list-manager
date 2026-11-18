@@ -2,6 +2,7 @@ import type { Clause, Flow, FlowEnv, LinkKind, Step } from "./ast";
 import { docWord, qualified } from "./ast";
 import { checkFlow } from "./check";
 import { toNumber } from "./evaluate";
+import { formatSql, parseCode, type Code } from "./format";
 
 /**
  * 흐름식 → SQL. <b>목업 다리 전용</b>이다: 앱에서는 백엔드 컴파일러(FlowCompiler.Eject)가 SQL 을 내고 화면은 그 결과를 받아 찍는다.
@@ -21,14 +22,15 @@ export const entityViews: Record<EntityKind, { view: string; key: string; items:
 /** 유니코드 낱말 글자면 그대로, 아니면 큰따옴표. */
 export const sqlIdent = (name: string) => /^[\p{L}_][\p{L}\p{N}_]*$/u.test(name) ? name : `"${name.replace(/"/g, "\"\"")}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
-// C# FlowCompiler 와 같은 숫자·공백 규칙. CAST('abc' AS REAL) 이 0 이 되는 것을 막는다.
+// 백엔드 flow_compiler 와 같은 숫자·공백 규칙. CAST('abc' AS REAL) 이 0 이 되는 것을 막는다.
 const spaces = "char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)";
 const num = (x: string) => {
   const t = `trim(replace(${x}, ',', ''), ${spaces})`;
   const u = `(CASE WHEN ${t} GLOB '[+-]*' THEN substr(${t}, 2) ELSE ${t} END)`;
   return `(CASE WHEN ${u} <> '' AND ${u} <> '.' AND ${u} NOT GLOB '*[^0-9.]*' AND ${u} NOT GLOB '*.*.*' THEN CAST(${t} AS REAL) END)`;
 };
-const date = (x: string) => `(SELECT CASE WHEN t GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(t) = t THEN t END FROM (SELECT replace(substr(${x}, 1, 10), '/', '-') AS t))`;
+// 날짜 뒤의 올바른 시각( HH:MM · HH:MM:SS)은 지닌다 — 백엔드 flow_compiler 의 to_date 와 같다.
+const date = (x: string) => `(SELECT CASE WHEN t GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND date(t) = t THEN t || CASE WHEN s GLOB ' [0-9][0-9]:[0-9][0-9]' AND substr(s, 2, 2) <= '23' AND substr(s, 5, 2) <= '59' THEN s || ':00' WHEN s GLOB ' [0-9][0-9]:[0-9][0-9]:[0-9][0-9]' AND substr(s, 2, 2) <= '23' AND substr(s, 5, 2) <= '59' AND substr(s, 8, 2) <= '59' THEN s ELSE '' END END FROM (SELECT replace(substr(x, 1, 10), '/', '-') AS t, substr(x, 11) AS s FROM (SELECT ${x} AS x)))`;
 // 들여쓰기는 SQL 글자·식별자 안의 줄바꿈을 바꾸지 않는다.
 const indent = (s: string) => s.replace(/'(?:[^']|'')*'|"(?:[^"]|"")*"|\n/g, part => part === "\n" ? "\n  " : part);
 const from = (sql: string) => `FROM (\n  ${indent(sql)}\n)`;
@@ -80,6 +82,7 @@ export function compileFlow(flow: Flow, env: FlowEnv, entity: EntityKind): strin
     case "field": s = { k: "expr", sql: outer(f.field), shape: "value" }; break;
     case "text": s = { k: "expr", sql: lit(f.text), shape: "value" }; break;
     case "number": s = { k: "expr", sql: String(f.value), shape: "number" }; break;
+    case "today": s = { k: "expr", sql: "date('now', 'localtime')", shape: "date" }; break;
     case "linked": {
       const o = entityViews[f.link], doc = docWord[f.link];
       if (env.view) {
@@ -107,7 +110,7 @@ export function compileFlow(flow: Flow, env: FlowEnv, entity: EntityKind): strin
 function finish(s: S): string {
   const e = s as Extract<S, { k: "expr" }>;
   const out = e.shape === "number" ? `(SELECT CASE WHEN v IS NULL THEN '' ELSE (SELECT CASE WHEN c = CAST(c AS INTEGER) THEN printf('%,d', CAST(c AS INTEGER)) ELSE printf('%.15g', c) END FROM (SELECT CAST(printf('%.15g', v) AS REAL) AS c)) END ${from(`SELECT ${e.sql} AS v`)})`
-    : e.shape === "date" ? `replace(${e.sql}, '-', '/')` : e.sql;
+    : e.shape === "date" ? `replace(substr(${e.sql}, 1, 10), '-', '/')` : e.sql;
   return `SELECT\n  coalesce(${indent(out)}, '') AS 결과`;
 }
 
@@ -152,6 +155,7 @@ function step(st: Step, s: S, outer: (field: string) => string): S {
   const x = (s as Extract<S, { k: "expr" }>).sql;
   // 앞 단계는 한 번만 읽어 긴 식에서도 SQL 크기가 단계 수에 비례한다.
   const over = (body: string, shape: "value" | "number" | "date" = "value") => e(`(SELECT ${body} ${from(`SELECT ${x} AS v`)})`, shape);
+  if (st.op === "format") return over(formatSql(parseCode(st.text ?? "", (s as Extract<S, { k: "expr" }>).shape === "date") as Code));
   const arg = st.field !== undefined ? num(outer(st.field)) : String(st.value ?? 0);
   const scale = 10 ** (st.n ?? 0);
   switch (st.op) {
@@ -172,20 +176,13 @@ function step(st: Step, s: S, outer: (field: string) => string): S {
     case "div": return over(`v * 1.0 / (${arg})`, "number");
     case "round": return over(`CASE WHEN v IS NULL THEN NULL ELSE (CASE WHEN v < 0 THEN -1 ELSE 1 END) * CAST(abs(v) * ${scale} + 0.5 AS INTEGER) * 1.0 / ${scale} END`, "number");
     case "floor": return over(`(SELECT CASE WHEN x IS NULL THEN NULL WHEN x < CAST(x AS INTEGER) THEN CAST(x AS INTEGER) - 1 ELSE CAST(x AS INTEGER) END * 1.0 / ${scale} FROM (SELECT v * ${scale} AS x))`, "number");
-    case "thousands": return over("CASE WHEN v IS NULL THEN '' ELSE printf('%,d', v) END");
     case "plain": return over("CASE WHEN v IS NULL THEN '' ELSE printf('%.15g', v) END");
     case "toDate": return e(date(x), "date");
-    case "dateAdd": return over(`date(v, ${lit(`${st.n ?? 0} ${{ day: "days", month: "months", year: "years" }[st.unit ?? "day"]}`)})`, "date");
-    case "dateDiff": return over(`CAST(round(julianday(v) - julianday(${date(outer(st.field!))})) AS INTEGER)`, "number");
+    case "dateAdd": return over(`date(v, ${lit(`${st.n ?? 0} ${{ day: "days", month: "months", year: "years" }[st.unit ?? "day"]}`)}) || substr(v, 11)`, "date");
+    case "dateDiff": return over(`CAST(round(julianday(substr(v, 1, 10)) - julianday(substr(${date(outer(st.field!))}, 1, 10))) AS INTEGER)`, "number");
     case "year": return over("CAST(substr(v, 1, 4) AS INTEGER)", "number");
     case "month": return over("CAST(substr(v, 6, 2) AS INTEGER)", "number");
     case "quarter": return over("(CAST(substr(v, 6, 2) AS INTEGER) + 2) / 3", "number");
-    case "dateFormat": {
-      const piece: Record<string, string> = { YYYY: "substr(v, 1, 4)", MM: "substr(v, 6, 2)", DD: "substr(v, 9, 2)",
-        M: "CAST(CAST(substr(v, 6, 2) AS INTEGER) AS TEXT)", D: "CAST(CAST(substr(v, 9, 2) AS INTEGER) AS TEXT)" };
-      const parts = (st.text ?? "").split(/(YYYY|MM|M|DD|D)/).filter(Boolean).map(p => piece[p] ?? lit(p));
-      return over(`CASE WHEN v IS NULL THEN '' ELSE ${parts.join(" || ") || "''"} END`);
-    }
   }
   return e(x);
 }

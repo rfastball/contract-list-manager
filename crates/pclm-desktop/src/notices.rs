@@ -5,6 +5,10 @@
 //! (`no-proc-macro`). `cargo metadata` 는 작업공간 전체를 한 번에 풀어 다른 크레이트가 켠 기능까지 섞이지만, `cargo tree -p` 는
 //! `cargo build -p` 와 같은 기능 해석이다. 저장소 안의 크레이트(경로 의존)는 고지 대상이 아니다.
 //!
+//! exe 에는 내장 확장(`extension/`)도 박히고, 그 안에 문서 만들기 엔진(`extension/engine.wasm`, ADR-045)이 든다. 그 wasm 에
+//! 들어간 크레이트도 같은 고지에 싣는다 — `pclm-doc-engine` 을 wasm 대상(`wasm32-unknown-unknown`)으로 같은 규칙으로 묻고
+//! 둘을 합친다. 엔진은 문서나르미(hwpx-filler)를 git 커밋으로 받으므로 git 의존도 고지 대상이다.
+//!
 //! 고지를 짓는 것은 `examples/crate_notices.rs`(scripts/generate-crate-notices.ps1)이고, 대조하는 것은
 //! `tests/notices.rs` 다 — 둘이 같은 목록을 이 모듈에서 얻는다.
 
@@ -23,6 +27,17 @@ pub struct Crate {
 
 /// 배포물을 짓는 대상(publish.ps1 이 이 기계의 기본으로 짓는다).
 pub const TARGET: &str = "x86_64-pc-windows-msvc";
+
+/// 문서 만들기 엔진을 짓는 대상(scripts/build-engine.ps1).
+pub const ENGINE_TARGET: &str = "wasm32-unknown-unknown";
+
+/// 라이선스를 Cargo.toml 에 적지 않은 git 의존 — 저장소 뿌리의 LICENSE 가 정한다. 새 git 의존이 라이선스를 적지 않았으면
+/// 고지를 짓다가 멈추므로, 상류의 LICENSE 를 살펴 여기 더한다.
+pub const UNDECLARED: &[(&str, &str)] = &[
+    // https://github.com/rfastball/hwpx-filler — 저장소 뿌리의 LICENSE(MIT)
+    ("hwpx-core", "MIT"),
+    ("hwpx-filler", "MIT"),
+];
 
 /// `cargo tree` 의 인자 — 짓기(`cargo build --release -p pclm-desktop --features shell`)와 같은 해석.
 pub fn tree_args() -> Vec<&'static str> {
@@ -44,23 +59,47 @@ pub fn tree_args() -> Vec<&'static str> {
     ]
 }
 
-/// `cargo` 로 실리는 크레이트를 묻는다. `workspace` 는 작업공간 뿌리(또는 그 안 어디든).
-pub fn shipped(cargo: &Path, workspace: &Path) -> io::Result<BTreeSet<Crate>> {
-    let output = Command::new(cargo)
-        .args(tree_args())
-        .current_dir(workspace)
-        .output()?;
-    if !output.status.success() {
-        return Err(io::Error::other(format!(
-            "cargo tree 가 실패했습니다: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )));
-    }
-    Ok(parse_tree(&String::from_utf8_lossy(&output.stdout)))
+/// `cargo tree` 의 인자 — 엔진 짓기(`cargo build --release -p pclm-doc-engine --target wasm32-unknown-unknown`)와 같은 해석.
+pub fn engine_tree_args() -> Vec<&'static str> {
+    vec![
+        "tree",
+        "--locked",
+        "-p",
+        "pclm-doc-engine",
+        "-e",
+        "normal,no-proc-macro",
+        "--target",
+        ENGINE_TARGET,
+        "--prefix",
+        "none",
+        "-f",
+        "{p}|{l}",
+    ]
 }
 
-/// `cargo tree --prefix none -f "{p}|{l}"` 의 줄들 → 레지스트리 크레이트. `{p}` 는 `이름 v판`, 경로 · git 의존이면 뒤에
-/// ` (출처)` 가 붙고, 이미 보인 것은 줄 끝(라이선스 뒤)에 ` (*)` 가 붙는다.
+/// `cargo` 로 실리는 크레이트를 묻는다 — 창(exe)과 그 안에 박힌 엔진(wasm)을 합친 것. `workspace` 는 작업공간 뿌리(또는
+/// 그 안 어디든).
+pub fn shipped(cargo: &Path, workspace: &Path) -> io::Result<BTreeSet<Crate>> {
+    let mut crates = BTreeSet::new();
+    for args in [tree_args(), engine_tree_args()] {
+        let output = Command::new(cargo)
+            .args(args)
+            .current_dir(workspace)
+            .output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "cargo tree 가 실패했습니다: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        crates.extend(parse_tree(&String::from_utf8_lossy(&output.stdout)));
+    }
+    Ok(crates)
+}
+
+/// `cargo tree --prefix none -f "{p}|{l}"` 의 줄들 → 저장소 밖의 크레이트(레지스트리 · git). `{p}` 는 `이름 v판`, 경로 · git
+/// 의존이면 뒤에 ` (출처)` 가 붙고, 이미 보인 것은 줄 끝(라이선스 뒤)에 ` (*)` 가 붙는다. 경로 의존(이 저장소의 것)은 뺀다.
+/// git 의존이 라이선스를 적지 않았으면 [`UNDECLARED`] 에서 채운다(없으면 빈 채로 두어 고지 짓기가 멈춘다).
 pub fn parse_tree(text: &str) -> BTreeSet<Crate> {
     let mut crates = BTreeSet::new();
     for line in text.lines() {
@@ -73,16 +112,24 @@ pub fn parse_tree(text: &str) -> BTreeSet<Crate> {
         let (Some(name), Some(version)) = (words.next(), words.next()) else {
             continue;
         };
-        if words.next().is_some() {
-            continue; // (경로) · (git) — 이 저장소의 것이거나 레지스트리 밖
+        // (경로) — 이 저장소의 것. git 출처는 `(https://…#커밋)` 이다.
+        let source: Vec<&str> = words.collect();
+        if !source.is_empty() && !source.join(" ").contains("://") {
+            continue;
         }
         let Some(version) = version.strip_prefix('v') else {
             continue;
         };
+        let mut license = license.trim().to_owned();
+        if license.is_empty()
+            && let Some((_, declared)) = UNDECLARED.iter().find(|(n, _)| *n == name)
+        {
+            license = (*declared).to_owned();
+        }
         crates.insert(Crate {
             name: name.to_owned(),
             version: version.to_owned(),
-            license: license.trim().to_owned(),
+            license,
         });
     }
     crates
@@ -140,21 +187,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 나무의_줄에서_레지스트리_크레이트만_가린다() {
+    fn 나무의_줄에서_저장소_밖의_크레이트만_가린다() {
         let text = "pclm-desktop v0.17.1 (C:\\x\\crates\\pclm-desktop)|MIT\n\
                     serde v1.0.228|MIT OR Apache-2.0\n\
                     serde v1.0.228|MIT OR Apache-2.0 (*)\n\
                     some-git v0.1.0 (https://example.invalid/x#abc)|MIT\n\
+                    hwpx-core v0.1.0 (https://example.invalid/hwpx-filler?rev=abc#abc)|\n\
                     icu_provider v2.4.0|Unicode-3.0\n";
         let crates: Vec<_> = parse_tree(text)
             .into_iter()
             .map(|c| format!("{} {} {}", c.name, c.version, c.license))
             .collect();
+        // 경로 의존(이 저장소)만 빠지고, git 의존은 실린다 — 라이선스를 적지 않은 것은 UNDECLARED 가 채운다.
         assert_eq!(
             crates,
             [
+                "hwpx-core 0.1.0 MIT",
                 "icu_provider 2.4.0 Unicode-3.0",
-                "serde 1.0.228 MIT OR Apache-2.0"
+                "serde 1.0.228 MIT OR Apache-2.0",
+                "some-git 0.1.0 MIT"
             ]
         );
     }

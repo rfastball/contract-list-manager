@@ -3,11 +3,12 @@
     개발 중에 이 저장소를 돌린다 — 디버그 빌드로, 어느 자료를 여는지 적으면서.
 
 .DESCRIPTION
-    세 가지 모양이 있다.
+    네 가지 모양이 있다.
 
         ./run.ps1              지어 둔 화면으로 창을 띄운다 (배포본과 같은 모양)
         ./run.ps1 -Dev         Vite 개발 서버로 창을 띄운다 (화면만 갈아 끼운다)
         ./run.ps1 -Cli status  명령줄을 돌린다
+        ./run.ps1 -BuildOnly   창을 짓기만 하고 띄우지 않는다 (scripts/fake-g2b.ps1 이 부른다)
 
     -Dev 가 이 스크립트가 있는 까닭이다. `npm run dev` 는 브라우저에 가짜 다리(mock.ts)를
     물려 화면만 손보게 해 주는데, 그러면 **진짜 다리와 어긋난 것은 드러나지 않는다**.
@@ -18,6 +19,10 @@
     창은 crates/pclm-desktop 이다(Rust + Tauri 2, ADR-044). 디버그 빌드에서는 개발자 도구가
     열린다(F12). 배포본에는 그 문이 아예 없다 — 깃발이 아니라 빌드 설정에 매달아 두었다
     (shell/mod.rs 의 devtools(cfg!(debug_assertions))). 명령줄은 crates/pclm-cli 다.
+
+.PARAMETER BuildOnly
+    지어 둔 화면으로 창을 띄울 때와 같은 것을 짓되(화면 · 엔진 · 창) 띄우지 않고 0 으로 끝난다.
+    창을 따로 띄우는 스크립트가 옛 빌드를 쓰지 않게 이것을 먼저 부른다.
 
 .PARAMETER HomeDir
     다른 홈을 연다(--home). 홈은 작업자료를 가리키는 쪽지·백업·WebView2 프로필이 사는 폴더다.
@@ -31,6 +36,7 @@
     ./run.ps1 -Dev
     ./run.ps1 -HomeDir artifacts/dev-home
     ./run.ps1 -Cli status
+    ./run.ps1 -BuildOnly -HomeDir artifacts/dev-home
 #>
 # PositionalBinding 을 끈다 — 켜 두면 "-Cli status" 의 status 가 자리 인자로 읽혀
 # $Port 에 가서 붙는다. 이름 없는 인자는 모두 $Rest 로 흘러야 한다.
@@ -38,6 +44,7 @@
 param(
     [switch]$Dev,
     [switch]$Cli,
+    [switch]$BuildOnly,
     [string]$HomeDir,
     [int]$Port = 5173,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -104,14 +111,22 @@ function Move-HeldFiles($folder) {
         }
 }
 
-# 창을 짓고 띄운다. 디버그 빌드는 콘솔 실행 파일이라 끝날 때까지 기다리고 그 종료 코드를 돌려준다.
-# cargo 는 진행을 stderr 로 쓴다. 출력을 받아 내면(*> 기록) 5.1 이 그 줄을 오류로 여겨 'Stop' 에서 멈추므로, 여기서는
-# 종료 코드로만 가린다.
-function Start-Window($extra) {
+# 창을 짓는다. cargo 는 진행을 stderr 로 쓴다. 출력을 받아 내면(*> 기록) 5.1 이 그 줄을 오류로 여겨 'Stop' 에서
+# 멈추므로, 여기서는 종료 코드로만 가린다.
+function Build-Window {
     $ErrorActionPreference = 'Continue'
+    # 내장 확장(extension/)이 exe 에 박히므로 엔진을 먼저 짓는다 — 건너뛰면 엔진이 빠진 확장이 나간다.
+    Step '문서 만들기 엔진 짓기 (wasm)'
+    & (Join-Path $PSScriptRoot 'scripts/build-engine.ps1') | Out-Host
     Move-HeldOutputs
     cargo build -p pclm-desktop --features shell | Out-Host
     if ($LASTEXITCODE -ne 0) { throw '창 빌드(cargo build -p pclm-desktop --features shell)가 실패했습니다.' }
+}
+
+# 창을 짓고 띄운다. 디버그 빌드는 콘솔 실행 파일이라 끝날 때까지 기다리고 그 종료 코드를 돌려준다.
+function Start-Window($extra) {
+    Build-Window
+    $ErrorActionPreference = 'Continue'
     & (Join-Path $PSScriptRoot 'target/debug/pclm-desktop.exe') @extra | Out-Host
     return $LASTEXITCODE
 }
@@ -164,7 +179,9 @@ if (-not $Dev) {
         # node_modules/.vite 에 캐시를 쓰는데, 그것까지 세면 npm test 를 한 번 돌린 뒤로
         # 늘 "낡음"이 되어 이 검사가 아무 일도 하지 않게 된다.
         $builtAt = (Get-Item $built).LastWriteTimeUtc
-        $newest = Get-ChildItem 'frontend', 'vite.config.mts', 'package.json' -Recurse -File |
+        # 파일 둘은 -Recurse 에 넣지 않는다 — 5.1 은 그것을 이름 거르개로 읽어 저장소 전체(target · node_modules ·
+        # worktree)를 뒤지며 1~2분 말없이 멈추고, 딴 곳의 package.json 을 보고 낡았다고 잘못 판정한다.
+        $newest = @(Get-ChildItem 'frontend' -Recurse -File) + @(Get-Item 'vite.config.mts', 'package.json') |
             Where-Object { $_.FullName -notlike '*node_modules*' } |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
         $stale = $newest.LastWriteTimeUtc -gt $builtAt
@@ -176,6 +193,12 @@ if (-not $Dev) {
         if ($LASTEXITCODE -ne 0) { throw 'vite build 가 실패했습니다.' }
     } else {
         Write-Host '화면  지어 둔 것이 최신입니다' -ForegroundColor DarkGray
+    }
+
+    if ($BuildOnly) {
+        Step '창 짓기 (Debug · 띄우지 않는다)'
+        Build-Window
+        exit 0
     }
 
     Step '창 짓고 띄우기 (Debug · 개발자 도구 F12)'

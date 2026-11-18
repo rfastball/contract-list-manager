@@ -1,25 +1,23 @@
-//! 저장 Core 의 계약면 시험 — C# `SchemaBaselineTests`·`PclmFileTests`(홈 밖)·`UserViewTests` 의 판올림 예시 보기를
-//! 옮긴 것. 뷰를 보는 단언은 `views.rs`·`flow_cases.rs` 에 있다.
+//! 저장 Core 의 계약면 시험 — 기준선 스키마, 작업자료 파일(홈 밖). 예시 보기 판올림은 store_user_views.rs 에 있다.
+//! 뷰를 보는 단언은 `views.rs`·`flow_cases.rs` 에 있다.
 
 mod common;
 
 use std::path::Path;
 
 use common::*;
-use pclm_core::storage::database::resolve_links;
+use pclm_core::erp::explicit_links;
 use pclm_core::storage::pclm_file::{self, PclmFileError};
-use pclm_core::storage::store::{
-    builtin_view_package, example_view_package_v26, read_view_package, stored_definition,
-};
+use pclm_core::storage::store::builtin_view_package;
 use pclm_core::storage::{schema, user_view_builder};
 use pclm_core::{APPLICATION_ID, Access, Database, Error, PclmInfo, PclmKind, PclmRole};
 use serde_json::Value;
 
 // ── 스키마 ──────────────────────────────────────────────────────────
 
-/// C# `새로_지은_스키마가_박제와_같다` — 갓 지은 작업자료의 `sqlite_master` 원문과 씨앗이 C# 박제와 한 글자까지 같다.
+/// 갓 지은 작업자료의 `sqlite_master` 원문과 씨앗이 박제와 한 글자까지 같다.
 #[test]
-fn fresh_schema_matches_the_csharp_golden() {
+fn fresh_schema_matches_the_golden() {
     let t = Temp::new("golden");
     let path = t.path("작업.pclm");
     let database = pclm_file::create(&path, PclmRole::WORK, &TestEnv::new()).unwrap();
@@ -49,7 +47,7 @@ fn first_difference(expected: &str, actual: &str) -> String {
     )
 }
 
-/// 같은 `Env` 차례면 같은 파일이 선다 — 이름표·지은 때·예시 보기 식별자가 모두 `Env` 에서 온다.
+/// 같은 `Env` 차례면 같은 파일이 선다 — 이름표·지은 때가 `Env` 에서 오고, 「문서 서식」 은 고정 식별자다.
 #[test]
 fn identity_and_time_come_from_env() {
     let t = Temp::new("env");
@@ -61,17 +59,16 @@ fn identity_and_time_come_from_env() {
             Ok((r.get(0)?, r.get(1)?))
         })
         .unwrap();
-    // 기준선이 1 을 뽑고, v20 은 그것을 이어받아 새로 뽑지 않는다. 예시 보기가 다음 것을 받는다.
+    // 기준선이 1 을 뽑고, v20 은 그것을 이어받아 새로 뽑지 않는다.
     assert_eq!(id, format!("{:032x}", 1));
     assert_eq!(created, "2026-11-07T03:04:05.1230000Z");
     let view: String = c
         .query_row("SELECT id FROM user_view", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(view, format!("{:032x}", 2));
+    assert_eq!(view, pclm_core::storage::store::DOCUMENT_VIEW_ID);
     assert_eq!(pragma(&path, "user_version"), schema::VERSION as i64);
 }
 
-/// C# `가공열_판올림은_기존_열_정의와_수동값을_보존한다`.
 #[test]
 fn migration_from_v20_keeps_column_definitions_and_values() {
     let t = Temp::new("v20");
@@ -111,7 +108,7 @@ PRAGMA user_version=20;",
     assert_eq!(value, "보존할 값");
 }
 
-/// C# `판올림은_큰따옴표가_든_뷰_이름도_치운다` — 이름에 `"` 가 든 뷰(손으로 만들었거나 남의 도구가 지은 파일)가 있어도
+/// 이름에 `"` 가 든 뷰(손으로 만들었거나 남의 도구가 지은 파일)가 있어도
 /// 판올림이 뷰를 치우고 끝까지 간다.
 #[test]
 fn migration_drops_views_whose_names_hold_double_quotes() {
@@ -143,7 +140,35 @@ PRAGMA user_version=20;",
     assert_eq!(pragma(&path, "user_version"), i64::from(schema::VERSION));
 }
 
-/// C# `옛_시험판은_고치지_않고_거절한다` — 한 바이트도 고치지 않고 거절한다.
+/// 단계가 실패하면 판도 뷰도 그대로다 — 뷰를 치우는 것까지 판올림 트랜잭션 안이다. 이미 올린 파일의 판이 옛
+/// 값으로 남은 꼴(v29 의 열 이름 바꾸기를 다시 돌리면 실패한다)로 실패를 낸다.
+#[test]
+fn failed_migration_step_keeps_the_views() {
+    let t = Temp::new("failed-step");
+    let path = t.path("작업.pclm");
+    pclm_file::create(&path, PclmRole::WORK, &TestEnv::new()).unwrap();
+    raw(&path).execute_batch("PRAGMA user_version = 28;").unwrap();
+    let views = || -> i64 {
+        raw_read(&path)
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    let before = views();
+    assert!(before > 0);
+
+    Database::new(&path, Access::Write)
+        .migrate(&TestEnv::new())
+        .unwrap_err();
+
+    assert_eq!(views(), before);
+    assert_eq!(pragma(&path, "user_version"), 28);
+}
+
+/// 한 바이트도 고치지 않고 거절한다.
 #[test]
 fn pre_baseline_files_are_refused_untouched() {
     for version in 1..schema::BASELINE_VERSION {
@@ -234,7 +259,7 @@ fn old_trial_is_too_old_and_newer_is_too_new() {
             "CREATE TABLE notice (notice_base TEXT, seq TEXT); PRAGMA user_version = 11;",
         )
         .unwrap();
-    let newer = single_file(&t, "새판.pclm", PclmRole::SUBMISSION, &env);
+    let newer = single_file(&t, "새판.pclm", PclmRole::BACKUP, &env);
     raw(&newer)
         .execute_batch("PRAGMA user_version = 999;")
         .unwrap();
@@ -302,7 +327,7 @@ fn every_role_is_recognized_as_itself() {
 #[test]
 fn inspecting_does_not_change_the_file() {
     let t = Temp::new("inspect");
-    let path = single_file(&t, "제출.pclm", PclmRole::SUBMISSION, &TestEnv::new());
+    let path = single_file(&t, "백업.pclm", PclmRole::BACKUP, &TestEnv::new());
     let before = std::fs::read(&path).unwrap();
     assert_eq!(pclm_file::inspect(&path).kind, PclmKind::Ok);
     assert_untouched(&path, &before);
@@ -333,7 +358,48 @@ fn create_refuses_an_occupied_place_without_touching_it() {
     assert!(!orphan.exists());
 }
 
-/// C# 은 폴더를 지어 주지만 이 크레이트는 짓지 않는다(#8) — 폴더가 없으면 아무것도 서지 않는다.
+/// 수집 기록을 읽는 두 물음(`capture_log::read`)은 표를 통째로 훑지 않고 시각 색인을 탄다 — 기록은 저장마다 쌓이고
+/// 걷지 않으며 줄마다 스냅숏 전체를 든다.
+#[test]
+fn capture_history_reads_by_the_time_index() {
+    let t = Temp::new("capture-index");
+    let work = pclm_file::create(&t.path("작업.pclm"), PclmRole::WORK, &TestEnv::new()).unwrap();
+    let c = work.open_read_only().unwrap();
+    const COLUMNS: &str =
+        "capture_id, profile, entity_base, entity_seq, snapshot_json, result_json, captured_at";
+    for sql in [
+        format!("SELECT {COLUMNS} FROM erp_capture WHERE captured_at >= ?1 ORDER BY captured_at DESC"),
+        format!("SELECT {COLUMNS} FROM erp_capture ORDER BY captured_at DESC LIMIT 1"),
+    ] {
+        let mut statement = c.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let args = vec![""; statement.parameter_count()];
+        let plan: Vec<String> = statement
+            .query_map(rusqlite::params_from_iter(args), |r| r.get(3))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(
+            plan.iter().any(|d| d.contains("ix_erp_capture_captured_at")),
+            "{sql}: {plan:?}"
+        );
+    }
+}
+
+/// 빈 파일을 지은 뒤에 실패하면 그 파일을 걷는다 — 남기면 다시 해도 「이미 파일이 있어」 로 막힌다.
+#[test]
+fn failed_create_leaves_nothing_behind() {
+    let t = Temp::new("create-fail");
+    let path = t.path("작업.pclm");
+    // -shm 자리를 폴더가 차지하면 WAL 로 여는 판올림이 실패한다.
+    std::fs::create_dir(suffixed(&path, "-shm")).unwrap();
+
+    assert!(pclm_file::create(&path, PclmRole::WORK, &TestEnv::new()).is_err());
+
+    assert!(!path.exists());
+    assert!(!suffixed(&path, "-wal").exists());
+}
+
+/// 이 크레이트는 폴더를 짓지 않는다(#8) — 폴더가 없으면 아무것도 서지 않는다.
 #[test]
 fn create_does_not_make_folders() {
     let t = Temp::new("nofolder");
@@ -362,17 +428,17 @@ fn missing_file_is_neither_opened_nor_made() {
 }
 
 #[test]
-fn submission_is_not_opened_as_work() {
-    let t = Temp::new("submission");
-    let path = single_file(&t, "제출.pclm", PclmRole::SUBMISSION, &TestEnv::new());
+fn backup_is_not_opened_as_work() {
+    let t = Temp::new("backup");
+    let path = single_file(&t, "받은.pclm", PclmRole::BACKUP, &TestEnv::new());
     let Err(Error::PclmFile(e)) = pclm_file::open_work(&path) else {
         panic!("열면 안 됩니다")
     };
     assert_eq!(
         (e.kind, e.role.as_deref()),
-        (PclmKind::Ok, Some(PclmRole::SUBMISSION))
+        (PclmKind::Ok, Some(PclmRole::BACKUP))
     );
-    assert!(e.message.contains("제출본"), "{}", e.message);
+    assert!(e.message.contains("백업"), "{}", e.message);
 }
 
 /// 옮겨진 옛 자료는 쓰기 손잡이로 열지 않는다(ADR-031). 읽기 손잡이는 연다.
@@ -390,7 +456,7 @@ fn retired_file_refuses_write_handles() {
 
 // ── v19 → 지금 ──────────────────────────────────────────────────────
 
-/// C# `판올림은_원본과_신원을_보존하고_근거_없는_링크를_버린다` 가운데 뷰 밖의 것 — 신원이 이어지고, 자료는 그대로이고,
+/// 판올림이 원본과 신원을 보존하고 근거 없는 링크를 버리는가(뷰 밖의 것) — 신원이 이어지고, 자료는 그대로이고,
 /// 명시 참조 없는 옛 연결은 버린다.
 #[test]
 fn migration_keeps_identity_and_rows_and_drops_unsupported_links() {
@@ -407,7 +473,6 @@ fn migration_keeps_identity_and_rows_and_drops_unsupported_links() {
         "contract_item",
         "contract_user_field",
         "field_override",
-        "plan",
     ];
     let before: Vec<i64> = {
         let c = raw_read(&path);
@@ -437,7 +502,7 @@ fn migration_keeps_identity_and_rows_and_drops_unsupported_links() {
         before,
         tables.iter().map(|t| count(&c, t)).collect::<Vec<_>>()
     );
-    // v19 를 지나는 작업자료는 예시 보기를 받는다(v26 을 심고 v27 이 지금 구성으로 갈아 끼운다).
+    // v19 를 지나는 작업자료는 손대지 않은 예시를 걷고(v26 이 심고 v27 이 갈아 끼우고 v34 가 걷는다) 「문서 서식」 을 받는다.
     let views = user_view_builder::read(&c).unwrap();
     assert_eq!(views.len(), 1);
     assert_eq!(
@@ -446,7 +511,7 @@ fn migration_keeps_identity_and_rows_and_drops_unsupported_links() {
     );
 }
 
-/// 명시 참조가 있으면 판올림 끝(과 [`resolve_links`])이 연결을 다시 세운다.
+/// 명시 참조가 있으면 [`explicit_links::resolve`](저장 · 판올림 끝이 부르는 것)가 연결을 다시 세운다.
 #[test]
 fn explicit_references_rebuild_links() {
     let t = Temp::new("links");
@@ -464,7 +529,11 @@ INSERT INTO contract (contract_base, seq, title, updated_at) VALUES ('C-2', '0',
         ))
         .unwrap();
     // 접수 하나, 계약 하나가 잇는다. 참조 없는 계약은 잇지 않는다.
-    assert_eq!(resolve_links(&work).unwrap(), 2);
+    let mut w = work.open().unwrap();
+    let tx = w.transaction().unwrap();
+    let states = explicit_links::resolve(&tx).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(states.iter().filter(|r| r.state == "연결됨").count(), 2);
     let c = work.open_read_only().unwrap();
     let link = |sql: &str| -> Vec<String> {
         c.prepare(sql)
@@ -492,13 +561,13 @@ INSERT INTO contract (contract_base, seq, title, updated_at) VALUES ('C-2', '0',
 
 // ── 읽기 전용 ───────────────────────────────────────────────────────
 
-/// C# `읽기_손잡이는_쓰지_못하고_읽기만_한다` 가운데 저장 Core 몫 — SQLite 가 읽기 전용이라서(코드 8) 거절하고,
+/// 읽기 손잡이는 쓰지 못하고 읽기만 한다(저장 Core 몫) — SQLite 가 읽기 전용이라서(코드 8) 거절하고,
 /// 지금 판이면 판올림도 아무것도 하지 않는다. 끝난 뒤 파일은 한 바이트도 바뀌지 않는다.
 #[test]
 fn read_handle_cannot_write() {
     let t = Temp::new("read");
     let env = TestEnv::new();
-    let path = single_file(&t, "열람.pclm", PclmRole::SUBMISSION, &env);
+    let path = single_file(&t, "열람.pclm", PclmRole::BACKUP, &env);
     let before = std::fs::read(&path).unwrap();
     let database = Database::new(&path, Access::Read);
     {
@@ -549,9 +618,8 @@ fn read_handle_does_not_migrate() {
 
 // ── 사본 ────────────────────────────────────────────────────────────
 
-/// C# `제출본은_새_신원을_달고_한_파일로_떨어진다`.
 #[test]
-fn submission_gets_a_new_identity_as_a_single_file() {
+fn backup_gets_a_new_identity_as_a_single_file() {
     let t = Temp::new("snapshot");
     let env = TestEnv::new();
     let work = pclm_file::create(&t.path("계약자료.pclm"), PclmRole::WORK, &env).unwrap();
@@ -560,8 +628,8 @@ fn submission_gets_a_new_identity_as_a_single_file() {
 
     let saved = pclm_file::snapshot(
         &work,
-        &t.path("제출_홍길동.pclm"),
-        PclmRole::SUBMISSION,
+        &t.path("백업.pclm"),
+        PclmRole::BACKUP,
         false,
         &env,
     )
@@ -569,7 +637,7 @@ fn submission_gets_a_new_identity_as_a_single_file() {
     let info = pclm_file::inspect(&saved);
     assert_eq!(
         (info.kind, info.role.as_deref(), info.version),
-        (PclmKind::Ok, Some(PclmRole::SUBMISSION), schema::VERSION)
+        (PclmKind::Ok, Some(PclmRole::BACKUP), schema::VERSION)
     );
     assert_ne!(source.dataset_id, info.dataset_id);
     assert_eq!(pragma(&saved, "application_id"), APPLICATION_ID);
@@ -578,7 +646,6 @@ fn submission_gets_a_new_identity_as_a_single_file() {
     assert_eq!(source, pclm_file::inspect(work.path()));
 }
 
-/// C# `제출본은_작업자료_자리를_덮지_않는다`.
 #[test]
 fn snapshot_never_overwrites_work_files() {
     let t = Temp::new("overwrite");
@@ -599,26 +666,52 @@ fn snapshot_never_overwrites_work_files() {
     for target in [work.path().to_path_buf(), other, legacy, retired] {
         let before = std::fs::read(&target).unwrap();
         let error =
-            pclm_file::snapshot(&work, &target, PclmRole::SUBMISSION, true, &env).unwrap_err();
+            pclm_file::snapshot(&work, &target, PclmRole::BACKUP, true, &env).unwrap_err();
         assert!(matches!(error, Error::InvalidOperation(_)), "{error}");
         assert_eq!(before, std::fs::read(&target).unwrap());
     }
 
-    // 지난 제출본은 결과물이라 덮는다. 덮지 않기로 부르면 VACUUM INTO 가 거절한다.
+    // 지난 백업은 결과물이라 덮는다. 덮지 않기로 부르면 VACUUM INTO 가 거절한다.
     let old = pclm_file::snapshot(
         &work,
-        &t.path("제출_지난.pclm"),
-        PclmRole::SUBMISSION,
+        &t.path("백업_지난.pclm"),
+        PclmRole::BACKUP,
         false,
         &env,
     )
     .unwrap();
-    assert!(pclm_file::snapshot(&work, &old, PclmRole::SUBMISSION, false, &env).is_err());
+    assert!(pclm_file::snapshot(&work, &old, PclmRole::BACKUP, false, &env).is_err());
     let again = pclm_file::snapshot(&work, &old, PclmRole::BACKUP, true, &env).unwrap();
     assert_eq!(
         pclm_file::inspect(&again).role.as_deref(),
         Some(PclmRole::BACKUP)
     );
+}
+
+/// 덮어 뜨다 실패하면 지난 백업이 그대로 남고 임시 파일도 남지 않는다.
+#[test]
+fn failed_overwrite_keeps_the_old_backup() {
+    let t = Temp::new("overwrite-fail");
+    let env = TestEnv::new();
+    let old = single_file(&t, "백업.pclm", PclmRole::BACKUP, &env);
+    let before = std::fs::read(&old).unwrap();
+    let broken = t.path("깨진.pclm");
+    std::fs::write(&broken, "데이터베이스가 아니다. ".repeat(100)).unwrap();
+    let listing = || {
+        let mut names: Vec<_> = std::fs::read_dir(old.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let files = listing();
+
+    let source = Database::new(&broken, Access::Read);
+    assert!(pclm_file::snapshot(&source, &old, PclmRole::BACKUP, true, &env).is_err());
+
+    assert_eq!(before, std::fs::read(&old).unwrap());
+    assert_eq!(files, listing());
 }
 
 /// 열어 보기는 원본에 닿지 않는다 — 옛 판이면 사본을 올리고, 사본은 한 파일이며, 놓으면 지워진다.
@@ -665,20 +758,20 @@ fn files_in(directory: &Path) -> Vec<String> {
     }
 }
 
-/// C# `ViewTests.한_파일짜리_원본은_열어_보아도_바이트도_옆_파일도_그대로다` — 받은 제출본을 열어 본 것만으로 판이 오르거나 옆에
+/// 받은 파일을 열어 본 것만으로 판이 오르거나 옆에
 /// `-wal` 이 서면 보낸 것과 받은 것이 오류 없이 갈린다(ADR-031).
 #[test]
 fn viewing_a_single_file_leaves_bytes_and_neighbours_alone() {
     let t = Temp::new("view-single");
     let env = TestEnv::new();
-    let path = single_file(&t, "제출_홍길동.pclm", PclmRole::SUBMISSION, &env);
+    let path = single_file(&t, "백업.pclm", PclmRole::BACKUP, &env);
     let before = std::fs::read(&path).unwrap();
     let copy = t.path("열람-사본.pclm");
     {
         let viewed = pclm_file::open_view(&path, &copy, &env).unwrap();
         assert_eq!(
             (viewed.source_path(), viewed.role(), viewed.version()),
-            (path.as_path(), PclmRole::SUBMISSION, schema::VERSION)
+            (path.as_path(), PclmRole::BACKUP, schema::VERSION)
         );
         assert_eq!(viewed.database().access(), Access::Read);
         assert_ne!(viewed.database().path(), path.as_path());
@@ -695,7 +788,7 @@ fn viewing_a_single_file_leaves_bytes_and_neighbours_alone() {
     assert_untouched(&path, &before);
 }
 
-/// C# `ViewTests.쓰는_중인_작업자료도_커밋된_것까지_보인다` — 쥐고 있는 쓰기는 보이지 않는다.
+/// 쥐고 있는 쓰기는 보이지 않는다.
 #[test]
 fn a_work_file_being_written_shows_what_is_committed() {
     let t = Temp::new("view-busy");
@@ -726,7 +819,6 @@ fn a_work_file_being_written_shows_what_is_committed() {
     writer.execute_batch("ROLLBACK;").unwrap();
 }
 
-/// C# `ViewTests.없거나_PCLM_이_아니거나_판이_맞지_않으면_열지_않고_사본도_남기지_않는다`.
 #[test]
 fn unreadable_files_are_not_viewed_and_leave_no_copy() {
     let t = Temp::new("view-refused");
@@ -739,7 +831,7 @@ fn unreadable_files_are_not_viewed_and_leave_no_copy() {
             "CREATE TABLE notice (notice_base TEXT, seq TEXT); PRAGMA user_version = 11;",
         )
         .unwrap();
-    let newer = single_file(&t, "새판.pclm", PclmRole::SUBMISSION, &env);
+    let newer = single_file(&t, "새판.pclm", PclmRole::BACKUP, &env);
     raw(&newer)
         .execute_batch("PRAGMA user_version = 999;")
         .unwrap();
@@ -770,7 +862,7 @@ fn unreadable_files_are_not_viewed_and_leave_no_copy() {
     assert!(!t.path("없는.pclm").exists());
 }
 
-/// C# `ViewTests.다_보면_사본을_지운다` — 읽은 뒤 놓으면 사본이 사라진다.
+/// 읽은 뒤 놓으면 사본이 사라진다.
 #[test]
 fn letting_go_of_a_view_removes_the_copy() {
     let t = Temp::new("view-discard");
@@ -780,20 +872,20 @@ fn letting_go_of_a_view_removes_the_copy() {
     std::fs::create_dir_all(&views).unwrap();
     let copy = views.join("열람-사본.pclm");
     let viewed = pclm_file::open_view(&path, &copy, &env).unwrap();
-    let report = pclm_core::storage::status::Status::new(Database::new(
+    let summary = pclm_core::storage::reports::Reports::new(Database::new(
         viewed.database().path(),
         Access::Read,
     ))
-    .report()
+    .summary()
     .unwrap();
-    assert!(!report.groups.is_empty());
+    assert_eq!(summary.contract_bases, 1);
     assert!(copy.exists());
     drop(viewed);
     assert!(!copy.exists());
     assert!(files_in(&views).is_empty());
 }
 
-// ── 예시 보기 판올림 ────────────────────────────────────────────────
+// ── 예시 보기 ────────────────────────────────────────────────
 
 fn column_names(definition: &str) -> Vec<String> {
     let node: Value = serde_json::from_str(definition).unwrap();
@@ -808,134 +900,4 @@ fn column_names(definition: &str) -> Vec<String> {
 fn builtin_field_names(package: &str) -> Vec<String> {
     let node: Value = serde_json::from_str(package).unwrap();
     column_names(&node["views"][0]["definition"].to_string())
-}
-
-fn views_of(path: &Path) -> Vec<user_view_builder::StoredUserView> {
-    user_view_builder::read(&raw_read(path)).unwrap()
-}
-
-/// C# `UserViewTests` 의 v25 판올림 — v26 이 예시를 심고 v27 이 지금 구성으로 갈아 끼운다. 지운 것은 되살리지 않고,
-/// 같은 이름의 사람 보기는 그대로이며, 작업자료가 아니면 심지 않는다.
-#[test]
-fn migration_from_v25_seeds_the_current_example() {
-    let t = Temp::new("v25");
-    let env = TestEnv::new();
-    let plain = t.path("작업.pclm");
-    legacy_at(&plain, 25, PclmRole::WORK);
-    Database::new(&plain, Access::Write).migrate(&env).unwrap();
-    let seeded = views_of(&plain);
-    assert_eq!(seeded.len(), 1);
-    assert_eq!(seeded[0].name, "서식용 예시");
-    assert_eq!(
-        column_names(&seeded[0].definition),
-        builtin_field_names(builtin_view_package())
-    );
-
-    raw(&plain).execute("DELETE FROM user_view", []).unwrap();
-    Database::new(&plain, Access::Write).migrate(&env).unwrap();
-    assert!(views_of(&plain).is_empty());
-
-    let owned = t.path("내것.pclm");
-    legacy_at(&owned, 25, PclmRole::WORK);
-    let mine = r#"{"version":2,"contracts":"split","columns":[{"id":"c-1","name":"내 필드","formula":null}]}"#;
-    raw(&owned)
-        .execute(
-            "INSERT INTO user_view (id, name, definition, sort_order) VALUES ('v-own', '서식용 예시', ?1, 10)",
-            [mine],
-        )
-        .unwrap();
-    Database::new(&owned, Access::Write).migrate(&env).unwrap();
-    let kept = views_of(&owned);
-    assert_eq!((kept.len(), kept[0].id.as_str()), (1, "v-own"));
-    assert_eq!(column_names(&kept[0].definition), ["내 필드"]);
-
-    let submission = t.path("제출.pclm");
-    legacy_at(&submission, 25, PclmRole::SUBMISSION);
-    Database::new(&submission, Access::Write)
-        .migrate(&env)
-        .unwrap();
-    assert!(views_of(&submission).is_empty());
-}
-
-/// C# `판올림은_손대지_않은_예시_보기만_지금_구성으로_갈아_끼운다`.
-#[test]
-fn migration_from_v26_upgrades_only_untouched_examples() {
-    let t = Temp::new("v26");
-    let env = TestEnv::new();
-    let old = |name: &str, role: &str, edit: Option<&dyn Fn(String) -> String>| {
-        let path = t.path(name);
-        legacy_at(&path, 26, role);
-        if let Some(edit) = edit {
-            let view = read_view_package(example_view_package_v26())
-                .unwrap()
-                .views
-                .remove(0);
-            raw(&path)
-                .execute(
-                    "INSERT INTO user_view (id, name, definition, sort_order) VALUES ('v-seed', ?1, ?2, 10)",
-                    rusqlite::params![view.name, edit(stored_definition(&view).unwrap())],
-                )
-                .unwrap();
-        }
-        path
-    };
-    let migrated = |path: &Path| {
-        Database::new(path, Access::Write).migrate(&env).unwrap();
-        let views = views_of(path);
-        assert_eq!(views.len(), 1);
-        assert_eq!(views[0].name, "서식용 예시");
-        column_names(&views[0].definition)
-    };
-    let v26 = builtin_field_names(example_view_package_v26());
-    let now = builtin_field_names(builtin_view_package());
-    assert_ne!(v26, now);
-
-    // 손대지 않은 것 — 그대로든, 키 순서만 갈렸든 지금 구성이다.
-    assert_eq!(
-        migrated(&old("그대로.pclm", PclmRole::WORK, Some(&|d| d))),
-        now
-    );
-    let reversed = |d: String| {
-        let Value::Object(map) = serde_json::from_str::<Value>(&d).unwrap() else {
-            unreachable!()
-        };
-        let mut entries: Vec<_> = map.into_iter().collect();
-        entries.reverse();
-        Value::Object(entries.into_iter().collect()).to_string()
-    };
-    assert_eq!(
-        migrated(&old("순서.pclm", PclmRole::WORK, Some(&reversed))),
-        now
-    );
-
-    // 고친 것 — 필드 이름 하나만 바꿔도 사람 것이라 그대로 둔다.
-    let edited = migrated(&old(
-        "고침.pclm",
-        PclmRole::WORK,
-        Some(&|d: String| d.replace("\"게시일\"", "\"공고게시일\"")),
-    ));
-    assert_eq!(
-        edited,
-        v26.iter()
-            .map(|n| if n == "게시일" {
-                "공고게시일".to_string()
-            } else {
-                n.clone()
-            })
-            .collect::<Vec<_>>()
-    );
-
-    // 지운 것 — 되살리지 않는다.
-    let deleted = old("지움.pclm", PclmRole::WORK, None);
-    Database::new(&deleted, Access::Write)
-        .migrate(&env)
-        .unwrap();
-    assert!(views_of(&deleted).is_empty());
-
-    // 작업자료가 아닌 파일은 손대지 않은 예시도 그대로다.
-    let submission = old("제출.pclm", PclmRole::SUBMISSION, Some(&|d| d));
-    Database::new(&submission, Access::Write)
-        .migrate(&env)
-        .unwrap();
-    assert_eq!(column_names(&views_of(&submission)[0].definition), v26);
 }

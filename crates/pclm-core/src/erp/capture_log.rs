@@ -1,4 +1,4 @@
-//! 수집 기록(C# `Erp/CaptureLog.cs`) — `erp_capture` 를 사람이 읽을 꼴로. **읽기만 한다** — 열람 창의 읽기 전용 사본에서도
+//! 수집 기록 — `erp_capture` 를 사람이 읽을 꼴로. **읽기만 한다** — 열람 창의 읽기 전용 사본에서도
 //! 같다. 성공한 저장만 기록에 남는다. 검토 중이거나 결과를 확인하지 못한 것은 브라우저에 있다.
 //!
 //! 날짜 경계는 **로컬 자정**이다 — 사람이 말하는 「오늘」 이 그것이다. 시간대는 부르는 쪽이 [`LocalZone`] 으로 넣는다.
@@ -13,7 +13,7 @@ use crate::local_time::{LocalDateTime, LocalZone, parse_to_local, to_utc_text};
 use crate::storage::database::Database;
 use crate::storage::store::{EntityRef, text_of};
 
-/// C# `CaptureEntry` — 수집 기록 한 줄. `at` 은 **로컬** `yyyy-MM-ddTHH:mm:ss`, `result` 는 `저장`·`변경 없음`.
+/// 수집 기록 한 줄. `at` 은 **로컬** `yyyy-MM-ddTHH:mm:ss`, `result` 는 `저장`·`변경 없음`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureEntry {
     pub capture_id: String,
@@ -43,7 +43,7 @@ impl CaptureEntry {
     }
 }
 
-/// C# `CaptureDay` — 오늘 들어온 수집. `entries` 는 오늘 것 전부(늦은 것부터), `last` 는 가장 늦은 수집 하나(오늘이
+/// 오늘 들어온 수집. `entries` 는 오늘 것 전부(늦은 것부터), `last` 는 가장 늦은 수집 하나(오늘이
 /// 아니어도 온다).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaptureDay {
@@ -78,7 +78,7 @@ impl CaptureDay {
     }
 }
 
-/// `CaptureLog.KindName` — 모르는 종류는 빈 문자열.
+/// 모르는 종류는 빈 문자열.
 pub fn kind_name(entity_type: &str) -> &'static str {
     match entity_type {
         "request" => "접수",
@@ -122,7 +122,7 @@ fn raws(c: &Connection, sql: &str, args: &[&str]) -> Result<Vec<Raw>> {
     Ok(out)
 }
 
-/// `CaptureLog.Read` — `now` 는 로컬 지금이다(시험이 날짜 경계를 세우려고 넘긴다).
+/// `now` 는 로컬 지금이다(시험이 날짜 경계를 세우려고 넘긴다).
 pub fn read(database: &Database, now: LocalDateTime, zone: &dyn LocalZone) -> Result<CaptureDay> {
     let start = now.date();
     let end = start.add_days(1);
@@ -243,7 +243,7 @@ fn entry(
     })
 }
 
-/// `CaptureLog.CurrentTitle` — 지금 쌓인 그 차수의 건명. 비었거나 지워졌으면 `None`.
+/// 지금 쌓인 그 차수의 건명. 비었거나 지워졌으면 `None`.
 fn current_title(
     c: &Connection,
     entity_type: &str,
@@ -266,14 +266,12 @@ fn current_title(
     };
     let title = text_of(first.get_ref(0)?);
     if rows.next()?.is_some() {
-        return Err(crate::Error::invalid(
-            "Sequence contains more than one element",
-        ));
+        return Err(crate::Error::invalid("한 줄이어야 할 결과가 여러 줄입니다."));
     }
     Ok(title.filter(|t| !t.is_empty()))
 }
 
-/// `CaptureLog.SnapshotTitle` — 수집 사진에 담긴 건명. 사진을 지금 매핑으로 다시 읽어 본다 — 읽지 못하면 `None`.
+/// 수집 사진에 담긴 건명. 사진을 지금 매핑으로 다시 읽어 본다 — 읽지 못하면 `None`.
 fn snapshot_title(raw: &Raw, mapping: &MappingSet) -> Option<String> {
     let Ok(Value::Object(root)) = json::parse(&raw.snapshot_json) else {
         return None;

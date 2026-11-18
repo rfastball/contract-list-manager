@@ -45,7 +45,6 @@ export function ConfirmDelete({ rows, entityType, integrated, onDelete, onClose,
         <option value="">접수·공고·계약 중 선택</option>
         {(["request", "notice", "contract"] as EntityType[]).map(t => <option key={t} value={t}>{labels[t]}</option>)}
       </select>
-      <span className="hint">선택한 {rows.length}행에 포함된 해당 자료만 삭제합니다. 조달 흐름 전체를 삭제하지 않습니다.</span>
     </label>}
     <label className="field">삭제 범위
       <select className="text" aria-label="삭제 범위" value={scope} disabled={busy} onChange={e => setScope(e.target.value as DeletionScope)}>
@@ -62,7 +61,6 @@ export function ConfirmDelete({ rows, entityType, integrated, onDelete, onClose,
       <h3>함께 삭제되는 자료</h3>
       <ul className="tally"><li><span>하위 자료 행</span><b>{plan.childRows}</b></li><li><span>수정한 셀</span><b>{plan.overrides}</b></li>
         <li><span>사용자 입력값</span><b>{plan.userFields}</b></li><li><span>연결</span><b>{plan.links}</b></li></ul>
-      <p className="hint">차수가 남으면 남은 최신 자료를 표시합니다. 마지막 차수를 삭제하면 계열의 입력값과 연결도 사라집니다.</p>
     </>}
     {error && <p role="alert">{error} <button className="action" onClick={() => setRetry(n => n + 1)}>다시 검토</button></p>}
     <p className="warn">되돌릴 수 없습니다.</p>

@@ -1,4 +1,4 @@
-//! 로컬 앱 전용 고급 도구(C# `Erp/ErpTools.cs`). Native Messaging 은 이 관리 API 를 노출하지 않는다.
+//! 로컬 앱 전용 고급 도구. Native Messaging 은 이 관리 API 를 노출하지 않는다.
 
 use serde_json::{Map, Value};
 
@@ -25,7 +25,7 @@ fn required_text(p: &Value, name: &str) -> Result<String> {
 /// `ErpTools.Invoke` — 답은 다리가 받는 꼴(camelCase)이다. `home` 을 넘기면 「검토한 자료 저장」 이 쓰기 잠금 안에서 쪽지가
 /// 아직 이 파일을 가리키는지 다시 본다(ADR-032) — 「지금 보는 화면」 의 가져오기와 같은 확인이다.
 ///
-/// 요청 글이 JSON 이 아니면 C# 은 `JsonException` 의 영어 글을 냈다 — 여기서는 한국어 한 줄로 낸다(같게 내지 않는다).
+/// 요청 글이 JSON 이 아니면 한국어 한 줄로 낸다.
 pub fn invoke(
     db: &Database,
     env: &dyn Env,
@@ -113,7 +113,7 @@ pub fn invoke(
     }
 }
 
-/// C# 은 `Deserialize<CaptureInput>(…)!` 가 null 이면 다음 줄에서 `NullReferenceException` 으로 멎었다.
-fn null_input() -> Error {
-    Error::invalid("Object reference not set to an instance of an object.")
+/// 수집 입력이 JSON 의 null 이다.
+pub(crate) fn null_input() -> Error {
+    Error::invalid("수집 입력이 비어 있습니다.")
 }

@@ -1,10 +1,10 @@
-//! 고르기 창 — WPF 의 `OpenFileDialog` · `SaveFileDialog` · `OpenFolderDialog` 와 같은 공용 항목 대화상자(IFileDialog).
+//! 고르기 창 — 공용 항목 대화상자(IFileDialog)로 파일 · 저장할 자리를 고른다.
 //!
-//! 무엇을 고르라는지(제목 · 거르개 · 지어 둔 이름 · 덮어쓰기 묻기)는 다리가 정해 건넨다(`pclm_bridge::host`). 처음 자리는 C# 창의
-//! 규칙 그대로 — 열기 · 저장은 문서 폴더(계획 엑셀은 정하지 않는다), 폴더는 지금 가리키는 폴더(없으면 정하지 않는다).
+//! 무엇을 고르라는지(제목 · 거르개 · 지어 둔 이름 · 덮어쓰기 묻기)는 다리가 정해 건넨다(`pclm_bridge::host`). 처음 자리는
+//! 이렇다 — 열기 · 저장은 문서 폴더.
 //!
 //! 다리는 화면 실마리를 막지 않으려고 요청을 따로 실마리에서 푼다. 고르기 창은 그 실마리를 막고 **제 STA 실마리**에서 뜨며,
-//! 주인은 본 창이다 — 주인 없는 대화창은 본 창에 모달이 아니라 뒤로 숨을 수 있다(C# `OnUiThread` 가 막던 것). 본 창의
+//! 주인은 본 창이다 — 주인 없는 대화창은 본 창에 모달이 아니라 뒤로 숨을 수 있다. 본 창의
 //! 실마리는 그동안 메시지를 돌리고 있어 모달이 걸린다.
 
 #![allow(unsafe_code)]
@@ -17,7 +17,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_OVERWRITEPROMPT,
-    FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, FileSaveDialog, IFileDialog,
+    FOS_PATHMUSTEXIST, FileOpenDialog, FileSaveDialog, IFileDialog,
     IFileOpenDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
 };
 use windows::core::{HSTRING, Interface, PCWSTR};
@@ -25,11 +25,6 @@ use windows::core::{HSTRING, Interface, PCWSTR};
 /// 무엇을 고르나.
 #[derive(Clone, Debug)]
 pub enum Pick {
-    /// `OpenFolderDialog { Title, InitialDirectory }`.
-    Folder {
-        title: String,
-        initial: Option<String>,
-    },
     /// `OpenFileDialog { Title, Filter, Multiselect = false, InitialDirectory }`.
     Open {
         title: String,
@@ -100,16 +95,6 @@ unsafe fn show_inner(owner: Option<isize>, pick: &Pick) -> windows::core::Result
         let mut options =
             dialog.GetOptions()? | FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR | FOS_PATHMUSTEXIST;
         let (title, filter, initial) = match pick {
-            Pick::Folder { title, initial } => {
-                options |= FOS_PICKFOLDERS;
-                (
-                    title,
-                    None,
-                    initial
-                        .as_deref()
-                        .filter(|p| std::path::Path::new(p).is_dir()),
-                )
-            }
             Pick::Open {
                 title,
                 filter,

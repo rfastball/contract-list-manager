@@ -1,26 +1,28 @@
-//! 스키마 정본(C# `Storage/Schema.cs`).
+//! 스키마 정본.
 //!
-//! **SQL 글은 C# 원문과 한 바이트도 다르지 않다.** SQLite 는 `sqlite_master` 에 정의 원문을 담아 두므로, Rust 가
-//! 지은 파일과 C# 이 지은 파일은 그 글자까지 같아야 같은 판이다(`contract/schema.txt`). `schema/*.sql` 은
-//! C# 원시 문자열 리터럴(`"""`)을 컴파일러가 하는 그대로 펼친 것이다 — 닫는 `"""` 의 들여쓰기만큼 줄머리를 걷고,
-//! 여는 줄 뒤·닫는 줄 앞의 줄바꿈은 넣지 않았다. 줄바꿈은 LF(저장소의 `eol=lf`)이고 C# 쪽도 LF 원본에서
-//! 컴파일된다. V24 의 `{계약잇기}` 는 C# 보간과 같게 그 자리에 펼쳐 넣었다.
+//! **SQL 글은 옛 판이 써 둔 글과 한 바이트도 다르지 않다.** SQLite 는 `sqlite_master` 에 정의 원문을 담아 두므로, 지금
+//! 지은 파일과 옛 판이 지은 파일은 그 글자까지 같아야 같은 판이다(`contract/schema.txt`). `schema/*.sql` 은
+//! 공통 들여쓰기를 걷고 펼친 원문이다 — 여는 줄 뒤·닫는 줄 앞의 줄바꿈은 넣지 않았다. 줄바꿈은 LF(저장소의
+//! `eol=lf`)다. V24 의 `{계약잇기}` 는 그 자리에 펼쳐 넣었다.
 //!
 //! 판올림은 앞으로만 간다. 빈 파일은 [`BASELINE`] 하나로 v19 를 곧장 짓고, 그 뒤는 [`STEPS`] 를 한 단계씩 밟는다.
 
-/// `Schema.Version` — 스키마 판.
-pub const VERSION: i32 = 32;
+/// 스키마 판.
+pub const VERSION: i32 = 35;
 
-/// `Schema.BaselineVersion` — [`BASELINE`] 이 짓는 판. 이보다 옛 판은 받지 않는다.
+/// [`BASELINE`] 이 짓는 판. 이보다 옛 판은 받지 않는다.
 pub const BASELINE_VERSION: i32 = 19;
 
-/// `Schema.ExampleViewVersion` — 이 판을 **지나는** 작업자료에 서식용 예시 보기를 한 번 심는다.
+/// 이 판을 **지나는** 작업자료에 그 판의 예시 보기(「서식용 예시」)를 한 번 심는다.
 pub const EXAMPLE_VIEW_VERSION: i32 = 26;
 
-/// `Schema.ExampleViewUpgradeVersion` — 이 판을 지나는 작업자료에서 손대지 않은 v26 예시 보기를 지금 구성으로 갈아 끼운다.
+/// 이 판을 지나는 작업자료에서 손대지 않은 v26 예시 보기를 v33 의 구성으로 갈아 끼운다.
 pub const EXAMPLE_VIEW_UPGRADE_VERSION: i32 = 27;
 
-/// `Schema.Baseline` — 빈 파일에 v19 를 곧장 짓는다. 원문 그대로다.
+/// 이 판을 지나는 작업자료에서 손대지 않은 「서식용 예시」 를 걷는다 — 그 자리는 「문서 서식」 이 맡는다(ADR-050).
+pub const EXAMPLE_VIEW_RETIRE_VERSION: i32 = 34;
+
+/// 빈 파일에 v19 를 곧장 짓는다. 원문 그대로다.
 ///
 /// 끝의 이름표 줄(`erp_dataset` 에 `lower(hex(randomblob(16)))`)은 SQL 이 무작위 값을 짓는 자리라 판올림은 이 글을
 /// 그대로 돌리지 않는다 — [`BASELINE_SEED_SQL`] 앞까지를 돌리고 이름표는 [`crate::Env::new_id`] 를 매개변수로
@@ -37,7 +39,7 @@ pub(crate) const BASELINE_SEED_BOUND: &str =
 /// v19 → v20. 파일이 스스로 PCLM 임과 역할을 밝힌다(ADR-031). 원문 그대로다.
 ///
 /// 가운데 `INSERT INTO pclm_file` 은 `randomblob`·`strftime('now')` 를 쓰므로 판올림은 [`V20_SEED_SQL`] 을 떼어
-/// [`V20_SEED_BOUND`] 로 돌린다. `created_at` 은 C# 과 같은 꼴(밀리초 + `0000`)로 넣는다(`env::sqlite_now`).
+/// [`V20_SEED_BOUND`] 로 돌린다. `created_at` 은 옛 판이 적던 것과 같은 꼴(밀리초 + `0000`)로 넣는다(`env::sqlite_now`).
 pub const V20: &str = include_str!("schema/v20.sql");
 
 /// [`V20`] 가운데 무작위·시각을 SQL 이 짓는 문장(설명 줄 포함).
@@ -64,13 +66,19 @@ const V30: &str = "-- 출처와 사용자 열 충돌을 고친다.";
 const V31: &str = "-- 현행 공고와 품목 연결을 새 선정 규칙으로 다시 계산한다.";
 /// v31 → v32. 공고종류의 옛 상태 합성을 `SchemaRepairs.Upgrade32` 가 걷는다.
 const V32: &str = "-- 공고종류와 상태의 부분 수집을 일관되게 표시한다.";
+/// v32 → v33. 계획 표와 계획 엑셀 설정을 걷는다(ADR-047).
+const V33: &str = include_str!("schema/v33.sql");
+/// v33 → v34. 표는 그대로다. 손대지 않은 「서식용 예시」 는 판올림이 걷는다.
+const V34: &str = "-- 표는 그대로다. 손대지 않은 서식용 예시 보기는 Database.Migrate 가 걷는다.";
+/// v34 → v35. 수집 기록은 저장마다 한 줄씩 쌓이고 걷지 않는다 — 창이 새로 볼 때마다 읽는 시각 범위를 색인으로 찾는다.
+const V35: &str = include_str!("schema/v35.sql");
 
-/// `Schema.Steps` — 기준선 뒤의 단계. `STEPS[0]` 이 v19 → v20 이다. 끝에만 덧붙인다.
-pub const STEPS: [&str; 13] = [
-    V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32,
+/// 기준선 뒤의 단계. `STEPS[0]` 이 v19 → v20 이다. 끝에만 덧붙인다.
+pub const STEPS: [&str; 16] = [
+    V20, V21, V22, V23, V24, V25, V26, V27, V28, V29, V30, V31, V32, V33, V34, V35,
 ];
 
-/// `Schema.IsPreBaseline` — 정식판 이전의 시험판(v1~v18)으로 지은 판인가. `0` 은 빈 파일이라 들지 않는다.
+/// 정식판 이전의 시험판(v1~v18)으로 지은 판인가. `0` 은 빈 파일이라 들지 않는다.
 pub fn is_pre_baseline(version: i32) -> bool {
     version > 0 && version < BASELINE_VERSION
 }

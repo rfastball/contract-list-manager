@@ -48,7 +48,7 @@ export type UserColumn = {
 export type ColumnFormula = FormulaV1 | FormulaV2;
 
 // ── 가공열 다리 약속(docs/column-management.md §11.4) ──────────────
-// 진짜 다리(Bridge.cs → Store)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다.
+// 진짜 다리(pclm-bridge → Store)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다.
 //
 //   columnContext(entity) → ColumnContext
 //     columns·rows·fields·sources 에 available 이 더해졌다 — 원천으로 쓸 수 있는 것:
@@ -101,7 +101,7 @@ export type SqlCheck = {
   note?: string;
 };
 // ── 맞춤 뷰 다리 약속(docs/user-views.md §8) ──────────────────
-// 진짜 다리(Bridge.cs → Store 의 맞춤 뷰)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다. 기준 인자는 없다 — 한 줄은 조달 건이다.
+// 진짜 다리(pclm-bridge → Store 의 맞춤 뷰)와 목업 다리(mock.ts)가 같은 이름과 꼴을 지킨다. 기준 인자는 없다 — 한 줄은 조달 건이다.
 //
 //   userViews() → UserView[]                                  목록 — 정의(contracts 포함)와 깨진 필드(필드 식별자 → 까닭)
 //   userViewContext() → UserViewContext
@@ -117,6 +117,7 @@ export type SqlCheck = {
 //     viewJson 은 {"name","definition":{…§4}}. 그 표본 한 건의 값과, 필드마다 그 뷰의 전체 건 중 빈 값 수, 뷰의 건 수.
 //   saveUserView(viewJson, previousId | null) → UserView[]     §5 의 저장. 이름이 비거나 겹치거나 깨진 식이 서면 거절한다
 //   deleteUserView(id) → UserView[]                            정의를 지운다. PlanDeletion 대상이 아니다
+//   resetDocumentView() → UserView[]                           「문서 서식」 을 exe 의 정의로 되돌린다
 
 /** 맞춤 뷰의 필드 하나 — 이름 = 흐름식(§2). formula 는 가공식 v2 그대로이고 저장 꼴에는 id 를 싣지 않는다(§4). */
 export type UserViewColumn = { id: string; name: string; formula: FormulaV2 };
@@ -131,6 +132,8 @@ export type UserView = {
   definition: UserViewDefinition;
   /** 깨진 필드. 필드 식별자 → 까닭. */
   broken: Record<string, string>;
+  /** 패널이 문서를 채울 때 읽는 「문서 서식」 — 고칠 수 있지만 지우지 않고, 설정에서 처음 상태로 되돌린다. */
+  managed?: boolean;
 };
 export type UserViewContext = ColumnContext & {
   /** 조달 건 수 — 계약마다 한 줄로 센다. */
@@ -172,7 +175,7 @@ export type About = { version: string; license: string; notices: string };
 
 /**
  * 창의 몸가짐. 자료가 아니라 이 컴퓨터의 것이라 작업자료 밖(홈의 window.json)에 적힌다 — 작업자료를 바꾸거나
- * 제출본을 보내도 따라가지 않는다. 열람 창은 다루지 않는다.
+ * 보내도 따라가지 않는다. 열람 창은 다루지 않는다.
  */
 export type WindowPrefs = {
   /** 닫기(X)를 눌러도 끝내지 않고 알림 영역에 둔다. */
@@ -192,15 +195,15 @@ export type WindowPrefs = {
 
 /**
  * 지금 연 작업자료와 그것을 가리키는 홈. <b>DB 안이 아니라 밖(홈의 config.json)에 적힌다</b> — 어느 파일을
- * 열지를 파일 안에 두면 그 값을 읽으려고 파일을 먼저 열어야 한다. 그래서 Settings 와 따로 온다.
+ * 열지를 파일 안에 두면 그 값을 읽으려고 파일을 먼저 열어야 한다.
  */
 /**
- * 이 창이 무엇을 열고 있는가. <code>readOnly</code> 면 남의 것·제출본·취합본을 <b>열어 본</b> 창이라
+ * 이 창이 무엇을 열고 있는가. <code>readOnly</code> 면 남의 것·백업을 <b>열어 본</b> 창이라
  * 다리가 고치는 요청을 모두 거절한다 — 화면은 그것을 미리 알고 편집 자리를 잠근다.
  */
 export type Session = {
   readOnly: boolean;
-  /** 파일의 역할. <code>work</code>·<code>submission</code>·<code>merged</code>·<code>backup</code>·<code>retired</code>. */
+  /** 파일의 역할. <code>work</code>·<code>backup</code>·<code>retired</code>(옛 판의 다른 역할도 그대로 온다). */
   role: string;
   /** 사람에게 보일 역할 이름. 다리가 짓는다 — 화면이 따로 옮기면 두 벌이 된다. */
   roleName: string;
@@ -233,7 +236,7 @@ export type WorkfilePlan = {
   path: string;
   /** 옮기기면 지금 자리, 사본에서 새로면 원본. 그 밖에는 null. */
   source: string | null;
-  /** 사본에서 새로일 때 원본의 역할 이름(제출본·취합본·백업…). */
+  /** 사본에서 새로일 때 원본의 역할 이름(백업·옮겨진 옛 자료…). */
   sourceRoleName: string | null;
   /** 지금 작업자료. */
   current: string;
@@ -250,6 +253,9 @@ export type ExtensionStatus = {
   prepared: boolean;
   embeddedVersion: string;
   diskVersion: string | null;
+  /** 실행 중인 파일과 비교할 앱의 내장 묶음 지문. 옛 앱 응답에는 없다. */
+  embeddedRevision?: string | null;
+  diskRevision?: string | null;
   contacts: ExtensionContact[];
   /** 확장을 풀어 둘 자리. 아직 준비하지 않았어도 온다 — 브라우저에서 사람이 고르는 폴더다. */
   folder: string;
@@ -260,14 +266,13 @@ export type ExtensionStatus = {
   live: ExtensionLive[];
   /** 오늘의 연결 기록(붙음·끊김·판 바뀜), 일어난 차례대로. 끊긴 까닭은 없다 — 앱도 호스트도 모른다. */
   log: ExtensionLogEntry[];
-  // 다리는 옛 확장(0.9 까지)이 알린 수집 오류(errors·pastError)도 싣지만 보이지 않는다 — 0.10 의 확장은 저장하지 않아
-  // 알릴 오류가 없다(ADR-042).
 };
 
 /** 확장이 호스트에 인사할 때 남긴 흔적. 브라우저마다 마지막 하나만 남는다. */
 export type ExtensionContact = { browser: string; version: string; at: string };
 
-export type ExtensionLive = { browser: string; version: string; connectedAt: string };
+export type ExtensionLive = { browser: string; version: string; connectedAt: string; revision?: string | null;
+  updateState?: "current" | "preparing" | "waiting-panel" | "waiting-work" | "reloading" | "failed" | null };
 
 /** 붙음·끊김·판 바뀜. 판 바뀜이면 `previous` 가 그 앞의 판이고, 아니면 빈 문자열. */
 export type ExtensionLogEntry = {
@@ -408,7 +413,7 @@ export type MirrorTab = {
   title: string;
   /** 나라장터 머리 제목. */
   screen: string;
-  /** 화면의 메뉴 번호(숫자 다섯, ADR-037). 모르거나 옛 확장이면 빈 문자열. */
+  /** 화면의 메뉴 번호(숫자 다섯, ADR-037). 모르면 빈 문자열. */
   menu: string;
   state: "reading" | "supported" | "unsupported" | "error";
   /** 로컬 <code>yyyy-MM-ddTHH:mm:ss</code>. 아직 읽지 않았으면 빈 문자열. */
@@ -419,9 +424,9 @@ export type MirrorTab = {
   shot: MirrorShot | null;
   /** 투영하지 못한 까닭. */
   error: string | null;
-  /** 화면 그대로 — 이름표와 보이는 글. 옛 확장은 보내지 않아 빈 목록이다. */
+  /** 화면 그대로 — 이름표와 보이는 글. 읽지 못한 탭은 빈 목록이다. */
   screenRows: ScreenRow[];
-  /** 앱이 부른 「현재 화면 엑셀로 내보내기」 의 마지막 결과. 아직 없거나 옛 확장이면 null. */
+  /** 앱이 부른 「현재 화면 엑셀로 내보내기」 의 마지막 결과. 아직 없으면 null. */
   export: MirrorExport | null;
 };
 
@@ -437,7 +442,7 @@ export type MirrorState = {
   reporting: boolean;
   front: string | null;
   tabs: MirrorTab[];
-  /** 확장의 설정. 옛 확장이거나 아직 알리지 않았으면 null. */
+  /** 확장의 설정. 아직 알리지 않았거나 확장이 읽지 못했으면 null. */
   settings: ExtensionSettings | null;
   /** 수집하는 화면 — 「수집 안 함」 의 안내가 이것을 그대로 보인다. 열람 창은 빈 목록. */
   screens: SupportedScreen[];
@@ -483,23 +488,6 @@ export type CaptureDay = {
   saved: number;
   /** 가장 늦은 수집. 오늘이 아니어도 온다. */
   last: CaptureEntry | null;
-};
-
-export type Settings = {
-  /** 골라 둔 계획 엑셀의 전체 경로. 한 번도 고른 적이 없으면 빈 문자열. */
-  planPath: string;
-  /** 제출본 파일 이름에만 쓴다. 자료의 임자를 정하는 값이 아니다(ADR-023). */
-  submitterName: string;
-};
-
-/** 제출본 한 벌을 뜬 결과. 그만두면 null 이 온다. */
-export type SubmitResult = { path: string; nameMissing: boolean };
-
-/** 취합 한 번의 결과. 자세한 것은 취합본 옆 txt 에 있다. */
-export type MergeResult = {
-  path: string; reportPath: string;
-  submissions: number; plans: number; requests: number; notices: number; contracts: number;
-  conflicts: number; rejected: number;
 };
 
 // ── 지우기 ─────────────────────────────────────────────
@@ -642,47 +630,8 @@ export type DashboardReport = {
   contractAmount: number; contractsWithAmount: number;
 };
 
-// ── 계획 ───────────────────────────────────────────────
-// 접수·공고·계약과 달리 <b>엑셀에서 온다</b>. 서식은 표본에 고정되어 있어(ADR-023 개정)
-// 짚을 것이 없고, 남은 결정은 <b>어느 파일인가</b> 하나뿐이다 — 그 자리가 설정에 남는다.
-
-/** 고른 계획 엑셀. 이름은 보여 주려고, 경로는 설정에 적힌 것과 같아 그대로 적어 두려고 온다. */
-export type PlanPick = {
-  name: string;
-  path: string;
-};
-
-/** 계획 엑셀 한 권을 읽은 결과. 머리글이 어긋난 것은 고장이 아니라 파일을 다시 보면 되는 일이다. */
-export type PlanImportResult = {
-  rows: number;
-  created: number;
-  updated: number;
-  /** 조달요구번호가 빈 줄. 계획의 자연키라 담을 자리가 없다. */
-  skipped: number;
-  /** 없던 필수 **머리글 이름**. 하나라도 있으면 **한 줄도 들어가지 않았다**. */
-  missingRequired: string[];
-  /** 행 값이 규약에 맞지 않으면 한 줄도 저장하지 않고 원인을 반환한다. */
-  errors: string[];
-  /** 실제로 잡힌 머리글. 어느 열이 들어갔는지 사람이 눈으로 확인하는 자리다. */
-  found: string[];
-  ok: boolean;
-};
-
-// ── 현황 ───────────────────────────────────────────────
-// 무엇을 보일지는 뒤(`Status.Metrics`)가 정한다. 화면은 **오는 대로** 그린다 — 지표를 더하거나
-// 빼는 일이 그 배열만 고치는 일이어야 하므로, 여기에 지표의 이름이 나타나서는 안 된다.
-
-/** 센 결과 한 칸. `거르개` 는 눌렀을 때 계획 탭이 걸 조건이고 꼴은 `"열이름=값"` 하나뿐이다. */
-export type Cell = { 이름: string; 수: number; 거르개: string | null };
-
-/** 같은 묶음의 칸들. 묶음은 지표 배열에 처음 나온 차례로 선다. */
-export type Group = { 이름: string; cells: Cell[] };
-
-export type StatusReport = { groups: Group[] };
-
-/** 이 컴퓨터에서만 쓰는 나라장터 자동 수집 조건. DB나 제출본으로 옮기지 않는다. */
+/** 이 컴퓨터에서만 쓰는 나라장터 자동 수집 조건. DB로 옮기지 않는다. */
 export type AutoCaptureSettings = {
   enabled: boolean;
-  name: string;
   lastResult?: { state: string; message: string; entity?: string | null } | null;
 };

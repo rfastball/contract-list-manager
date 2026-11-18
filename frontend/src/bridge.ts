@@ -2,7 +2,7 @@
  * 화면과 앱 사이의 유일한 통로.
  *
  * 창(Tauri)의 앱 명령 `bridge` 하나로 `{id, method, args}` 글을 보내고 다리의 답 글
- * (`{id, ok, result, error}` — C# Bridge 의 ReplyJson 과 같은 바이트)을 받는다. 앱이 먼저 건네는 알림
+ * (`{id, ok, result, error}` — 다리의 `reply_json` 이 짓는다)을 받는다. 앱이 먼저 건네는 알림
  * (`{notice}`)은 `pclm:notice` 이벤트로 온다. 전역(`withGlobalTauri`)을 쓰므로 npm 의존이 없다 —
  * 배포 exe 에 실리는 고지가 늘지 않는다.
  */

@@ -4,7 +4,9 @@
 
 .DESCRIPTION
     실리는 목록은 cargo tree 에 묻는다: pclm-desktop 을 shell 기능으로, windows 대상(x86_64-pc-windows-msvc)에서,
-    운영 의존만(build · dev 의존과 proc-macro 는 짓는 동안에만 돈다). 저작권 줄은 크레이트의 라이선스 파일에서 옮기고,
+    운영 의존만(build · dev 의존과 proc-macro 는 짓는 동안에만 돈다). exe 에 박힌 내장 확장의 문서 만들기 엔진
+    (extension/engine.wasm)도 같은 규칙으로 pclm-doc-engine 을 wasm32-unknown-unknown 대상으로 묻어 합친다 — 엔진이
+    git 으로 받는 문서나르미(hwpx-filler)도 고지 대상이다. 저작권 줄은 크레이트의 라이선스 파일에서 옮기고,
     MIT · Apache-2.0 은 문서 끝의 전문을 가리키며, 그 밖의 라이선스는 그 파일을 항목 안에 싣는다.
     짓는 것은 crates/pclm-desktop/examples/crate_notices.rs 이고, 대조는 crates/pclm-desktop/tests/notices.rs 가 한다 —
     의존을 더하거나 판을 올리고 이것을 돌리지 않으면 cargo test 가 붉어진다.

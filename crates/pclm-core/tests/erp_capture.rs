@@ -1,5 +1,4 @@
-//! C# `ErpCaptureTests` · `ConfirmedFieldTests`(수집·매핑 몫) · `FieldRegistryTests` — 수집 경계(`ErpCapture`)와 매핑
-//! (`Mapping`·`MappingStore`)이 같은 미리보기·저장·판 계약을 지키는가. 값은 모두 지어낸 것이다(CLAUDE.md).
+//! 수집 경계(`ErpCapture`)와 매핑(`Mapping`·`MappingStore`)이 같은 미리보기·저장·판 계약을 지키는가. 값은 모두 지어낸 것이다(CLAUDE.md).
 //!
 //! 홈의 쪽지는 [`Destination`] 대역(`Note`)으로, 확장 폴더는 [`ExtensionHello`] 대역(`Ext`)으로 세운다. Core 밖의 시험은
 //! 제 크레이트에 있다 — 내장 확장 풀기는 pclm-bridge(`bundled`), 확장 상태·네이티브 메시징 틀은 pclm-host.
@@ -24,7 +23,7 @@ use serde_json::{Map, Value, json};
 
 // ── 대역과 공통 ─────────────────────────────────────────────
 
-/// 쪽지(C# `Home` 의 config.json) 대역 — 어느 파일·어느 작업자료를 가리키는가.
+/// 쪽지(홈의 config.json) 대역 — 어느 파일·어느 작업자료를 가리키는가.
 struct Note {
     target: Mutex<Option<(PathBuf, String)>>,
 }
@@ -56,7 +55,7 @@ impl Destination for Note {
     }
 }
 
-/// 확장 폴더(C# `ExtensionStatus`) 대역 — 디스크의 판과 브라우저별로 받은 연결.
+/// 확장 폴더 대역 — 디스크의 판과 브라우저별로 받은 연결.
 struct Ext {
     version: Option<String>,
     contacts: Mutex<Vec<(String, String)>>,
@@ -115,7 +114,7 @@ impl T {
         dispatch(host, &self.id(), method, args)
     }
 
-    /// 미리보기를 뜨고 그 지문과 충돌마다의 고름(덮개는 `keep`, 나머지는 `apply`)을 실은 `capture` 요청의 인자.
+    /// 미리보기를 뜨고 그 지문과 충돌마다의 고름(덮개는 `keep`, 나머지는 `apply`)을 실은 저장 요청 — [`capture`] 가 저장한다.
     fn request(&self, snapshot: &CaptureInput, token: Option<&str>, id: Option<&str>) -> Value {
         let preview = self.host().inspect(snapshot).unwrap();
         let choices: Map<String, Value> = preview
@@ -132,7 +131,6 @@ impl T {
             })
             .collect();
         json!({
-            "datasetId": self.dataset,
             "snapshot": snapshot.to_value(),
             "captureId": id.map_or_else(|| self.id(), str::to_string),
             "baseToken": token.unwrap_or(&preview.base_token),
@@ -163,6 +161,19 @@ fn dispatch(host: &ErpCapture<'_>, request_id: &str, method: &str, args: Option<
                 "params": args.unwrap_or(Value::Null)}),
         false,
     )
+}
+
+/// [`T::request`] 로 지은 요청을 저장한다 — 답은 영수증.
+fn capture(host: &ErpCapture<'_>, request: &Value) -> pclm_core::Result<Value> {
+    let input = CaptureInput::from_json(&request["snapshot"])?.unwrap();
+    let choices = pclm_core::erp::capture::choices_from_json(&request["choices"])?;
+    host.save(
+        &input,
+        request["baseToken"].as_str(),
+        request["captureId"].as_str(),
+        &choices,
+    )
+    .map(|saved| saved.to_value())
 }
 
 fn ok(reply: &Value) -> bool {
@@ -229,7 +240,7 @@ fn sample_request(revision: &str, title: &str) -> CaptureInput {
     )
 }
 
-/// 확인한 충돌마다 같은 값을 고른다(C# `ToDictionary(c => c.Id, _ => pick)`).
+/// 확인한 충돌마다 같은 값을 고른다.
 fn pick_all(changes: &[CaptureChange], pick: &str) -> Choices {
     changes
         .iter()
@@ -294,7 +305,7 @@ fn current(t: &T) -> Vec<Option<String>> {
     ))
 }
 
-/// 값을 가진 칸(Dapper 의 동적 행) 하나의 글.
+/// 값을 가진 칸 하나의 글.
 fn text_of(value: rusqlite::types::Value) -> String {
     match value {
         rusqlite::types::Value::Text(t) => t,
@@ -304,13 +315,13 @@ fn text_of(value: rusqlite::types::Value) -> String {
 
 // ── ErpCaptureTests ─────────────────────────────────────────
 
-/// C# `ErpCaptureTests.매핑의_판은_어느_운영체제에서나_같다` — 판은 고정값이고, 저장하는 들여 쓴 글의 줄바꿈은 늘
-/// `\r\n` 이다(`Mapping.HashText` 는 Core 밖이라 저장된 글로 본다).
+/// 판은 고정값이고, 저장하는 들여 쓴 글의 줄바꿈은 늘
+/// `\r\n` 이다(저장된 글로 본다).
 #[test]
 fn mapping_revision_is_the_same_on_every_os() {
     let t = T::new("erp-revision");
     assert_eq!(
-        "BCBF796437854FE6E3EB9224297B14A8100CE17AD501FCA5B489790D48F912D8",
+        "358DE971DD28E1B22D346A455826E0EB3DD23926E10BE3308CDA196380505FAC",
         defaults_revision()
     );
     let db = t.db();
@@ -329,7 +340,7 @@ fn mapping_revision_is_the_same_on_every_os() {
     );
 }
 
-/// C# `ErpCaptureTests.업무_호스트의_인사는_디스크의_확장_판을_알려_주고_브라우저별_연결을_적는다` — **일부만 옮긴다.**
+/// **일부만 본다.**
 /// 확장이 보낸 값의 모양 거르기(`ExtensionStatus.RecordContact`)와 연결 기록 파일은 Core 밖이다. 여기서는 인사가
 /// 디스크의 판을 알리고, 연결을 확장 쪽에 넘기며, 확장이 없는 호스트는 판도 연결도 모르는 것만 본다.
 #[test]
@@ -341,20 +352,16 @@ fn business_host_hello_reports_extension_version_and_hands_over_contacts() {
     };
     let host = t.plain().with_extension(&ext);
 
-    // 옛 확장은 params 없이 인사한다. 그래도 성공이고 적을 것이 없다.
-    let hello = t.call_on(&host, "hello", None);
+    let hello = t.call_on(
+        &host,
+        "hello",
+        Some(json!({"extensionVersion": "0.4.0", "browser": "Edge"})),
+    );
     assert!(ok(&hello));
     assert_eq!(
         "0.4.1",
         hello["result"]["extensionVersion"].as_str().unwrap()
     );
-    assert!(ext.contacts.lock().unwrap().is_empty());
-
-    assert!(ok(&t.call_on(
-        &host,
-        "hello",
-        Some(json!({"extensionVersion": "0.4.0", "browser": "Edge"}))
-    )));
     assert!(ok(&t.call_on(
         &host,
         "hello",
@@ -377,9 +384,10 @@ fn business_host_hello_reports_extension_version_and_hands_over_contacts() {
     assert!(plain["result"]["extensionVersion"].is_null());
 }
 
-/// C# `ErpCaptureTests.기본정보만_저장하고_재전송과_결과조회는_같은_영수증을_반환한다`
+/// 결과 조회(`captureStatus`)는 걷어
+/// 재전송만 본다.
 #[test]
-fn saves_only_basics_and_resend_or_status_returns_the_same_receipt() {
+fn saves_only_basics_and_resend_returns_the_same_receipt() {
     let t = T::new("erp-receipt");
     t.f.sql(
         "INSERT INTO notice_group VALUES ('R26BK00000001');
@@ -392,18 +400,8 @@ fn saves_only_basics_and_resend_or_status_returns_the_same_receipt() {
     );
     let id = t.id();
     let args = t.request(&snapshot("검증용 공고"), None, Some(&id));
-    let saved = t.call("capture", Some(args.clone()));
-    assert!(ok(&saved), "{saved}");
-    let receipt = saved["result"].to_string();
-    assert_eq!(receipt, t.call("capture", Some(args))["result"].to_string());
-    assert_eq!(
-        receipt,
-        t.call(
-            "captureStatus",
-            Some(json!({"datasetId": t.dataset, "captureId": id}))
-        )["result"]
-            .to_string()
-    );
+    let receipt = capture(&t.host(), &args).unwrap();
+    assert_eq!(receipt, capture(&t.host(), &args).unwrap());
     assert_eq!(
         "검증용 공고",
         t.f.scalar("SELECT title FROM notice").unwrap()
@@ -421,32 +419,34 @@ fn saves_only_basics_and_resend_or_status_returns_the_same_receipt() {
         t.f.scalar("SELECT value FROM field_override").unwrap()
     );
     assert_eq!(1, t.n("SELECT count(*) FROM erp_capture"));
-    let other = t.call(
-        "capture",
-        Some(t.request(&snapshot("다른 내용"), None, Some(&id))),
+    let other = capture(
+        &t.host(),
+        &t.request(&snapshot("다른 내용"), None, Some(&id)),
     );
-    assert_eq!("invalid_request", code(&other));
+    assert!(is_invalid(&other));
     let timestamp = t.f.scalar("SELECT updated_at FROM notice").unwrap();
-    let again = t.call(
-        "capture",
-        Some(t.request(&snapshot("검증용 공고"), None, None)),
-    );
-    assert!(!again["result"]["changed"].as_bool().unwrap());
+    let again = capture(
+        &t.host(),
+        &t.request(&snapshot("검증용 공고"), None, None),
+    )
+    .unwrap();
+    assert!(!again["changed"].as_bool().unwrap());
     assert_eq!(
         timestamp,
         t.f.scalar("SELECT updated_at FROM notice").unwrap()
     );
 }
 
-/// C# `ErpCaptureTests.정정값은_수집이_그_아래_값을_바꿀_때만_묻고_복원은_그_차수의_덮개만_걷는다` — 사람이 고친 칸은 이번 수집이
+/// 사람이 고친 칸은 이번 수집이
 /// 그 아래 값을 바꿀 때만 다시 묻는다. 복원은 그 차수의 덮개만 걷는다(ADR-020).
 #[test]
 fn override_asks_only_when_capture_changes_value_below_and_restore_removes_that_seq_only() {
     let t = T::new("erp-override");
-    assert!(ok(&t.call(
-        "capture",
-        Some(t.request(&snapshot("검증용 공고"), None, None))
-    )));
+    capture(
+        &t.host(),
+        &t.request(&snapshot("검증용 공고"), None, None),
+    )
+    .unwrap();
     t.f.sql(
         "INSERT INTO notice(notice_base, seq, title, updated_at) VALUES ('R26BK00000001', '002', '다음 차수 제목', 'before');
          INSERT INTO field_override(entity_type, base, seq, column_name, value, original, updated_at) VALUES
@@ -461,16 +461,7 @@ fn override_asks_only_when_capture_changes_value_below_and_restore_removes_that_
     // 같은 화면을 다시 수집 — 덮개 아래 값이 그대로라 고를 것이 없고, 선택 없이 저장된다.
     let same = host.inspect(&snapshot("검증용 공고")).unwrap();
     assert!(!same.changes.iter().any(|ch| ch.field == "__override"));
-    let inspected = t.call(
-        "inspect",
-        Some(json!({"datasetId": t.dataset, "snapshot": snapshot("검증용 공고").to_value()})),
-    );
-    assert!(
-        inspected["result"]["changes"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(!same.changes.iter().any(|ch| ch.conflict));
     host.save(
         &snapshot("검증용 공고"),
         Some(&same.base_token),
@@ -553,24 +544,24 @@ fn override_asks_only_when_capture_changes_value_below_and_restore_removes_that_
     );
 }
 
-/// C# `ErpCaptureTests.미리보기_뒤_수정된_자료나_다른_DB에는_저장하지_않는다`
 #[test]
 fn does_not_save_after_stale_preview_or_to_another_database() {
     let t = T::new("erp-stale");
     let args = t.request(&snapshot("검증용 공고"), None, None);
-    assert!(ok(&t.call(
-        "capture",
-        Some(t.request(&snapshot("다른 수집"), None, None))
-    )));
-    assert_eq!("invalid_request", code(&t.call("capture", Some(args))));
+    capture(
+        &t.host(),
+        &t.request(&snapshot("다른 수집"), None, None),
+    )
+    .unwrap();
+    assert!(is_invalid(&capture(&t.host(), &args)));
     let other = t.call(
-        "inspect",
-        Some(json!({"datasetId": "other", "snapshot": snapshot("검증용 공고").to_value()})),
+        "document",
+        Some(json!({"datasetId": "other", "op": "check", "snapshot": snapshot("검증용 공고").to_value()})),
     );
     assert_eq!("invalid_request", code(&other));
 }
 
-/// C# `ErpCaptureTests.확장_호스트는_자료_자리를_보거나_옮기는_요청을_받지_않는다` — 확장은 자료 자리를 보지도 옮기지도 못한다
+/// 확장은 자료 자리를 보지도 옮기지도 못한다
 /// (ADR-032).
 #[test]
 fn extension_host_does_not_accept_requests_to_see_or_move_the_data_location() {
@@ -588,7 +579,7 @@ fn extension_host_does_not_accept_requests_to_see_or_move_the_data_location() {
     assert!(!folder.exists());
 }
 
-/// C# `ErpCaptureTests.쪽지가_다른_작업자료를_가리키면_저장을_거절한다` — 쓰기 잠금을 쥔 뒤 쪽지를 다시 읽는다.
+/// 쓰기 잠금을 쥔 뒤 쪽지를 다시 읽는다.
 #[test]
 fn rejects_save_when_note_points_to_another_workfile() {
     let t = T::new("erp-note");
@@ -597,13 +588,13 @@ fn rejects_save_when_note_points_to_another_workfile() {
     let request = t.request(&snapshot("검증용 공고"), None, None);
 
     note.write(&t.f.temp.path("다른.pclm"), "ffff");
-    assert!(!ok(&t.call_on(&host, "capture", Some(request.clone()))));
+    assert!(is_invalid(&capture(&host, &request)));
 
     note.write(&t.f.path, &t.dataset);
-    assert!(ok(&t.call_on(&host, "capture", Some(request))));
+    assert!(capture(&host, &request).is_ok());
 }
 
-/// C# `ErpCaptureTests.전환_중에_줄_선_저장은_잠금이_풀린_뒤_새_쪽지를_보고_거절한다` — 잠금을 얻기 전에 읽은 쪽지로 판단하면 옛
+/// 잠금을 얻기 전에 읽은 쪽지로 판단하면 옛
 /// 자료에 쓰고 성공을 알린다.
 #[test]
 fn save_queued_during_switch_sees_the_new_note_after_the_lock_is_released() {
@@ -620,12 +611,7 @@ fn save_queued_during_switch_sees_the_new_note_after_the_lock_is_released() {
             let host = ErpCapture::new(&path, &env)
                 .with_environment("development")
                 .with_destination(&note);
-            dispatch(
-                &host,
-                "00000000000000000000000000000001",
-                "capture",
-                Some(request.clone()),
-            )
+            capture(&host, &request)
         });
         std::thread::sleep(Duration::from_millis(500));
         assert!(!pending.is_finished()); // 잠금 앞에 줄 서 있다
@@ -635,7 +621,7 @@ fn save_queued_during_switch_sees_the_new_note_after_the_lock_is_released() {
 
         pending.join().unwrap()
     });
-    assert!(!ok(&reply));
+    assert!(is_invalid(&reply));
 
     assert_eq!(
         0,
@@ -652,7 +638,7 @@ fn save_queued_during_switch_sees_the_new_note_after_the_lock_is_released() {
     );
 }
 
-/// C# `ErpCaptureTests.잠금을_쥔_사이_옮겨진_옛_파일이_되면_줄_선_저장을_거절한다` — 옮긴 뒤의 옛 파일(retired)에는 쪽지를 모르는
+/// 옮겨 간 옛 파일(retired)에는 쪽지를 모르는
 /// 쓰기도 잠금 안에서 막힌다.
 #[test]
 fn save_queued_while_file_becomes_retired_is_rejected() {
@@ -666,12 +652,7 @@ fn save_queued_while_file_becomes_retired_is_rejected() {
         let pending = s.spawn(|| {
             let env = TestEnv::new();
             let host = ErpCapture::new(&path, &env).with_environment("development");
-            dispatch(
-                &host,
-                "00000000000000000000000000000002",
-                "capture",
-                Some(request.clone()),
-            )
+            capture(&host, &request)
         });
         std::thread::sleep(Duration::from_millis(500));
 
@@ -682,7 +663,7 @@ fn save_queued_while_file_becomes_retired_is_rejected() {
 
         pending.join().unwrap()
     });
-    assert!(!ok(&reply));
+    assert!(is_invalid(&reply));
 
     assert_eq!(
         0,
@@ -692,21 +673,22 @@ fn save_queued_while_file_becomes_retired_is_rejected() {
     );
 }
 
-/// C# `ErpCaptureTests.영수증_기록에_실패하면_업무자료도_롤백한다`
 #[test]
 fn failing_to_record_the_receipt_rolls_back_the_business_data() {
     let t = T::new("erp-rollback");
     t.f.sql("CREATE TRIGGER reject_receipt BEFORE INSERT ON erp_capture BEGIN SELECT RAISE(ABORT, 'test'); END;");
-    assert!(!ok(&t.call(
-        "capture",
-        Some(t.request(&snapshot("검증용 공고"), None, None))
-    )));
+    assert!(
+        capture(
+            &t.host(),
+            &t.request(&snapshot("검증용 공고"), None, None)
+        )
+        .is_err()
+    );
     assert_eq!(0, t.n("SELECT count(*) FROM notice"));
     assert_eq!(0, t.n("SELECT count(*) FROM notice_series"));
     assert_eq!(0, t.n("SELECT count(*) FROM erp_capture"));
 }
 
-/// C# `ErpCaptureTests.지원하지_않거나_불완전한_화면은_저장을_거부한다`
 #[test]
 fn refuses_unsupported_or_incomplete_screens() {
     let t = T::new("erp-unsupported");
@@ -716,16 +698,17 @@ fn refuses_unsupported_or_incomplete_screens() {
     old.mapping_revision = Some("old".into());
     let mut file = snapshot("검증용 공고");
     file.scope = Some("file".into());
-    for input in [unknown, old, file] {
-        let reply = t.call(
-            "inspect",
-            Some(json!({"datasetId": t.dataset, "snapshot": input.to_value()})),
-        );
-        assert!(!ok(&reply));
+    for input in [unknown, old] {
+        assert!(is_invalid(&t.host().inspect(&input)));
     }
+    // 확장의 요청은 실제 화면 수집만 받는다.
+    let reply = t.call(
+        "document",
+        Some(json!({"datasetId": t.dataset, "op": "check", "snapshot": file.to_value()})),
+    );
+    assert!(!ok(&reply));
 }
 
-/// C# `ErpCaptureTests.호스트는_DB를_만들거나_판올림하거나_운영DB로_우회하지_않는다`
 #[test]
 fn host_does_not_create_migrate_or_detour_to_a_production_database() {
     let t = T::new("erp-no-create");
@@ -733,8 +716,8 @@ fn host_does_not_create_migrate_or_detour_to_a_production_database() {
     let host = ErpCapture::new(&absent, t.f.env);
     assert_eq!("invalid_request", code(&t.call_on(&host, "hello", None)));
     assert!(!absent.parent().unwrap().exists());
-    // 작업자료가 아닌 파일에는 쓰지 않는다 — 그 자리에 제출본이 놓였어도 그렇다.
-    t.f.sql("UPDATE pclm_file SET role = 'submission';");
+    // 작업자료가 아닌 파일에는 쓰지 않는다 — 그 자리에 백업이 놓였어도 그렇다.
+    t.f.sql("UPDATE pclm_file SET role = 'backup';");
     assert_eq!("invalid_request", code(&t.call("hello", None)));
     t.f.sql("UPDATE pclm_file SET role = 'work';");
     t.f.sql("PRAGMA user_version = 15;");
@@ -742,7 +725,7 @@ fn host_does_not_create_migrate_or_detour_to_a_production_database() {
     assert_eq!(15, t.n("PRAGMA user_version"));
 }
 
-/// C# `ErpCaptureTests.계약방법은_코드로_읽는_화면과_이름으로_읽는_화면이_같은_이름을_담는다` — 계약 상세(01579)는 코드,
+/// 계약 상세(01579)는 코드,
 /// 변경계약서 작성(01608)은 이름으로 온다. 코드표에 없으면 같은 차수를 두 화면에서 읽을 때 변경이 검토에 뜬다.
 #[test]
 fn contract_method_code_and_name_screens_hold_the_same_name() {
@@ -768,7 +751,7 @@ fn contract_method_code_and_name_screens_hold_the_same_name() {
     }
 }
 
-/// C# `ErpCaptureTests.머리가_T_인_시험용_번호도_받는다`(Theory) — 머리글자는 R·T 둘뿐이다.
+/// 머리글자는 R·T 둘뿐이다.
 fn accepts_t_headed_test_numbers(
     profile: &str,
     base_key: &str,
@@ -793,7 +776,6 @@ fn accepts_t_headed_test_numbers(
     assert!(is_invalid(&mapping::map(&set, profile, &bad, "file")));
 }
 
-/// C# `ErpCaptureTests.머리가_T_인_시험용_번호도_받는다("g2b-notice-a-v1", …)`
 #[test]
 fn t_headed_number_notice_a() {
     accepts_t_headed_test_numbers(
@@ -804,19 +786,16 @@ fn t_headed_number_notice_a() {
     );
 }
 
-/// C# `ErpCaptureTests.머리가_T_인_시험용_번호도_받는다("g2b-notice-b-v1", …)`
 #[test]
 fn t_headed_number_notice_b() {
     accepts_t_headed_test_numbers("g2b-notice-b-v1", "bidPbancText", "T26BK00000001-000", None);
 }
 
-/// C# `ErpCaptureTests.머리가_T_인_시험용_번호도_받는다("g2b-contract-v1", …)`
 #[test]
 fn t_headed_number_contract() {
     accepts_t_headed_test_numbers("g2b-contract-v1", "ctrtNoOrd", "T26TA00000001-00", None);
 }
 
-/// C# `ErpCaptureTests.JSON_변경은_검토하고_미수집과_정정값은_보존한다`
 #[test]
 fn json_changes_are_reviewed_and_uncollected_and_corrected_values_are_kept() {
     let t = T::new("erp-json");
@@ -866,7 +845,7 @@ fn json_changes_are_reviewed_and_uncollected_and_corrected_values_are_kept() {
     )));
 }
 
-/// C# `ErpCaptureTests.로컬_JSON_코퍼스는_네_화면형을_변환한다` — `PCLM_JSON_CORPUS` 가 가리키는 개인 코퍼스(zip)의 JSON 을 모두
+/// `PCLM_JSON_CORPUS` 가 가리키는 개인 코퍼스(zip)의 JSON 을 모두
 /// 옮겨 본다. 개인 코퍼스는 저장소/CI 로 복사하지 않으므로 그 변수가 없으면 아무것도 하지 않는다. 화면 번호가 있으면 그 화면의
 /// 프로필이다(ADR-037) — 키로 짐작하면 변경계약서 작성(01608)이 공고로 간다. 저장까지 가는 것은 허용 목록의 화면뿐이고,
 /// 저장한 것을 다시 미리 보면 바뀔 것이 없다.
@@ -936,7 +915,6 @@ fn local_json_corpus_maps_every_screen_kind() {
     }
 }
 
-/// C# `ErpCaptureTests.계약_품목은_모두_같은_계약과_변경차수에_속해야_한다`(Theory)
 fn contract_items_must_belong_to_the_same_contract(
     profile: &str,
     other_base: &str,
@@ -963,19 +941,16 @@ fn contract_items_must_belong_to_the_same_contract(
     );
 }
 
-/// C# `ErpCaptureTests.계약_품목은_모두_같은_계약과_변경차수에_속해야_한다("g2b-contract-v1", 다른 계약)`
 #[test]
 fn contract_items_same_contract_a() {
     contract_items_must_belong_to_the_same_contract("g2b-contract-v1", "R26TA00000002", "00");
 }
 
-/// C# `ErpCaptureTests.계약_품목은_모두_같은_계약과_변경차수에_속해야_한다("g2b-contract-v1", 다른 차수)`
 #[test]
 fn contract_items_same_contract_b() {
     contract_items_must_belong_to_the_same_contract("g2b-contract-v1", "R26TA00000001", "01");
 }
 
-/// C# `ErpCaptureTests.계약_품목은_모두_같은_계약과_변경차수에_속해야_한다("g2b-contract-change-v1", 다른 계약)`
 #[test]
 fn contract_items_same_contract_c() {
     contract_items_must_belong_to_the_same_contract(
@@ -985,7 +960,6 @@ fn contract_items_same_contract_c() {
     );
 }
 
-/// C# `ErpCaptureTests.계약_품목은_모두_같은_계약과_변경차수에_속해야_한다("g2b-contract-change-v1", 다른 차수)`
 #[test]
 fn contract_items_same_contract_d() {
     contract_items_must_belong_to_the_same_contract(
@@ -995,7 +969,6 @@ fn contract_items_same_contract_d() {
     );
 }
 
-/// C# `ErpCaptureTests.매핑은_검증후_활성화하고_중복키와_민감필드를_거절한다`
 #[test]
 fn mapping_is_activated_after_validation_and_rejects_duplicate_keys_and_sensitive_fields() {
     let t = T::new("erp-mapping");
@@ -1031,7 +1004,6 @@ fn mapping_is_activated_after_validation_and_rejects_duplicate_keys_and_sensitiv
     assert_eq!(2, t.plain().inspect(&live_sample).unwrap().item_count);
 }
 
-/// C# `ErpCaptureTests.번호만_있으면_받고_걷지_않은_제목과_표는_건드리지_않는다`
 #[test]
 fn number_alone_is_accepted_and_uncollected_title_and_tables_are_left_alone() {
     let t = T::new("erp-number-only");
@@ -1071,7 +1043,7 @@ fn number_alone_is_accepted_and_uncollected_title_and_tables_are_left_alone() {
     );
 }
 
-/// C# `ErpCaptureTests.접수_상세화면은_품목표_이름이_달라도_같은_접수로_변환한다` — 접수는 화면이 둘이다: 목록형은 gridView,
+/// 접수는 화면이 둘이다: 목록형은 gridView,
 /// 상세형은 gvDmndItem 에 품목을 싣는다.
 #[test]
 fn request_detail_screen_maps_to_the_same_request_despite_different_item_table_name() {
@@ -1100,7 +1072,6 @@ fn request_detail_screen_maps_to_the_same_request_despite_different_item_table_n
     )));
 }
 
-/// C# `ErpCaptureTests.명시접수로_묶고_유일한_재공고와_정정에_따라_현행과_품목연결을_계산한다`
 #[test]
 fn groups_by_explicit_request_and_computes_current_notice_and_item_links() {
     let t = T::new("erp-explicit");
@@ -1232,7 +1203,6 @@ fn groups_by_explicit_request_and_computes_current_notice_and_item_links() {
     assert_eq!(1, item_links());
 }
 
-/// C# `ErpCaptureTests.명시참조_변경과_삭제는_문서와_품목_연결을_재계산한다`
 #[test]
 fn explicit_reference_changes_and_deletes_recompute_document_and_item_links() {
     let t = T::new("erp-refs");
@@ -1338,7 +1308,6 @@ fn explicit_reference_changes_and_deletes_recompute_document_and_item_links() {
     assert_eq!(0, t.n("SELECT count(*) FROM request_item_link"));
 }
 
-/// C# `ErpCaptureTests.공고종류_판올림은_원천과_당시매핑이_입증한_합성값만_복구하고_정정을_보존한다`
 #[test]
 fn notice_kind_migration_restores_only_proven_synthetic_values_and_keeps_corrections() {
     let t = T::new("erp-kind-migration");
@@ -1460,7 +1429,7 @@ fn notice_kind_migration_restores_only_proven_synthetic_values_and_keeps_correct
     assert_eq!("실공고(재공고)", t.f.scalar(after_clear).unwrap());
 }
 
-/// C# `ErpCaptureTests.접수_수집의_키는_접수번호_그대로다` — 접수의 키는 접수번호·접수차수 그대로다(ADR-027).
+/// 접수의 키는 접수번호·접수차수 그대로다(ADR-027).
 #[test]
 fn request_capture_key_is_the_request_number_as_is() {
     let t = T::new("erp-request-key");
@@ -1506,7 +1475,41 @@ fn request_capture_key_is_the_request_number_as_is() {
     );
 }
 
-/// C# `ErpCaptureTests.공고_품목의_인도조건은_코드에서_이름을_얻는다` — 공고 화면은 인도조건의 이름 칸을 비워 보내고 코드만
+/// 품목 수량 한 줄이 정수가 아니거나 32비트를 넘어도 그 건 전체가 거절되지 않는다 — 정수는 전과 같은 글로 담긴다.
+#[test]
+fn item_quantity_may_be_decimal_or_large_and_integers_are_stored_as_before() {
+    let t = T::new("erp-quantity");
+    let host = t.plain();
+    let row = |sqno: &str, qty: &str| {
+        json!({"ctrtDmndRcptNo": "RC001", "ctrtDmndRcptOrd": "000", "ctrtDmndRcptItemSqno": sqno,
+               "ndfsPrcmDmndNo": "REQ1", "ctrtDmndQty": qty})
+    };
+    let input = CaptureInput::new(
+        "g2b-request-v1",
+        &defaults_revision(),
+        json!({
+            "pointInfo": {"ctrtDmndBizNm": "시험 구매", "wrtYmd": "20260927", "totlPymtAmt": "0",
+                "depth1": "01001", "depth2": "01117", "depth3": ""},
+            "tables": {"mf_wfm_container_gridView": [
+                row("001", "2.5"), row("002", "1,000"), row("003", " 12 "), row("004", "3,000,000,000"),
+            ]}
+        }),
+    );
+    let preview = host.inspect(&input).unwrap();
+    host.save(&input, Some(&preview.base_token), Some(&t.id()), &Vec::new())
+        .unwrap();
+    assert_eq!(
+        vec![
+            Some("2.5".to_string()),
+            Some("1000".to_string()),
+            Some("12".to_string()),
+            Some("3000000000".to_string()),
+        ],
+        t.f.column("SELECT 수량 FROM v_접수품목 ORDER BY 순번")
+    );
+}
+
+/// 공고 화면은 인도조건의 이름 칸을 비워 보내고 코드만
 /// 채운다.
 #[test]
 fn notice_item_delivery_terms_get_their_name_from_the_code() {
@@ -1530,7 +1533,7 @@ fn notice_item_delivery_terms_get_their_name_from_the_code() {
     );
 }
 
-/// C# `ErpCaptureTests.입찰공고_상세의_미리보기에서_게시일시를_읽고_닫힌_채_다시_읽어도_지우지_않는다` — 미리보기를 닫고 다시 읽으면
+/// 미리보기를 닫고 다시 읽으면
 /// 걷지 않은 칸이라 그대로 둔다.
 #[test]
 fn posted_at_is_read_from_the_notice_preview_and_kept_when_read_again_closed() {
@@ -1578,7 +1581,7 @@ fn attachments(doc: &MappedDocument) -> usize {
         .count()
 }
 
-/// C# `ErpCaptureTests.와일드카드가_같은_내용의_표_여럿에_맞으면_하나로_보고_다르면_거절한다` — 빈 표를 버리고 남은 것이 내용까지 같으면
+/// 빈 표를 버리고 남은 것이 내용까지 같으면
 /// 하나로 보고, 서로 다르면 어느 것이 대표인지 모르므로 거절한다.
 #[test]
 fn wildcard_matching_several_identical_tables_counts_as_one_and_different_ones_are_refused() {
@@ -1673,7 +1676,7 @@ fn wildcard_matching_several_identical_tables_counts_as_one_and_different_ones_a
 // ── ConfirmedFieldTests (수집·매핑 몫) ─────────────────────────
 
 impl T {
-    /// C# `ConfirmedFieldTests.Capture` — 활성 매핑의 판으로 실제 화면을 담는다.
+    /// 활성 매핑의 판으로 실제 화면을 담는다.
     fn capture(&self, profile: &str, screen: &str, data: Value) {
         let db = self.db();
         let active = MappingStore::new(&db, self.f.env).active().unwrap();
@@ -1681,7 +1684,7 @@ impl T {
         self.save_plain(&self.host(), &input);
     }
 
-    /// C# `ConfirmedFieldTests.Row` — 뷰에서 한 줄(칸 이름과 값).
+    /// 뷰에서 한 줄(칸 이름과 값).
     fn row(&self, sql: &str) -> Vec<(String, String)> {
         let c = self.db().open_read_only().unwrap();
         let mut statement = c.prepare(sql).unwrap();
@@ -1698,7 +1701,7 @@ impl T {
     }
 }
 
-/// C# `ConfirmedFieldTests.Values` — 칸마다 글이 같은가.
+/// 칸마다 글이 같은가.
 fn values(row: &[(String, String)], expected: &[(&str, &str)]) {
     for (column, value) in expected {
         let actual = row
@@ -1719,7 +1722,6 @@ fn find_mut<'v>(array: &'v mut Value, key: &str, wanted: &str) -> &'v mut Value 
         .unwrap()
 }
 
-/// C# `ConfirmedFieldTests.접수의_공고종류_추정가격과_품목의_물품분류번호_납품부대명이_담긴다`
 #[test]
 fn request_notice_kind_estimated_price_and_item_classification_and_unit_name_are_stored() {
     let t = T::new("cf-request");
@@ -1743,7 +1745,6 @@ fn request_notice_kind_estimated_price_and_item_classification_and_unit_name_are
     );
 }
 
-/// C# `ConfirmedFieldTests.물품_공고의_입찰방식_계약법_제한업종과_품목의_새_칸이_담긴다`
 #[test]
 fn goods_notice_bid_method_contract_law_restricted_industry_and_new_item_columns_are_stored() {
     let t = T::new("cf-goods-notice");
@@ -1787,7 +1788,7 @@ fn goods_notice_bid_method_contract_law_restricted_industry_and_new_item_columns
     );
 }
 
-/// C# `ConfirmedFieldTests.제한_업종은_같은_이름이_겹치거나_비어도_공고를_받고_줄마다_선다` — 제한 업종 표는 줄 차례가 곧 행이다.
+/// 제한 업종 표는 줄 차례가 곧 행이다.
 #[test]
 fn restricted_industries_are_one_row_per_line_even_when_names_repeat_or_are_empty() {
     let t = T::new("cf-industry");
@@ -1828,7 +1829,6 @@ fn restricted_industries_are_one_row_per_line_even_when_names_repeat_or_are_empt
     assert!(t.host().inspect(&again).unwrap().changes.is_empty());
 }
 
-/// C# `ConfirmedFieldTests.키를_비우는_것은_기본이_그렇게_둔_표에서만_된다`
 #[test]
 fn emptying_keys_is_allowed_only_in_tables_the_default_leaves_that_way() {
     let mut node = mapping::defaults().to_value();
@@ -1840,7 +1840,6 @@ fn emptying_keys_is_allowed_only_in_tables_the_default_leaves_that_way() {
     );
 }
 
-/// C# `ConfirmedFieldTests.통합_조회_공고의_입찰방식_진행상태와_품목의_새_칸이_담긴다`
 #[test]
 fn unified_lookup_notice_bid_method_progress_and_new_item_columns_are_stored() {
     let t = T::new("cf-notice-b");
@@ -1871,7 +1870,6 @@ fn unified_lookup_notice_bid_method_progress_and_new_item_columns_are_stored() {
     );
 }
 
-/// C# `ConfirmedFieldTests.계약의_머리_업체_품목의_새_칸이_담기고_통합에도_실린다`
 #[test]
 fn contract_head_company_and_item_new_columns_are_stored_and_carried_into_unified() {
     let t = T::new("cf-contract");
@@ -1921,7 +1919,7 @@ fn contract_head_company_and_item_new_columns_are_stored_and_carried_into_unifie
     );
 }
 
-/// C# `ConfirmedFieldTests.다른_화면에서_확정한_필드는_일반용역_접수_공고와_변경계약서에서도_담긴다` — 같은 ID 는 어느 화면에서도 같은
+/// 같은 ID 는 어느 화면에서도 같은
 /// 뜻이다(ADR-043 결정 6).
 #[test]
 fn fields_confirmed_on_other_screens_are_also_stored_for_service_request_notice_and_contract_change()
@@ -2024,7 +2022,6 @@ fn fields_confirmed_on_other_screens_are_also_stored_for_service_request_notice_
     );
 }
 
-/// C# `ConfirmedFieldTests.재무관은_공고_A_에서만_담기고_통합_조회의_채권자_후보는_담지_않는다`
 #[test]
 fn finance_officer_is_stored_from_notice_a_only_and_the_creditor_candidate_is_not() {
     let t = T::new("cf-finance");
@@ -2060,7 +2057,7 @@ fn finance_officer_is_stored_from_notice_a_only_and_the_creditor_candidate_is_no
     );
 }
 
-/// C# `ConfirmedFieldTests.채권자_대상이_남은_편집본은_읽을_때_떨구고_재무관을_채운다` — 거절하면 활성 매핑을 읽는 수집이 통째로 멈춘다.
+/// 거절하면 활성 매핑을 읽는 수집이 통째로 멈춘다.
 #[test]
 fn edited_mapping_with_creditor_target_drops_it_on_read_and_fills_finance_officer() {
     let mut node = mapping::defaults().to_value();
@@ -2125,7 +2122,7 @@ fn edited_mapping_with_creditor_target_drops_it_on_read_and_fills_finance_office
     }
 }
 
-/// C# `ConfirmedFieldTests.새_머리_열은_덮개로_고쳐진다` — 새 열도 사람이 고칠 수 있다(ADR-020). 여기서는 접수 화면을 실제로 수집해
+/// 새 열도 사람이 고칠 수 있다(ADR-020). 여기서는 접수 화면을 실제로 수집해
 /// 자료를 세운다.
 #[test]
 fn new_head_column_is_corrected_by_override_after_a_real_capture() {
@@ -2152,7 +2149,7 @@ fn new_head_column_is_corrected_by_override_after_a_real_capture() {
     );
 }
 
-/// C# `ConfirmedFieldTests.새_필드를_더하기_전의_편집본은_읽을_때_새_대상을_채우고_고친_것은_남긴다` — 채우지 않으면 그 작업자료만 새
+/// 채우지 않으면 그 작업자료만 새
 /// 필드를 영영 수집하지 않는데 편집본은 검증을 통과하므로 아무것도 실패하지 않는다.
 #[test]
 fn mapping_edited_before_a_new_field_is_filled_on_read_and_keeps_edits() {
@@ -2244,7 +2241,7 @@ fn mapping_edited_before_a_new_field_is_filled_on_read_and_keeps_edits() {
 // ── FieldRegistryTests ─────────────────────────────────────
 
 mod registry {
-    //! C# `FieldRegistryTests` — 수집 필드 목록(`docs/erp/fields.md`)과 기본 매핑을 대조한다(ADR-043).
+    //! 수집 필드 목록(`docs/erp/fields.md`)과 기본 매핑을 대조한다(ADR-043).
 
     use std::collections::{BTreeSet, HashSet};
 
@@ -2380,7 +2377,6 @@ mod registry {
             .collect()
     }
 
-    /// C# `FieldRegistryTests.매핑이_읽는_필드는_모두_수집으로_적혀_있다`
     #[test]
     fn every_field_the_mapping_reads_is_listed_as_collected() {
         let collected: HashSet<Key> = registry()
@@ -2400,7 +2396,6 @@ mod registry {
         );
     }
 
-    /// C# `FieldRegistryTests.수집으로_적힌_필드는_매핑에_있거나_아직_담지_않은_목록에_있다`
     #[test]
     fn fields_listed_as_collected_are_mapped_or_in_the_not_yet_mapped_list() {
         let mapped = mapped();
@@ -2419,7 +2414,6 @@ mod registry {
         );
     }
 
-    /// C# `FieldRegistryTests.아직_담지_않은_목록은_줄기만_한다`
     #[test]
     fn the_not_yet_mapped_list_only_shrinks() {
         let mapped = mapped();
@@ -2451,7 +2445,7 @@ mod registry {
         assert_eq!(NOT_YET_MAPPED.len(), not_yet().len());
     }
 
-    /// C# `FieldRegistryTests.한_ID_에는_뜻이_하나다` — 같은 문자열의 ID 는 어느 화면·표에서도 같은 뜻이다(ADR-043 결정 6).
+    /// 같은 문자열의 ID 는 어느 화면·표에서도 같은 뜻이다(ADR-043 결정 6).
     #[test]
     fn one_id_has_one_meaning() {
         let rows = registry();
@@ -2488,7 +2482,6 @@ mod registry {
         );
     }
 
-    /// C# `FieldRegistryTests.상태는_다섯_가지이고_필드마다_한_줄이다`
     #[test]
     fn status_is_one_of_five_and_each_field_has_one_line() {
         let rows = registry();

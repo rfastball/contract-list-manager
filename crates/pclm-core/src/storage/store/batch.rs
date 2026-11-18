@@ -1,4 +1,4 @@
-//! C# `BatchOperations.cs` — 표에서 여러 칸을 한 번에 고치기와 여러 건을 한 번에 지우기.
+//! 표에서 여러 칸을 한 번에 고치기와 여러 건을 한 번에 지우기.
 //!
 //! 지우기는 **센 것만 지운다.** 계획(`PlanBatchDeletion`)이 지울 대상과 그것이 닿는 행·연결의 사진을 지문으로 남기고,
 //! 지우기(`BatchDelete`)는 같은 지문일 때만 실제로 지운다 — 센 뒤에 자료가 바뀌었으면 아무것도 하지 않는다.
@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     DeletionPlan, EntityRef, Store, check_correctable_on, clear_override_on, delete_on, face_key,
-    face_value_on, object, plan_deletion_on, read_user_columns, refuse_read, resolve_on, rows_json,
+    face_value_on, object, plan_deletion_on, refuse_read, resolve_on, rows_json,
     scalar_i64, set_override_on, set_user_field_on, shape, strings, view_columns,
 };
 use crate::erp::explicit_links;
@@ -21,7 +21,7 @@ use crate::storage::database;
 use crate::storage::views;
 use crate::text::{cmp_ordinal, utf16_len};
 
-/// C# `CellChange(RowKey, Field, Value, Original, Operation)` — 칸 하나의 변경. `operation` 은 `set`·`revert`.
+/// 칸 하나의 변경. `operation` 은 `set`·`revert`.
 /// 자리마다 `Option` 인 것은 화면이 빠뜨리거나 `null` 로 보낼 수 있어서다(검사가 거절한다).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CellChange {
@@ -32,7 +32,7 @@ pub struct CellChange {
     pub operation: Option<String>,
 }
 
-/// C# `BatchDeletionPlan` — 여러 건을 지우면 사라지는 것. 수는 실제로 지워 보고 되돌려 센 것이다.
+/// 여러 건을 지우면 사라지는 것. 수는 실제로 지워 보고 되돌려 센 것이다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BatchDeletionPlan {
     pub fingerprint: String,
@@ -63,14 +63,14 @@ impl BatchDeletionPlan {
     }
 }
 
-/// .NET 의 숫자 사이 공백(`IsWhite`) — 0x09..=0x0D 와 0x20.
+/// 숫자 사이 공백 — 0x09..=0x0D 와 0x20.
 fn is_white(c: char) -> bool {
     c == ' ' || ('\u{9}'..='\u{d}').contains(&c)
 }
 
-/// `decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out _)` — 앞뒤 공백, 앞 또는 뒤 부호
+/// 10진수로 읽히는 글인가 — 앞뒤 공백, 앞 또는 뒤 부호
 /// 하나, 첫 숫자 뒤의 자릿점(`,`), 소수점 하나. 지수·통화·괄호는 받지 않는다. `decimal` 을 넘치면 거절한다.
-pub(crate) fn dotnet_decimal_number(text: &str) -> bool {
+pub(crate) fn decimal_number(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i < chars.len() && is_white(chars[i]) {
@@ -115,15 +115,15 @@ pub(crate) fn dotnet_decimal_number(text: &str) -> bool {
         }
         i += 1;
     }
-    // 넘침 — 정수부가 decimal.MaxValue 를 넘으면 거절한다.
+    // 넘침 — 정수부가 `decimal` 의 최댓값을 넘으면 거절한다.
     const MAX: &str = "79228162514264337593543950335";
     let integer = integer.trim_start_matches('0');
     integer.len() < MAX.len() || (integer.len() == MAX.len() && integer <= MAX)
 }
 
-/// `DateOnly.TryParseExact(text, ["yyyy-MM-dd", "yyyy/MM/dd"], InvariantCulture, None, out _)` — 네 자리·두 자리·두
+/// 네 자리·두 자리·두
 /// 자리, 있는 날짜만.
-pub(crate) fn dotnet_date_exact(text: &str) -> bool {
+pub(crate) fn date_exact(text: &str) -> bool {
     let b = text.as_bytes();
     if b.len() != 10 || b[4] != b[7] || !matches!(b[4], b'-' | b'/') {
         return false;
@@ -148,7 +148,7 @@ pub(crate) fn dotnet_date_exact(text: &str) -> bool {
 }
 
 impl Store<'_> {
-    /// `Store.BatchEdit` — 칸 여러 개를 한 트랜잭션에서 고친다. 하나라도 거절되면 아무것도 쓰지 않는다. 사람 열은
+    /// 칸 여러 개를 한 트랜잭션에서 고친다. 하나라도 거절되면 아무것도 쓰지 않는다. 사람 열은
     /// 계열 값, 계약면 열은 그 차수의 덮개다. 고친 칸 수를 낸다.
     pub fn batch_edit(&self, view: &str, changes: &[CellChange]) -> Result<i32> {
         if !matches!(view, "v_통합" | "v_접수" | "v_공고" | "v_계약") {
@@ -163,11 +163,8 @@ impl Store<'_> {
         let transaction = database::begin(&connection)?;
         let entity_type = views::entity_type_of(view);
         let columns: HashSet<String> = view_columns(&transaction, view)?.into_iter().collect();
-        let definitions = read_user_columns(
-            &transaction,
-            "SELECT entity_type, field_name, kind, options, sort_order FROM user_column WHERE entity_type = ?1;",
-            [entity_type],
-        )?;
+        let mut definitions = database::read_user_columns(&transaction)?;
+        definitions.retain(|d| d.entity_type == entity_type);
         let mut pending: Vec<(EntityRef, &CellChange, bool)> = Vec::new();
         let mut seen: HashSet<(String, String, String)> = HashSet::new();
         for change in changes {
@@ -249,8 +246,8 @@ impl Store<'_> {
             {
                 let valid = match definition.kind.as_str() {
                     "choice" => definition.choices().iter().any(|c| c == value),
-                    "number" => dotnet_decimal_number(value),
-                    "date" => dotnet_date_exact(value),
+                    "number" => decimal_number(value),
+                    "date" => date_exact(value),
                     _ => true,
                 };
                 if !valid {
@@ -288,7 +285,7 @@ impl Store<'_> {
         Ok(pending.len() as i32)
     }
 
-    /// `Store.PlanBatchDeletion` — 여러 건을 지우면 사라지는 것을 실제로 지워 보고 되돌려 센다.
+    /// 여러 건을 지우면 사라지는 것을 실제로 지워 보고 되돌려 센다.
     pub fn plan_batch_deletion(
         &self,
         keys: &[String],
@@ -301,7 +298,7 @@ impl Store<'_> {
         plan_batch_deletion_on(&transaction, &targets, whole_series)
     }
 
-    /// `Store.BatchDelete` — 계획의 지문이 지금 센 것과 같을 때만 지운다. 지운 계획을 낸다.
+    /// 계획의 지문이 지금 센 것과 같을 때만 지운다. 지운 계획을 낸다.
     pub fn batch_delete(
         &self,
         keys: &[String],
@@ -324,7 +321,7 @@ impl Store<'_> {
     }
 }
 
-/// `Store.BatchTargets` — 열쇠를 레코드로 풀고 (종류, 본번호, 차수) 서수 차례로 늘어놓는다. 계열째 지우면 계열마다
+/// 열쇠를 레코드로 풀고 (종류, 본번호, 차수) 서수 차례로 늘어놓는다. 계열째 지우면 계열마다
 /// 하나만 남긴다.
 fn batch_targets(
     connection: &Connection,
@@ -361,7 +358,6 @@ fn batch_targets(
     Ok(targets)
 }
 
-/// `Store.PlanBatchDeletion(connection, transaction, entities, wholeSeries)`.
 fn plan_batch_deletion_on(
     connection: &Connection,
     entities: &[EntityRef],
@@ -393,7 +389,7 @@ fn plan_batch_deletion_on(
         let sql = format!("SELECT * FROM {table};");
         remember(&sql, rows_json(connection, &sql, [])?);
     }
-    // 계열마다(처음 나온 차례) 묶는다 — C# `GroupBy`.
+    // 계열마다(처음 나온 차례) 묶는다.
     let mut groups: Vec<((String, String), Vec<&EntityRef>)> = Vec::new();
     for e in entities {
         let key = (e.entity_type.clone(), e.base.clone());
@@ -405,7 +401,7 @@ fn plan_batch_deletion_on(
     for (_, members) in &groups {
         let entity = members[0];
         let group = Value::Array(members.iter().map(|e| e.to_pascal_json()).collect());
-        remember_raw(&mut remember, json::to_compact(&group, Encoder::Default));
+        remember(&json::to_compact(&group, Encoder::Default), Vec::new());
         let shape = shape(&entity.entity_type)?;
         let tables = [shape.head, shape.user_fields]
             .into_iter()
@@ -472,12 +468,7 @@ fn plan_batch_deletion_on(
     })
 }
 
-/// `snapshot.Add(text)` — 행 없이 글 하나만 남긴다.
-fn remember_raw(remember: &mut impl FnMut(&str, Vec<Value>), text: String) {
-    remember(&text, Vec::new());
-}
-
-/// `Store.DeletionCounts` — [문서, 계열, 딸린 행, 사람 값, 덮개] 의 지금 수.
+/// [문서, 계열, 딸린 행, 사람 값, 덮개] 의 지금 수.
 fn deletion_counts(connection: &Connection) -> Result<[i64; 5]> {
     let shapes = ["contract", "notice", "request"]
         .iter()
@@ -493,13 +484,13 @@ fn deletion_counts(connection: &Connection) -> Result<[i64; 5]> {
     Ok([
         count(&mut shapes.iter().map(|s| s.head))?,
         count(&mut shapes.iter().map(|s| s.series))?,
-        count(&mut shapes.iter().flat_map(|s| s.children.iter().copied()))?,
+        count(&mut shapes.iter().flat_map(|s| s.counted()))?,
         count(&mut shapes.iter().map(|s| s.user_fields))?,
         count(&mut ["field_override"].into_iter())?,
     ])
 }
 
-/// `Store.DeleteBatchRows` — 하나씩 지우고 연결은 끝에 한 번 다시 짓는다.
+/// 하나씩 지우고 연결은 끝에 한 번 다시 짓는다.
 fn delete_batch_rows(
     connection: &Connection,
     entities: &[EntityRef],
@@ -512,7 +503,7 @@ fn delete_batch_rows(
     Ok(())
 }
 
-/// `Store.LinkIdentities` — 공고 건을 다시 만들며 끝점이 옮겨져도 연결 자체는 살아 있다. 불변 기본키로 소멸만 센다.
+/// 공고 건을 다시 만들며 끝점이 옮겨져도 연결 자체는 살아 있다. 불변 기본키로 소멸만 센다.
 fn link_identities(connection: &Connection) -> Result<HashSet<String>> {
     Ok(strings(
         connection,
@@ -533,7 +524,7 @@ mod tests {
             "0", "12", " 12 ", "-1", "+1", "1-", "1 -", "1,234", "1,,2", "1.5", ".5", "5.",
             "1,234.5", "\t7\r\n", "007",
         ] {
-            assert!(dotnet_decimal_number(ok), "{ok:?}");
+            assert!(decimal_number(ok), "{ok:?}");
         }
         for bad in [
             "",
@@ -552,15 +543,15 @@ mod tests {
             "79228162514264337593543950336",
             "1 2",
         ] {
-            assert!(!dotnet_decimal_number(bad), "{bad:?}");
+            assert!(!decimal_number(bad), "{bad:?}");
         }
-        assert!(dotnet_decimal_number("79228162514264337593543950335"));
+        assert!(decimal_number("79228162514264337593543950335"));
     }
 
     #[test]
     fn date_exact_formats() {
         for ok in ["2026-09-20", "2026/09/20", "2024-02-29", "0001-01-01"] {
-            assert!(dotnet_date_exact(ok), "{ok:?}");
+            assert!(date_exact(ok), "{ok:?}");
         }
         for bad in [
             "2026-9-20",
@@ -573,7 +564,7 @@ mod tests {
             "2026-09-31",
             "20260920",
         ] {
-            assert!(!dotnet_date_exact(bad), "{bad:?}");
+            assert!(!date_exact(bad), "{bad:?}");
         }
     }
 }

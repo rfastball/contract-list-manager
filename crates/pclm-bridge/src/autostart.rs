@@ -1,4 +1,4 @@
-//! 자동 실행(C# `Pclm.App/Autostart.cs`) — 로그인할 때 알림 영역으로 켠다. 걸려 있는지는 등록부의 `Run` 값이 정본이다:
+//! 자동 실행 — 로그인할 때 알림 영역으로 켠다. 걸려 있는지는 등록부의 `Run` 값이 정본이다:
 //! 사람이 작업 관리자에서 끈 것(`StartupApproved\Run` 의 첫 바이트가 홀수)도 꺼짐으로 읽는다. 따로 적어 두지 않는다 —
 //! 두 벌이면 한쪽이 조용히 낡는다.
 //!
@@ -27,7 +27,7 @@ pub fn stable_path(os: &dyn Os) -> PathBuf {
 pub fn unavailable(os: &dyn Os, is_default_home: bool) -> Option<String> {
     if !is_default_home {
         return Some(
-            "시험 홈(--home)으로 띄운 창이라 자동 실행을 바꾸지 않습니다. 업무 홈의 창에서 바꾸세요.".into(),
+            "--home 으로 띄운 창에서는 자동 실행을 바꿀 수 없습니다.".into(),
         );
     }
     if os.process_path().is_none() {
@@ -77,7 +77,7 @@ pub fn set(os: &dyn Os, on: bool) -> Result<(), String> {
     os.registry_delete_value(APPROVED_KEY, VALUE_NAME).map_err(io)
 }
 
-/// C# `Autostart.Refresh` — 업무 홈의 창을 켤 때. 걸려 있는데 적힌 자리가 이 exe 가 아니면 고쳐 적는다(판을 올리며
+/// 업무 홈의 창을 켤 때. 걸려 있는데 적힌 자리가 이 exe 가 아니면 고쳐 적는다(판을 올리며
 /// 자리를 옮겼다). 압축 안에서 켰으면 복사본을 새 판으로 바꾼다. 실패는 삼킨다.
 pub fn refresh(os: &dyn Os) {
     let Some(exe) = os.process_path() else {
@@ -150,13 +150,7 @@ fn turned_off_by_user(os: &dyn Os) -> bool {
     )
 }
 
-fn in_temp(os: &dyn Os, exe: &Path) -> bool {
-    let full = |p: &Path| {
-        pclm_home::dotnet::full_path(p)
-            .map(|f| crate::path_text(&f))
-            .unwrap_or_default()
-    };
-    let exe = pclm_home::dotnet::to_upper_invariant(&full(exe));
-    let temp = pclm_home::dotnet::to_upper_invariant(&full(&os.temp_path()));
-    !temp.is_empty() && exe.starts_with(&temp)
+/// 압축 안에서 켠 exe 인가 — 탐색기가 임시 폴더에 풀어 띄운 것은 곧 지워진다.
+pub(crate) fn in_temp(os: &dyn Os, exe: &Path) -> bool {
+    pclm_home::paths::is_under(exe, &os.temp_path())
 }

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Flow, FlowEnv, Step } from "./ast";
 import { checkFlow } from "./check";
@@ -5,7 +6,7 @@ import { evaluate } from "./evaluate";
 import { migrateV1, toV2 } from "./migrate";
 import { compileFlow, checkSqlMock } from "./sql";
 import { FlowSyntaxError, normalizeFlow, parseFlow, printFlow } from "./syntax";
-import { verbs } from "./verbs";
+import { defaultStep, verbs } from "./verbs";
 import { 품목행 } from "../mock";
 import builtinViews from "../../../crates/pclm-core/src/storage/presets/builtin-views.json";
 
@@ -32,7 +33,7 @@ describe("글 ↔ 단계 왕복", () => {
   it.each([
     "품목\n  |> 고유 세부품명, 세부품명번호\n  |> 서식 \"{세부품명}({세부품명번호})\"\n  |> 잇기 \", \"",
     "품목 |> 꺼내기 세부품명 |> 고유 |> 줄여쓰기 1 \"{앞} 외 {나머지}종\"",
-    "품목 |> 합계 금액 |> 천단위",
+    "품목 |> 합계 금액 |> 서식 \"#,##0원\"",
     "연결공고.기초금액",
     "연결공고.납품기한 |> 날짜로 |> 날짜차이 계약일자 |> 그대로",
   ])("§4.3 의 예: %s", text => {
@@ -69,12 +70,11 @@ describe("글 ↔ 단계 왕복", () => {
     toNumber: { op: "toNumber" },
     add: { op: "add", value: 1.5 }, sub: { op: "sub", field: "계약금액" }, mul: { op: "mul", value: -2 }, div: { op: "div", value: 3 },
     round: { op: "round", n: 2 }, floor: { op: "floor" },
-    thousands: { op: "thousands" }, plain: { op: "plain" },
+    plain: { op: "plain" },
     toDate: { op: "toDate" },
     dateAdd: { op: "dateAdd", n: 3, unit: "month" },
     dateDiff: { op: "dateDiff", field: "계약일자" },
     year: { op: "year" }, month: { op: "month" }, quarter: { op: "quarter" },
-    dateFormat: { op: "dateFormat", text: "YYYY년 M월 D일" },
   };
 
   it("동사가 하나도 빠지지 않았다", () => expect(Object.keys(every).sort()).toEqual(verbs.map(v => v.op).sort()));
@@ -85,8 +85,10 @@ describe("글 ↔ 단계 왕복", () => {
     expect(parseFlow(printed).flow).toEqual(normalizeFlow(flow));
   });
 
-  it("원천 다섯 가지와 감싼 필드 이름", () => {
-    for (const text of ["품목", "연결계약", "연결접수.품목", "[담당 부서]", "\"고정 글\"", "42", "[품목]", "[개수]", "연결공고.[담당 전화]"]) round(text);
+  it("원천 여섯 가지와 감싼 필드 이름", () => {
+    for (const text of ["품목", "오늘", "연결계약", "연결접수.품목", "[담당 부서]", "\"고정 글\"", "42", "[품목]", "[오늘]", "[개수]", "연결공고.[담당 전화]"]) round(text);
+    expect(parseFlow("오늘").flow.from).toEqual({ kind: "today" });
+    expect(parseFlow("[오늘]").flow.from).toEqual({ kind: "field", field: "오늘" });
     expect(parseFlow("[품목]").flow.from).toEqual({ kind: "field", field: "품목" });
     expect(printFlow({ from: { kind: "field", field: "개수" }, steps: [] })).toBe("[개수]");
   });
@@ -263,6 +265,43 @@ describe("평가(목업)", () => {
   });
 });
 
+/** 「서식」 의 수 · 날짜 코드(ADR-053). 공유 사례표가 값을 박고, 여기서는 오늘과 코드 해석의 모서리를 본다. */
+describe("서식 — 수 · 날짜 코드", () => {
+  const run = (text: string, e: FlowEnv = env) => evaluate(parseFlow(text, { view: !!e.view }).flow, e, { row: {}, items: [], linked: {} });
+  const issue = (text: string) => checkFlow(parseFlow(text).flow, env).errors[0];
+
+  it("오늘은 이 기계의 날짜이고 날짜 꼴이다", () => {
+    const now = new Date(), two = (n: number) => String(n).padStart(2, "0");
+    expect(run("오늘").final).toBe(`${now.getFullYear()}/${two(now.getMonth() + 1)}/${two(now.getDate())}`);
+    expect(run("오늘 |> 서식 \"yyyy년 m월 d일\"").final).toBe(`${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일`);
+    expect(checkFlow(parseFlow("오늘 |> 날짜더하기 10 일").flow, env).shapes).toEqual(["date", "date"]);
+    expect(compileFlow(parseFlow("오늘").flow, env, "contract")).toContain("date('now', 'localtime')");
+  });
+  it("엑셀처럼 m 은 시 뒤 · 초 앞이면 분이다", () => {
+    expect(run("\"2026/10/20 09:05:07\" |> 날짜로 |> 서식 \"m월 h:m:s\"").final).toBe("10월 9:5:7");
+    expect(run("\"2026/10/20 09:05:07\" |> 날짜로 |> 서식 \"mm:ss\"").final).toBe("05:07");
+  });
+  it("코드가 꼴에 맞지 않으면 그 단계에 붙는다", () => {
+    expect(issue("\"1\" |> 숫자로 |> 서식 \"yyyy\"")).toMatchObject({ index: 2, message: "수에는 날짜 자리(y · m · d · h · s)를 쓸 수 없습니다" });
+    expect(issue("계약일자 |> 날짜로 |> 서식 \"#,##0\"")).toMatchObject({ index: 2, message: "날짜에는 수 자리(0 · #)를 쓸 수 없습니다" });
+    expect(issue("\"1\" |> 숫자로 |> 서식 \"0%\"")).toMatchObject({ index: 2, message: "지원하지 않는 서식 글자: %" });
+    expect(issue("\"1\" |> 숫자로 |> 서식 \"[DBNum4]\"")).toMatchObject({ index: 2, message: "[DBNum4] 는 맞춤 뷰에서만 씁니다" });
+    expect(issue("계약건명 |> 서식 \"#,##0\"").message).toContain("값에 쓸 수 없습니다");
+  });
+  it("[DBNum4] 는 맞춤 뷰에서 정수부를 한글 금액으로", () => {
+    const view: FlowEnv = { base: [], items: [], view: true, linked: { contract: { fields: ["계약금액"], items: [] } } };
+    expect(run("\"30,400,000\" |> 숫자로 |> 서식 \"[DBNum4]\"", view).final).toBe("삼천사십만");
+    expect(run("\"-1,234.9\" |> 숫자로 |> 서식 \"[DBNum4]원\"", view).final).toBe("마이너스 일천이백삼십사원");
+    expect(run("\"없음\" |> 숫자로 |> 서식 \"[DBNum4]\"", view).final).toBe("");
+    expect(compileFlow(parseFlow("\"1\" |> 숫자로 |> 서식 \"[DBNum4]\"", { view: true }).flow, view, "contract")).toContain("한글금액(CAST(CAST(v AS INTEGER) AS TEXT))");
+  });
+  it("고르개의 기본 코드는 꼴을 따른다", () => {
+    expect(defaultStep("format", [], [], "number")).toEqual({ op: "format", text: "#,##0" });
+    expect(defaultStep("format", [], [], "date")).toEqual({ op: "format", text: "yyyy. m. d." });
+    expect(defaultStep("format", ["a", "b"], [], "rows")).toEqual({ op: "format", text: "{a} {b}" });
+  });
+});
+
 describe("SQL(시안)", () => {
   it("컴파일된 SQL 은 계약면 뷰만 읽고 바깥 행을 현재로 부른다", () => {
     const sql = compileFlow(parseFlow("품목 |> 꺼내기 세부품명 |> 잇기 \", \"").flow, env, "contract");
@@ -372,7 +411,7 @@ describe("맞춤 뷰의 글 꼴", () => {
     expect(compileFlow(flow, view, "contract")).toContain("WHEN (coalesce(공고.입찰공고번호, '') <> '') THEN '공고' ELSE '접수' END");
   });
 
-  it("서식용 예시의 단계는 경우 한 단계로 찍힌다", () => {
+  it("문서 서식의 단계는 경우 한 단계로 찍힌다", () => {
     const column = builtinViews.views[0].definition.columns.find(c => c.name === "단계")!;
     const flow = (column.formula as unknown as { flow: Flow }).flow;
     expect(printFlow(flow, mode)).toBe("계약.계약번호 |> 경우 안비어있음 → \"계약\", 공고.입찰공고번호 안비어있음 → \"공고\", 그외 \"접수\"");

@@ -1,6 +1,6 @@
-//! C# `ReportsTests` — 상태 조회가 자료가 한 건도 없는 DB 에서도 돌고, 브리핑이 KST 경계·재공고·계약 여럿·단독 문서·
-//! 정정된 값·납품기한을 C# 과 같이 세는지 본다. 자료는 C# 의 `UpsertNotice`·`UpsertContract`·`UpsertRequest` 가 짓는 줄을
-//! SQL 로 세운다(DateTime 은 Microsoft.Data.Sqlite 가 묶는 `yyyy-MM-dd HH:mm:ss`, decimal 은 글, bool 은 0/1).
+//! 상태 조회가 자료가 한 건도 없는 DB 에서도 돌고, 브리핑이 KST 경계·재공고·계약 여럿·단독 문서·
+//! 정정된 값·납품기한을 제대로 세는지 본다. 자료는 공고·계약·접수 업서트가 짓는 줄을
+//! SQL 로 세운다(DateTime 은 `yyyy-MM-dd HH:mm:ss`, decimal 은 글, bool 은 0/1).
 //!
 //! 값은 전부 지어낸 것이다(CLAUDE.md).
 
@@ -13,7 +13,7 @@ use pclm_core::storage::store::EntityRef;
 use pclm_core::{Access, Database};
 use rusqlite::named_params;
 
-/// C# `At` — 2026-10-09 09:00 KST.
+/// 2026-10-09 09:00 KST.
 const AT: &str = "2026-10-09T00:00:00.0000000Z";
 const NOTICE: &str = "T26BK00000001";
 const CONTRACT: &str = "T26TA00000001";
@@ -41,14 +41,14 @@ fn only(rows: &[DashboardCase]) -> &DashboardCase {
     &rows[0]
 }
 
-/// C# `Notice(seq)` 에 필드를 더한 것.
+/// 공고 한 건에 필드를 더한 것.
 fn notice(f: &Fixture, seq: &str, fields: &[(&str, &str)]) {
     let mut all = vec![("title", NOTICE_TITLE)];
     all.extend_from_slice(fields);
     f.notice(NOTICE, seq, &all, &[], &[]);
 }
 
-/// C# `Contract(seq)` 에 필드를 더한 것(같은 열을 주면 뒤의 것이 이긴다).
+/// 계약 한 건에 필드를 더한 것(같은 열을 주면 뒤의 것이 이긴다).
 fn contract(f: &Fixture, seq: &str, fields: &[(&str, &str)], items: &[&[(&str, &str)]]) {
     let mut all: Vec<(&str, &str)> = vec![("title", CONTRACT_TITLE), ("amount", "164872340")];
     for (k, v) in fields {
@@ -58,7 +58,7 @@ fn contract(f: &Fixture, seq: &str, fields: &[(&str, &str)], items: &[&[(&str, &
     f.contract(CONTRACT, seq, &all, items);
 }
 
-/// C# `NoticeRecord.Schedule` — 일정 줄을 갈아 끼운다. 시각은 `None` 이면 NULL.
+/// 일정 줄을 갈아 끼운다. 시각은 `None` 이면 NULL.
 fn schedule(f: &Fixture, base: &str, seq: &str, steps: &[(i64, &str, Option<&str>, Option<&str>)]) {
     let c = f.conn();
     c.execute(
@@ -76,7 +76,7 @@ fn schedule(f: &Fixture, base: &str, seq: &str, steps: &[(i64, &str, Option<&str
     }
 }
 
-/// C# `ReferenceFixture.Contract` — 계약 문서에 명시 참조를 넣고 연결을 다시 짓는다.
+/// 계약 문서에 명시 참조를 넣고 연결을 다시 짓는다.
 fn reference_contract(f: &Fixture, contract_base: &str, notice_base: &str) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -89,7 +89,7 @@ fn reference_contract(f: &Fixture, contract_base: &str, notice_base: &str) {
     tx.commit().unwrap();
 }
 
-/// C# `ReferenceFixture.Request` — 공고 품목이 접수를 가리키게 하고 연결을 다시 짓는다.
+/// 공고 품목이 접수를 가리키게 하고 연결을 다시 짓는다.
 fn reference_request(f: &Fixture, request_base: &str, request_seq: &str, notice_base: &str) {
     let mut c = f.conn();
     let tx = c.transaction().unwrap();
@@ -201,7 +201,7 @@ fn 제목은_최신_차수의_것이다() {
     assert_eq!(groups[0].title.as_deref(), Some("26년 시험 절단기 구매"));
 }
 
-/// `[Theory]` — (게시, 개찰, 입찰마감, 단계). 시각은 2026-10-09 의 시(음수면 없음).
+/// (게시, 개찰, 입찰마감, 단계). 시각은 2026-10-09 의 시(음수면 없음).
 #[test]
 fn 브리핑은_게시와_개찰_kst_경계만_단계로_쓰고_부족한정보를_따로_센다() {
     let cases: &[(i32, i32, i32, Option<&str>)] = &[
@@ -371,7 +371,7 @@ fn 브리핑은_차수와_재공고를_접고_계약여럿과_단독문서를_�
     assert!(terminated.issues.iter().any(|s| s.contains("금액")));
 }
 
-/// `[Theory]` — 현행이 취소공고·실공고(취소공고)이거나, 서로를 가리켜 현행을 정할 수 없는 건.
+/// 현행이 취소공고·실공고(취소공고)이거나, 서로를 가리켜 현행을 정할 수 없는 건.
 #[test]
 fn 브리핑은_현행_취소와_모호한_현행을_가공하지_않는다() {
     for kind in ["취소공고", "실공고(취소공고)"] {
@@ -440,7 +440,7 @@ fn 브리핑은_정정된_날짜와_금액을_읽되_틀린값을_0으로_바꾸
     single(&dashboard(&f).rows, |r| r.stage.is_none());
 }
 
-/// `[Theory]` — ISO 꼴 정정도 KST 로 읽되, 다른 꼴을 추정하지 않는다.
+/// ISO 꼴 정정도 KST 로 읽되, 다른 꼴을 추정하지 않는다.
 #[test]
 fn iso_날짜_정정도_kst로_읽되_다른_날짜꼴을_추정하지_않는다() {
     let cases: &[(&str, &str, Option<&str>)] = &[
@@ -507,7 +507,7 @@ fn 공고_대기는_접수를_필요로_하고_날짜없는_계약은_초안이�
     assert_eq!(only(&invalid.rows).draft_contracts, 0);
 }
 
-/// `[Theory]` — 공고 대기는 「접수 후 게시된 현행 공고가 없는 건」이다.
+/// 공고 대기는 「접수 후 게시된 현행 공고가 없는 건」이다.
 #[test]
 fn 공고_대기는_접수_후_게시된_현행_공고가_없는_건이다() {
     let cases: &[(&str, &str, Option<&str>)] = &[
@@ -576,7 +576,7 @@ fn 공고_대기는_접수_후_게시된_현행_공고가_없는_건이다() {
     }
 }
 
-/// `[Theory]` — 접수가 없는 미게시 공고(게시일시 없음 · 게시 전)는 공고 대기로 세지 않는다.
+/// 접수가 없는 미게시 공고(게시일시 없음 · 게시 전)는 공고 대기로 세지 않는다.
 #[test]
 fn 접수가_없는_미게시_공고는_공고_대기로_세지_않는다() {
     for day in [-1, 10] {

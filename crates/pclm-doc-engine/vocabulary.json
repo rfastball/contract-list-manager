@@ -1,0 +1,16 @@
+{
+  "version": 4,
+  "missing": "【확인 필요】",
+  "about": "서식의 칸 이름은 통합 뷰(pclm-core 의 presets/builtin-views.json 「문서 서식」)의 열 이름이다. 여기에는 그 열의 다른 이름(aka)과 패널의 내 정보만 있다 — 엔진은 값을 바꾸지 않는다(ADR-051). 사람이 읽는 표는 docs/document-vocabulary.md(cargo run -p pclm-doc-engine --example vocabulary_doc 이 짓는다).",
+  "aka": {
+    "계약금액_한글": ["한글금액"],
+    "오늘_년월일": ["작성일", "오늘"],
+    "오늘_년월": ["오늘날짜"]
+  },
+  "me": [
+    { "name": "내_부서", "key": "dept", "aka": ["부서"] },
+    { "name": "내_이름", "key": "name", "aka": ["작성자", "이름", "계약담당자"] },
+    { "name": "내_연락처", "key": "phone", "aka": ["연락처", "전화번호", "계약담당 전화번호"] },
+    { "name": "내_팩스", "key": "fax", "aka": ["팩스", "계약담당 팩스번호"] }
+  ]
+}

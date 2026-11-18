@@ -1,17 +1,17 @@
 //! [`Os`] 의 진짜 — Windows API 를 직접 부른다. 의존을 더하지 않으려고(`windows-sys` 등) 쓰는 몇 개만 선언한다
 //! (`pclm-home` 의 `win` 과 같은 자세).
 //!
-//! C# 과 갈리는 손이 하나 있다. 새로 뜬 브라우저 창의 주소창에 주소를 넣는 일(`ExtensionSetup.Navigate`)을 C# 은 UI
-//! Automation 으로 주소창(Edit)을 찾아 값을 넣었다. 여기서는 COM 을 들이지 않고, 그 창이 정말 앞에 온 것을 본 뒤에만
-//! Ctrl+L(Chrome · Edge 의 주소창 가기) · 글자 · Enter 를 보낸다. 다른 창에 Enter 가 가지 않게 하는 자리는 같다.
+//! 새로 뜬 브라우저 창의 주소창에 주소를 넣는 일은 COM 을 들이지 않고, 그 창이 정말 앞에 온 것을 본 뒤에만
+//! Ctrl+L(Chrome · Edge 의 주소창 가기) · 글자 · Enter 를 보낸다. 다른 창에 Enter 가 가지 않게 한다.
 
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;
 use std::io;
-use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use pclm_home::win::{expand, wide, wide_path};
 
 use crate::os::{Os, RegistryRoot, RegistryValue, SpecialFolder};
 
@@ -120,7 +120,6 @@ unsafe extern "system" {
     fn GlobalLock(memory: Handle) -> *mut c_void;
     fn GlobalUnlock(memory: Handle) -> i32;
     fn GlobalFree(memory: Handle) -> Handle;
-    fn ExpandEnvironmentStringsW(source: *const u16, target: *mut u16, size: u32) -> u32;
 }
 
 #[link(name = "user32")]
@@ -162,17 +161,6 @@ unsafe extern "system" {
     ) -> i32;
 }
 
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn wide_path(path: &Path) -> Vec<u16> {
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
-}
-
 fn root_key(root: RegistryRoot) -> isize {
     match root {
         RegistryRoot::CurrentUser => HKEY_CURRENT_USER,
@@ -188,23 +176,7 @@ fn status(code: i32) -> io::Result<()> {
     }
 }
 
-fn expand(text: &str) -> String {
-    let source = wide(text);
-    // SAFETY: 크기만 묻는다.
-    let needed = unsafe { ExpandEnvironmentStringsW(source.as_ptr(), std::ptr::null_mut(), 0) };
-    if needed == 0 {
-        return text.to_string();
-    }
-    let mut buffer = vec![0u16; needed as usize];
-    // SAFETY: 버퍼는 `needed` 글자다.
-    let written = unsafe { ExpandEnvironmentStringsW(source.as_ptr(), buffer.as_mut_ptr(), needed) };
-    if written == 0 || written > needed {
-        return text.to_string();
-    }
-    String::from_utf16_lossy(&buffer[..written as usize - 1])
-}
-
-/// 그 이름(확장자 없이, 대소문자 무시 — `Process.GetProcessesByName`)의 프로세스 번호들.
+/// 그 이름(확장자 없이, 대소문자 무시)의 프로세스 번호들.
 fn processes_named(name: &str) -> Vec<u32> {
     let wanted = format!("{}.exe", name).to_lowercase();
     let mut pids = Vec::new();
@@ -298,7 +270,7 @@ fn send(inputs: &[Input]) -> bool {
     sent as usize == inputs.len()
 }
 
-/// Windows 명령줄 규칙으로 인자 하나를 감싼다(.NET `PasteArguments`).
+/// Windows 명령줄 규칙으로 인자 하나를 감싼다(`CreateProcess` 가 읽는 규칙).
 fn quote(value: &str) -> String {
     if !value.is_empty() && !value.contains([' ', '\t', '"']) {
         return value.to_string();
@@ -328,7 +300,7 @@ fn quote(value: &str) -> String {
 fn shell_execute(file: &Path, parameters: Option<&str>) -> io::Result<()> {
     let file = wide_path(file);
     let parameters = parameters.map(wide);
-    // SAFETY: NUL 로 끝나는 글들. 동사는 기본(null)이다 — .NET `UseShellExecute` 와 같다.
+    // SAFETY: NUL 로 끝나는 글들. 동사는 기본(null)이다.
     let result = unsafe {
         ShellExecuteW(
             0,
@@ -364,6 +336,9 @@ impl Os for WindowsOs {
             SpecialFolder::LocalApplicationData => "LOCALAPPDATA",
             SpecialFolder::ProgramFiles => "ProgramFiles",
             SpecialFolder::ProgramFilesX86 => "ProgramFiles(x86)",
+            SpecialFolder::Documents => {
+                return PathBuf::from(pclm_home::win::documents().unwrap_or_default());
+            }
         };
         std::env::var_os(name).map(PathBuf::from).unwrap_or_default()
     }
@@ -565,7 +540,7 @@ impl Os for WindowsOs {
             let Some(window) = new_window(process, before) else {
                 continue;
             };
-            // 창이 선 직후에는 주소창이 아직 글을 받지 못한다 — C# 은 주소창이 나타날 때까지 기다렸다.
+            // 창이 선 직후에는 주소창이 아직 글을 받지 못한다 — 잠깐 기다린 뒤 보낸다.
             std::thread::sleep(Duration::from_millis(400));
             // SAFETY: 열거로 얻은 창 손잡이.
             unsafe {
@@ -597,7 +572,7 @@ impl Os for WindowsOs {
     }
 
     fn set_clipboard(&self, text: &str) {
-        let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let units = wide(text);
         // SAFETY: 잡은 기억은 클립보드에 넘기거나 놓는다. 클립보드는 연 실마리에서 닫는다.
         unsafe {
             if OpenClipboard(0) == 0 {

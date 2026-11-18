@@ -23,6 +23,6 @@ export function presets(env: FlowEnv): Preset[] {
         { op: "get", field: name }, { op: "distinct" }, { op: "abbrev", n: 1, text: "{앞} 외 {나머지}종" }] } : null },
     { id: "count", label: "품목 수", name: "품목 수", flow: { from: { kind: "items" }, steps: [{ op: "count" }] } },
     { id: "amount", label: "금액 합계", name: "품목 합계", unavailable: amount ? undefined : "이 자료의 품목에는 금액이 없습니다",
-      flow: amount ? { from: { kind: "items" }, steps: [{ op: "sum", field: amount }, { op: "thousands" }] } : null },
+      flow: amount ? { from: { kind: "items" }, steps: [{ op: "sum", field: amount }, { op: "format", text: "#,##0" }] } : null },
   ];
 }

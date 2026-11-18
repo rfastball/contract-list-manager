@@ -1,4 +1,4 @@
-//! 연결은 수집된 명시 참조의 파생값이다(C# `Erp/ExplicitLinks.cs`, ADR-040). 재수집·삭제·취합·판올림마다 같은
+//! 연결은 수집된 명시 참조의 파생값이다(ADR-040). 재수집·삭제·판올림마다 같은
 //! 입력에서 다시 짓는다.
 
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use rusqlite::{Connection, params};
 use crate::error::Result;
 use crate::storage::notice_groups;
 
-/// C# `ReferenceState(EntityType, Base, Target, State)` — 참조 하나의 해소 결과.
+/// 참조 하나의 해소 결과.
 /// `state` 는 `연결됨`·`참조 충돌`·`미수집`·`참조 없음` 이다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReferenceState {

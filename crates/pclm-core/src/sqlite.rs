@@ -13,19 +13,26 @@ pub fn meets_minimum() -> bool {
     rusqlite::version_number() >= MINIMUM_VERSION_NUMBER
 }
 
-/// C# 이 쓰는 e_sqlite3 와 같은 SQL 을 받게 연결을 맞춘다. [`crate::storage::database`] 가 연결마다 부른다.
+/// 옛 판(e_sqlite3)이 받던 SQL 을 같게 받거나 거절하도록 연결을 맞춘다 — 그때 지은 SQL 열이 같게 서거나 깨져야 한다.
+/// [`crate::storage::database`] 가 연결마다 부른다.
 ///
 /// - **큰따옴표 글자를 받지 않는다**(`SQLITE_DQS=0` 으로 지은 e_sqlite3 와 같다). bundled SQLite 는 받아 주므로, 끄지
-///   않으면 C# 에서 깨진(없는 열을 큰따옴표로 적은) SQL 열이 Rust 에서는 글로 읽혀 멀쩡히 선다.
+///   않으면 옛 판에서 깨진(없는 열을 큰따옴표로 적은) SQL 열이 글로 읽혀 멀쩡히 선다.
 /// - **수학 함수를 모두 둔다**(`SQLITE_ENABLE_MATH_FUNCTIONS` 로 지은 e_sqlite3 와 같다 — [`MATH_FUNCTIONS`]). bundled 는
 ///   이것 없이 짓는다. SQL 열의 허용 함수(`SqlColumn.Functions`)에 든 `ceil`·`floor` 만으로는 모자란다 — 허용 목록
-///   밖의 `sqrt` 를 쓴 SQL 열은 C# 에서 authorizer 가 「이 함수는 쓸 수 없습니다: sqrt」 로 막는데, 함수가 없으면
+///   밖의 `sqrt` 를 쓴 SQL 열은 authorizer 가 「이 함수는 쓸 수 없습니다: sqrt」 로 막는데, 함수가 없으면
 ///   SQLite 가 그보다 먼저 「no such function」 으로 멎는다. 그 말이 깨진 열의 까닭으로 뷰 정의에 박히고 사람에게
 ///   보이므로, 같은 말이 나오려면 함수가 있어야 한다.
 ///
+/// - **표기 함수를 둔다**([`TEXT_FUNCTIONS`] — 한글 금액 · 「년 월 일」 · 공문서 날짜 · 「원」). 「문서 서식」 이 문서에
+///   찍힐 글을 뷰에서 다 짓는다(ADR-051) — 엔진은 값을 바꾸지 않는다.
+///
 /// 뷰에 박힌 사용자 SQL 이 `ceil`·`floor` 를 부르면 수학 함수 없이 지은 SQLite 로 읽는 소비자는 그 뷰를 읽지 못한다 —
-/// C# 판부터 있던 소비자 쪽 위험이고, 여기서 바꾸지 않는다.
-pub(crate) fn match_csharp(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+/// 옛 판부터 있던 소비자 쪽 위험이고, 여기서 바꾸지 않는다. 표기 함수는 이 앱의 연결에만 있으므로 그것을 부르는 뷰
+/// (`u_문서 서식` 과 그 사본)는 앱 밖에서 읽지 못하고, 앱 밖 연결의 `ALTER TABLE … RENAME` 도 그 뷰에서 멎는다.
+/// 바깥에서 `u_문서 서식` 을 읽는 소비자는 없다(사람이 확인). 면 뷰가 물들지 않게 가공열에서는 쓰지 못한다
+/// ([`crate::storage::sql_column`]).
+pub(crate) fn configure_connection(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
     use rusqlite::config::DbConfig;
     use rusqlite::functions::FunctionFlags;
 
@@ -57,8 +64,40 @@ pub(crate) fn match_csharp(connection: &rusqlite::Connection) -> rusqlite::Resul
             })?,
         }
     }
+    for &(name, function) in TEXT_FUNCTIONS {
+        connection.create_scalar_function(name, 1, flags, move |ctx| {
+            use rusqlite::types::{Value, ValueRef};
+            let text = match ctx.get_raw(0) {
+                ValueRef::Null => return Ok(Value::Null),
+                ValueRef::Text(t) | ValueRef::Blob(t) => String::from_utf8_lossy(t).into_owned(),
+                ValueRef::Integer(i) => i.to_string(),
+                ValueRef::Real(r) => r.to_string(),
+            };
+            Ok(Value::Text(function(&text)))
+        })?;
+    }
     Ok(())
 }
+
+type TextFunction = fn(&str) -> String;
+
+/// 「문서 서식」 의 표기 함수(인자 하나, 글 → 글). 바꾸는 것(`원표기` · `공문서날짜`)은 읽지 못하는 글을 그대로,
+/// 지어내는 것(`한글금액` · `년월일` · `년월`)은 빈 글을 낸다(문서에서 그 칸은 【확인 필요】). NULL 은 NULL 이다.
+pub(crate) const TEXT_FUNCTIONS: &[(&str, TextFunction)] = &[
+    ("원표기", |t| {
+        if crate::korean::amount(t).is_some() {
+            format!("{t}원")
+        } else {
+            t.to_owned()
+        }
+    }),
+    ("공문서날짜", |t| {
+        crate::korean::official(t).unwrap_or_else(|| t.to_owned())
+    }),
+    ("한글금액", |t| crate::korean::amount(t).unwrap_or_default()),
+    ("년월일", |t| crate::korean::ymd(t).unwrap_or_default()),
+    ("년월", |t| crate::korean::ym(t).unwrap_or_default()),
+];
 
 /// 수학 함수 하나의 몸 — SQLite `func.c` 의 구현 갈래(`ceilingFunc`·`logFunc`·`math1Func`·`math2Func`·`piFunc`).
 #[derive(Clone, Copy)]
@@ -294,6 +333,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn 표기_함수는_글을_받아_글을_낸다() {
+        use rusqlite::types::Value::{Null, Text};
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        configure_connection(&c).unwrap();
+        for (sql, want) in [
+            ("원표기('24,545,454')", Text("24,545,454원".into())),
+            ("원표기('별도 공지')", Text("별도 공지".into())),
+            ("원표기(NULL)", Null),
+            ("공문서날짜('2026/10/20 09:30:00')", Text("2026. 10. 20. 09:30".into())),
+            ("공문서날짜('계약 후 90일 이내')", Text("계약 후 90일 이내".into())),
+            ("한글금액('114,500')", Text("일십일만사천오백".into())),
+            ("한글금액('')", Text(String::new())),
+            ("년월일('2026/10/20 09:30:00')", Text("2026년 10월 20일".into())),
+            ("년월('2026-11-09')", Text("2026. 11.".into())),
+            ("한글금액(114500)", Text("일십일만사천오백".into())),
+        ] {
+            assert_eq!(eval(&c, sql), want, "{sql}");
+        }
+    }
+
     fn eval(c: &rusqlite::Connection, sql: &str) -> rusqlite::types::Value {
         c.query_row(&format!("SELECT {sql}"), [], |r| r.get(0))
             .unwrap()
@@ -304,7 +364,7 @@ mod tests {
     fn math_functions_follow_func_c() {
         use rusqlite::types::Value::{Integer, Null, Real};
         let c = rusqlite::Connection::open_in_memory().unwrap();
-        match_csharp(&c).unwrap();
+        configure_connection(&c).unwrap();
         assert_eq!(eval(&c, "sqrt(16)"), Real(4.0));
         assert_eq!(eval(&c, "sqrt(-1)"), Null);
         assert_eq!(eval(&c, "sqrt('9')"), Real(3.0));

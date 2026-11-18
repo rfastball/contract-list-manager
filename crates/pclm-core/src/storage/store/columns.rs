@@ -1,4 +1,4 @@
-//! C# `StoreColumns.cs` — 깨진 가공열, 값 흐름 보표, SQL 꺼내기·검증, 값으로 굳히기.
+//! 깨진 가공열, 값 흐름 보표, SQL 꺼내기·검증, 값으로 굳히기.
 
 use rusqlite::{Connection, params};
 use serde_json::{Map, Value};
@@ -17,13 +17,13 @@ use crate::storage::flow_compiler::{self, Part, Target};
 use crate::storage::sql_column::{self, Frame};
 use crate::storage::{computed_column, views};
 
-/// `Store.TraceSamples` — 보표가 보이는 표본 수.
+/// 보표가 보이는 표본 수.
 pub(super) const TRACE_SAMPLES: usize = 3;
-/// `Store.ShowItems`·`Store.ShowRows` — 칸 하나에 보이는 목록 원소·행 수.
+/// 칸 하나에 보이는 목록 원소·행 수.
 const SHOW_ITEMS: usize = 3;
 const SHOW_ROWS: usize = 5;
 
-/// `Store.FaceBase` — 면 뷰의 본번호 열.
+/// 면 뷰의 본번호 열.
 fn face_base(entity_type: &str) -> &'static str {
     match entity_type {
         "notice" => "공고본번호",
@@ -32,12 +32,12 @@ fn face_base(entity_type: &str) -> &'static str {
     }
 }
 
-/// C# `Store.Sample(Base, Revision, Title, Key)` — 보표의 표본 하나.
+/// 보표의 표본 하나.
 pub(super) struct Sample {
     pub(super) key: String,
 }
 
-/// `Store.Samples` — 최신 차수 문서 `count` 개와 그 화면 열쇠.
+/// 최신 차수 문서 `count` 개와 그 화면 열쇠.
 fn samples(
     connection: &Connection,
     entity_type: &str,
@@ -80,7 +80,7 @@ fn samples(
     Ok((samples, heads))
 }
 
-/// C# `Store.FreezePlan(Kind, Cells, Hidden, Series)` — 값으로 굳히기 전에 세는 것. `cells` 는 값이 있는 칸,
+/// 값으로 굳히기 전에 세는 것. `cells` 는 값이 있는 칸,
 /// `hidden` 은 식에 가려 숨어 있던 사람 값, `series` 는 면 뷰의 줄 수다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FreezePlan {
@@ -101,7 +101,7 @@ impl FreezePlan {
     }
 }
 
-/// `Store.TraceFrame(Row, Final, Sql)` — 보표가 서는 자리. 가공열은 면 뷰 한 줄, 맞춤 뷰는 사슬 위의 건.
+/// 보표가 서는 자리. 가공열은 면 뷰 한 줄, 맞춤 뷰는 사슬 위의 건.
 pub(super) struct TraceFrame<'a> {
     pub(super) row: Box<dyn Fn(&str) -> String + 'a>,
     pub(super) r#final: Box<dyn Fn(&str) -> String + 'a>,
@@ -109,7 +109,6 @@ pub(super) struct TraceFrame<'a> {
     pub(super) sql: Box<dyn Fn(&Connection, &str, &[String]) -> Result<Vec<String>> + 'a>,
 }
 
-/// `Store.FaceTrace`.
 fn face_trace(entity_type: &str) -> TraceFrame<'_> {
     let row = move |select: &str| {
         let frame = Frame::Face(entity_type);
@@ -125,7 +124,7 @@ fn face_trace(entity_type: &str) -> TraceFrame<'_> {
 }
 
 impl Store<'_> {
-    /// `Store.BrokenColumns` — 깨진 가공열((종류, 이름) → 까닭). 면 뷰의 정의 글에 박힌 표지를 읽는다.
+    /// 깨진 가공열((종류, 이름) → 까닭). 면 뷰의 정의 글에 박힌 표지를 읽는다.
     pub fn broken_columns(&self) -> Result<Dict<(String, String), String>> {
         let connection = self.database.open_read_only()?;
         let mut found = Dict::new();
@@ -153,7 +152,7 @@ impl Store<'_> {
 
     // ── 값 흐름 보표 ─────────────────────────────────────────
 
-    /// `Store.TraceComputedColumn` — 표본 셋 위에서 단계마다 값이 어떻게 흐르는지(§11.3).
+    /// 표본 셋 위에서 단계마다 값이 어떻게 흐르는지(§11.3).
     pub fn trace_computed_column(&self, entity_type: &str, json: &str) -> Result<Value> {
         let formula = computed_column::parse_for(entity_type, json)?;
         let connection = sql_column::open_checked(&self.database)?;
@@ -172,7 +171,7 @@ impl Store<'_> {
 
     // ── SQL 꺼내기·검증 ─────────────────────────────────────────
 
-    /// `Store.CompileComputedColumn` — 「SQL로 꺼내기」. SQL 열은 그 글 그대로다.
+    /// 「SQL로 꺼내기」. SQL 열은 그 글 그대로다.
     pub fn compile_computed_column(&self, entity_type: &str, json: &str) -> Result<String> {
         let formula = computed_column::parse_for(entity_type, json)?;
         if formula.source.as_deref() == Some("sql") {
@@ -181,7 +180,7 @@ impl Store<'_> {
         flow_compiler::eject(entity_type, &formula, None)
     }
 
-    /// `Store.ValidateComputedSql` — SQL 열을 표본 위에서 검증한다. 거절은 결과에 담아 낸다.
+    /// SQL 열을 표본 위에서 검증한다. 거절은 결과에 담아 낸다.
     pub fn validate_computed_sql(&self, entity_type: &str, sql: &str) -> Result<Value> {
         computed_column::fields(entity_type)?;
         let connection = sql_column::open_checked(&self.database)?;
@@ -207,14 +206,14 @@ impl Store<'_> {
 
     // ── 값으로 굳히기 ─────────────────────────────────────────
 
-    /// `Store.PlanFreezeColumn` — 굳히면 몇 칸이 쓰이는지 센다. 굳히기 전에 반드시 이것을 보인다.
+    /// 굳히면 몇 칸이 쓰이는지 센다. 굳히기 전에 반드시 이것을 보인다.
     pub fn plan_freeze_column(&self, entity_type: &str, field_name: &str) -> Result<FreezePlan> {
         let connection = self.database.open_read_only()?;
         let _transaction = begin_deferred(&connection)?;
         Ok(plan_freeze(&connection, entity_type, field_name)?.0)
     }
 
-    /// `Store.FreezeColumn` — 가공열이 지금 내는 값을 사람 값으로 적고 열을 입력열로 바꾼다(식은 남긴다). 센 수
+    /// 가공열이 지금 내는 값을 사람 값으로 적고 열을 입력열로 바꾼다(식은 남긴다). 센 수
     /// (`expected`)와 지금 센 수가 다르면 아무것도 쓰지 않는다.
     pub fn freeze_column(
         &self,
@@ -271,7 +270,7 @@ impl Store<'_> {
     }
 }
 
-/// `Store.PlanFreeze` — 센 것과 쓸 값(본번호, 값).
+/// 센 것과 쓸 값(본번호, 값).
 fn plan_freeze(
     connection: &Connection,
     entity_type: &str,
@@ -329,7 +328,7 @@ fn plan_freeze(
     Ok((plan, values))
 }
 
-/// `Store.Trace` — 단계마다 표본 값을 보이는 보표. 앞에서 깨지면 뒤 단계는 막힌 것으로 둔다.
+/// 단계마다 표본 값을 보이는 보표. 앞에서 깨지면 뒤 단계는 막힌 것으로 둔다.
 pub(super) fn trace(
     connection: &Connection,
     entity_type: &str,
@@ -370,7 +369,7 @@ pub(super) fn trace(
     let flow = formula
         .flow
         .as_ref()
-        .ok_or_else(|| Error::invalid("Object reference not set to an instance of an object."))?;
+        .ok_or_else(|| Error::invalid("가공식에 흐름이 없습니다."))?;
     let checked = Flow::check(flow, env);
     let mut stop = checked.errors.iter().find(|e| !e.r#final).map(|e| e.index);
     let mut steps = Vec::new();
@@ -468,7 +467,7 @@ pub(super) fn trace(
     ]))
 }
 
-/// `Store.Step` — 단계 하나의 칸.
+/// 단계 하나의 칸.
 fn step(shape: Option<&str>, values: Vec<Value>, error: Option<String>, blocked: bool) -> Value {
     let mut step = Map::new();
     step.insert(
@@ -485,7 +484,6 @@ fn step(shape: Option<&str>, values: Vec<Value>, error: Option<String>, blocked:
     Value::Object(step)
 }
 
-/// `Store.Blank`.
 fn blank() -> Value {
     object([
         ("kind", Value::String("value".into())),
@@ -494,7 +492,6 @@ fn blank() -> Value {
     ])
 }
 
-/// `Store.Value`.
 fn value(text: &str) -> Value {
     if text.is_empty() {
         blank()
@@ -506,7 +503,7 @@ fn value(text: &str) -> Value {
     }
 }
 
-/// `JsonElement.ToString()` — 글은 그 값, 수는 원문, null 은 빈 글, 참거짓은 `True`·`False`, 나머지는 원문 JSON.
+/// 글은 그 값, 수는 원문, null 은 빈 글, 참거짓은 `True`·`False`, 나머지는 원문 JSON.
 fn element_text(element: &Value) -> String {
     match element {
         Value::String(s) => s.clone(),
@@ -518,7 +515,7 @@ fn element_text(element: &Value) -> String {
     }
 }
 
-/// `Store.Show` 의 `Row(JsonElement)` — 행 하나를 {필드: 글} 로.
+/// 행 하나를 {필드: 글} 로.
 fn row_of(element: &Value) -> Vec<(String, String)> {
     match element {
         Value::Object(o) => o
@@ -537,7 +534,7 @@ fn row_json(row: &[(String, String)]) -> Value {
     Value::Object(map)
 }
 
-/// `Store.RowLabel` — 행의 앞 두 빈 아닌 필드를 「 · 」 로 잇는다.
+/// 행의 앞 두 빈 아닌 필드를 「 · 」 로 잇는다.
 fn row_label(row: &[(String, String)], fields: &[String]) -> String {
     fields
         .iter()
@@ -552,10 +549,10 @@ fn row_label(row: &[(String, String)], fields: &[String]) -> String {
         .join(" · ")
 }
 
-/// `Store.Narrowing` — 줄 수를 줄이는 단계.
+/// 줄 수를 줄이는 단계.
 const NARROWING: [&str; 3] = ["filter", "distinct", "take"];
 
-/// `Store.Show` — 표본 하나에서 이 단계의 값(과 목록이면 그 수).
+/// 표본 하나에서 이 단계의 값(과 목록이면 그 수).
 fn show(
     connection: &Connection,
     read: &dyn Fn(&str) -> String,

@@ -1,13 +1,13 @@
-//! 축적 상태를 훑어보는 조회들(C# `Storage/Reports.cs`) — 요약(`Summary`), 차수 묶음(`Revisions`), 브리핑(`Dashboard`).
+//! 축적 상태를 훑어보는 조회들 — 요약(`Summary`), 차수 묶음(`Revisions`), 브리핑(`Dashboard`).
 //! 쓰기는 하지 않는다.
 //!
-//! **브리핑의 「지금」은 부르는 쪽이 준다**(#8). C# 은 `asOf` 를 주지 않으면 `DateTimeOffset.UtcNow` 를 읽는다 — 이
+//! **브리핑의 「지금」은 부르는 쪽이 준다**(#8). 이
 //! 크레이트는 시계를 읽지 않으므로 [`Reports::dashboard`] 가 그 순간(`Env::now_utc` 꼴의 글)을 받는다. 셈은 KST(+09:00)
-//! 고정이다 — 기계의 시간대를 보지 않는다(C# 과 같다).
+//! 고정이다 — 기계의 시간대를 보지 않는다.
 //!
-//! 값은 C# 처럼 읽는다 — 뷰 칸은 `Convert.ToString(값, InvariantCulture)`(NULL 은 빈 글), 금액은
-//! `decimal.TryParse(NumberStyles.Number)`([`Decimal`]), 날짜는 `yyyy/MM/dd`·`yyyy-MM-dd`(뒤에 ` HH:mm:ss` 가 붙을 수
-//! 있다)를 KST 로 읽는 `DateTimeOffset.TryParseExact` 다([`kst_date`]).
+//! 값은 이렇게 읽는다 — 뷰 칸은 문화권을 타지 않는 글(NULL 은 빈 글), 금액은
+//! 천 단위 쉼표를 받는 10진수([`Decimal`]), 날짜는 `yyyy/MM/dd`·`yyyy-MM-dd`(뒤에 ` HH:mm:ss` 가 붙을 수
+//! 있다)를 KST 로 읽은 것이다([`kst_date`]).
 
 use rusqlite::types::{Value as SqlValue, ValueRef};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
@@ -24,12 +24,12 @@ use crate::text::cmp_ordinal;
 /// KST 의 UTC 와의 차이(초).
 const KST: i64 = 9 * 3600;
 
-/// `DateTimeOffset.MinValue` 의 UTC 순간(0001-01-01T00:00:00Z)을 1970 부터의 초로.
+/// 0001-01-01T00:00:00Z 순간을 1970 부터의 초로.
 const MIN_INSTANT: i64 = -62_135_596_800;
 
 // ── 형식 ─────────────────────────────────────────────────────
 
-/// C# `StatusSummary` — 표마다의 행 수를 못 박은 요약.
+/// 표마다의 행 수를 못 박은 요약.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatusSummary {
     pub notice_rows: i32,
@@ -44,7 +44,7 @@ pub struct StatusSummary {
 }
 
 impl StatusSummary {
-    /// 다리(`Bridge.Json` — camelCase)의 꼴.
+    /// 다리가 쓰는 꼴 — camelCase.
     pub fn to_json(&self) -> Value {
         object(vec![
             ("noticeRows", self.notice_rows.into()),
@@ -60,7 +60,7 @@ impl StatusSummary {
     }
 }
 
-/// C# `RevisionGroup(Base, Kind, Revisions, Latest, Title)` — 차수가 쌓인 건 하나. `revisions` 는 64비트(`COUNT(*)`).
+/// 차수가 쌓인 건 하나. `revisions` 는 64비트(`COUNT(*)`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RevisionGroup {
     pub base: String,
@@ -82,7 +82,6 @@ impl RevisionGroup {
     }
 }
 
-/// C# `DashboardContract`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardContract {
     pub number: String,
@@ -106,7 +105,7 @@ impl DashboardContract {
     }
 }
 
-/// C# `DeliveryDeadline(Raw, Date, DaysRemaining)` — 적힌 글, 읽은 날(`yyyy-MM-dd`), 남은 날 수.
+/// 적힌 글, 읽은 날(`yyyy-MM-dd`), 남은 날 수.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeliveryDeadline {
     pub raw: String,
@@ -127,7 +126,6 @@ impl DeliveryDeadline {
     }
 }
 
-/// C# `DeliveryItem`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeliveryItem {
     pub line_no: i32,
@@ -153,7 +151,6 @@ impl DeliveryItem {
     }
 }
 
-/// C# `DeliveryContract`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeliveryContract {
     pub number: String,
@@ -188,7 +185,7 @@ impl DeliveryContract {
     }
 }
 
-/// C# `DashboardCase` — 조달 건 하나. `stage` 가 `None` 이면 확인할 거리다.
+/// 조달 건 하나. `stage` 가 `None` 이면 확인할 거리다.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardCase {
     pub key: String,
@@ -246,7 +243,6 @@ impl DashboardCase {
     }
 }
 
-/// C# `DashboardStage(Key, Label, Count)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardStage {
     pub key: String,
@@ -254,7 +250,7 @@ pub struct DashboardStage {
     pub count: i32,
 }
 
-/// C# `DashboardDocuments` — 최신 차수의 문서 수와 쌓인 차수의 행 수.
+/// 최신 차수의 문서 수와 쌓인 차수의 행 수.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardDocuments {
     pub requests: i32,
@@ -265,7 +261,7 @@ pub struct DashboardDocuments {
     pub contract_revisions: i32,
 }
 
-/// C# `DashboardReport` — 브리핑 한 벌. `as_of` 는 KST 의 `"O"` 표기(`…+09:00`).
+/// 브리핑 한 벌. `as_of` 는 KST 의 ISO 8601 표기(`…+09:00`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DashboardReport {
     pub as_of: String,
@@ -333,7 +329,7 @@ impl DashboardReport {
 
 // ── 조회 ─────────────────────────────────────────────────────
 
-/// C# `Reports(database)` — 축적 상태를 훑어보는 조회들. 쓰기는 하지 않는다.
+/// 축적 상태를 훑어보는 조회들. 쓰기는 하지 않는다.
 pub struct Reports {
     database: Database,
 }
@@ -343,7 +339,7 @@ impl Reports {
         Reports { database }
     }
 
-    /// `Reports.Dashboard(asOf)` — 수집된 조달 건의 브리핑. `now_utc` 는 그 순간의 `"O"` 표기(`Env::now_utc` 의 꼴 —
+    /// 수집된 조달 건의 브리핑. `now_utc` 는 그 순간의 `"O"` 표기(`Env::now_utc` 의 꼴 —
     /// `Z` 나 `±HH:mm` 이 붙은 것). 모든 수는 한 읽기 사진에서 낸다.
     ///
     /// 문서 부재는 업무 미진행을, 계약 문서는 이행 완료를 뜻하지 않는다. Outline 과 같은 공고건·명시 링크를 쓰고 품목
@@ -364,7 +360,6 @@ impl Reports {
         Ok(report)
     }
 
-    /// `Reports.Summary`.
     pub fn summary(&self) -> Result<StatusSummary> {
         let connection = self.database.open()?;
         let count = |sql: &str| -> Result<i32> { scalar_i32(&connection, sql) };
@@ -389,7 +384,7 @@ impl Reports {
         })
     }
 
-    /// `Reports.Revisions` — 차수 묶음. 많이 쌓인 것이 앞이고, 같으면 본번호 차례(Ordinal). 제목은 **최신 차수의 것**이다
+    /// 차수 묶음. 많이 쌓인 것이 앞이고, 같으면 본번호 차례(서수 비교). 제목은 **최신 차수의 것**이다
     /// — 사전순 최대를 고르면 「최신 001」 옆에 000 의 제목이 붙는다.
     pub fn revisions(&self) -> Result<Vec<RevisionGroup>> {
         let connection = self.database.open()?;
@@ -413,7 +408,7 @@ impl Reports {
                 all.push(RevisionGroup {
                     base: cast_string(row.get_ref(0)?)?.unwrap_or_default(),
                     kind: kind.to_string(),
-                    revisions: crate::storage::status::scalar_i64(row.get_ref(1)?),
+                    revisions: scalar_i64(row.get_ref(1)?),
                     latest: cast_string(row.get_ref(2)?)?.unwrap_or_default(),
                     title: cast_string(row.get_ref(3)?)?,
                 });
@@ -435,11 +430,11 @@ struct Now {
     text: String,
 }
 
-/// Dapper 동적 행 하나 — 열 이름과 값.
+/// 동적 행 하나 — 열 이름과 값.
 pub(crate) struct Row(Vec<(String, SqlValue)>);
 
 impl Row {
-    /// C# `Reports.Text` — `Convert.ToString(값, InvariantCulture) ?? ""`. 없는 열도 빈 글이다.
+    /// 칸을 문화권을 타지 않는 글로 읽는다. 없는 열도 빈 글이다.
     pub(crate) fn text(&self, key: &str) -> String {
         self.0
             .iter()
@@ -475,16 +470,14 @@ pub(crate) fn read(connection: &Connection, sql: &str) -> Result<Vec<Row>> {
     Ok(out)
 }
 
-/// `ToDictionary` — 같은 열쇠가 또 오면 .NET 처럼 거절한다.
+/// 같은 열쇠가 또 오면 거절한다.
 pub(crate) fn insert_unique<V>(
     entries: &mut Vec<(String, V)>,
     key: String,
     value: V,
 ) -> Result<()> {
     if entries.iter().any(|(k, _)| *k == key) {
-        return Err(Error::Argument(format!(
-            "An item with the same key has already been added. Key: {key}"
-        )));
+        return Err(Error::Argument(format!("같은 열쇠가 두 번 들었습니다: {key}")));
     }
     entries.push((key, value));
     Ok(())
@@ -494,7 +487,7 @@ pub(crate) fn find<'a, V>(entries: &'a [(String, V)], key: &str) -> Option<&'a V
     entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
 }
 
-/// 이음 표 — (본번호, 공고건). C# `Query<(string, string)>` 은 NULL 을 그대로 두지만 두 열 모두 NOT NULL 이다.
+/// 이음 표 — (본번호, 공고건). 두 열 모두 NOT NULL 이라 NULL 은 오지 않는다.
 pub(crate) fn links(connection: &Connection, sql: &str) -> Result<Vec<(String, String)>> {
     let mut statement = connection.prepare(sql)?;
     let mut rows = statement.query([])?;
@@ -603,16 +596,14 @@ fn dashboard_on(connection: &Connection, now: &Now) -> Result<DashboardReport> {
     let mut rows = Vec::new();
     for group in groups {
         let captured: Vec<&Row> = find(&notice_groups, group).cloned().unwrap_or_default();
-        // `SingleOrDefault` — 둘 이상이면 .NET 은 던진다.
+        // 현행 공고는 하나여야 한다.
         let mut current = captured
             .iter()
             .copied()
             .filter(|n| n.text("입찰공고번호") == n.text("현행공고"));
         let first_current = current.next();
         if current.next().is_some() {
-            return Err(Error::invalid(
-                "Sequence contains more than one matching element",
-            ));
+            return Err(Error::invalid("한 공고건에 현행 공고가 둘 이상입니다."));
         }
         let request = find(&requests_by_group, group).copied();
         let linked: Vec<&Row> = find(&contracts_by_group, group)
@@ -684,7 +675,7 @@ fn dashboard_on(connection: &Connection, now: &Now) -> Result<DashboardReport> {
         .collect();
     let data_check_count = rows.iter().filter(|r| r.stage.is_none()).count() as i32;
     let total_cases = rows.len() as i32;
-    // 늦은 것이 앞(게시일시, 없으면 접수일자, 없으면 첫 계약일자 — Ordinal), 같으면 열쇠 차례. 안정 정렬이다.
+    // 늦은 것이 앞(게시일시, 없으면 접수일자, 없으면 첫 계약일자 — 서수 비교), 같으면 열쇠 차례. 안정 정렬이다.
     rows.sort_by(|a, b| {
         cmp_ordinal(&sorts_on(b), &sorts_on(a)).then_with(|| cmp_ordinal(&a.key, &b.key))
     });
@@ -712,7 +703,7 @@ fn sorts_on(row: &DashboardCase) -> String {
     ])
 }
 
-/// `Enumerable.Sum` — 비면 `None`(부르는 쪽이 0 이나 null 로). 넘치면 .NET 의 `OverflowException` 글.
+/// 합 — 비면 `None`(부르는 쪽이 0 이나 null 로). 넘치면 [`decimal_overflow`] 의 오류다.
 fn sum(amounts: &[Decimal]) -> Result<Option<Decimal>> {
     let mut total: Option<Decimal> = None;
     for amount in amounts {
@@ -727,7 +718,7 @@ fn sum(amounts: &[Decimal]) -> Result<Option<Decimal>> {
 }
 
 fn decimal_overflow() -> Error {
-    Error::invalid("Value was either too large or too small for a Decimal.")
+    Error::invalid("금액이 너무 커서 셀 수 없습니다.")
 }
 
 fn case(
@@ -855,7 +846,7 @@ fn case(
         stage = None;
         issues.push("개찰일시를 확인하세요.".into());
     }
-    // 현행이 없으면 게시일시가 늦은 것(Ordinal, 같으면 먼저 온 것).
+    // 현행이 없으면 게시일시가 늦은 것(서수 비교, 같으면 먼저 온 것).
     let display = notice.or_else(|| {
         let mut latest: Option<&Row> = None;
         for n in notices {
@@ -891,7 +882,7 @@ fn case(
     let contract_amount = if known.is_empty() {
         None
     } else {
-        // 금액 합이 넘치는 일은 없다고 본다 — 넘치면 .NET 은 던지고 여기서는 그 건만 금액을 비운다.
+        // 금액 합이 넘치는 일은 없다고 본다 — 넘치면 합이 오류가 되어 여기서는 그 건만 금액을 비운다.
         sum(&known).ok().flatten()
     };
     let terminated = documents.iter().filter(|c| c.terminated).count() as i32;
@@ -1012,14 +1003,14 @@ fn cancelled(notice: Option<&Row>) -> bool {
     )
 }
 
-/// C# `Reports.Date` — KST 로 읽은 순간(UTC 초, 100나노초). 못 읽으면 `None`.
+/// KST 로 읽은 순간(UTC 초, 100나노초). 못 읽으면 `None`.
 fn kst_date(text: &str) -> Option<(i64, u32)> {
     kst_local(text).map(|local| (local.unix_seconds() - KST, 0))
 }
 
-/// `DateTimeOffset.TryParseExact(text + " +09:00", ["yyyy/MM/dd zzz", "yyyy/MM/dd HH:mm:ss zzz", "yyyy-MM-dd zzz",
-/// "yyyy-MM-dd HH:mm:ss zzz"], InvariantCulture, None)` 의 달력 쪽. 자리는 ASCII 숫자 정확히 그 수만, 앞뒤 공백 없이.
-/// UTC 로 `0001-01-01` 앞이 되는 순간(0001/01/01 09:00 전)은 .NET 이 범위 밖으로 거절한다(실측).
+/// KST 날짜 글의 달력 읽기 — 꼴은 `yyyy/MM/dd`·`yyyy/MM/dd HH:mm:ss`·`yyyy-MM-dd`·
+/// `yyyy-MM-dd HH:mm:ss` 이고 뒤에 `+09:00` 이 붙은 것으로 본다. 자리는 ASCII 숫자 정확히 그 수만, 앞뒤 공백 없이.
+/// UTC 로 `0001-01-01` 앞이 되는 순간(0001/01/01 09:00 전)은 범위 밖으로 거절한다(옛 판의 실측과 맞춤).
 fn kst_local(text: &str) -> Option<LocalDateTime> {
     let bytes = text.as_bytes();
     let digits = |from: usize, len: usize| -> Option<u32> {
@@ -1068,10 +1059,10 @@ fn kst_local(text: &str) -> Option<LocalDateTime> {
     (local.unix_seconds() - KST >= MIN_INSTANT).then_some(local)
 }
 
-/// `Convert.ToInt32(object, InvariantCulture)` — 정수는 범위를 보고, 실수는 짝수 쪽으로 반올림하고, 글은
-/// `int.Parse`(앞뒤 공백·앞 부호)로, NULL 은 0. 그 밖은 .NET 의 예외 글.
+/// 칸을 `i32` 로 — 정수는 범위를 보고, 실수는 짝수 쪽으로 반올림하고, 글은
+/// 앞뒤 공백·앞 부호를 받는 정수로, NULL 은 0. 그 밖은 정수가 아니라고 거절한다.
 pub(crate) fn to_int32(value: ValueRef<'_>) -> Result<i32> {
-    let overflow = || Error::invalid("Value was either too large or too small for an Int32.");
+    let overflow = || Error::invalid("정수 범위를 벗어났습니다.");
     match value {
         ValueRef::Null => Ok(0),
         ValueRef::Integer(i) => i32::try_from(i).map_err(|_| overflow()),
@@ -1092,9 +1083,7 @@ pub(crate) fn to_int32(value: ValueRef<'_>) -> Result<i32> {
                 _ => (false, trimmed),
             };
             if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-                return Err(Error::invalid(format!(
-                    "The input string '{s}' was not in a correct format."
-                )));
+                return Err(Error::invalid(format!("정수가 아닙니다: {s}")));
             }
             let significant = digits.trim_start_matches('0');
             let magnitude: i64 = if significant.is_empty() {
@@ -1104,33 +1093,40 @@ pub(crate) fn to_int32(value: ValueRef<'_>) -> Result<i32> {
             };
             i32::try_from(if negative { -magnitude } else { magnitude }).map_err(|_| overflow())
         }
-        ValueRef::Blob(_) => Err(Error::invalid(
-            "Unable to cast object of type 'System.Byte[]' to type 'System.IConvertible'.",
-        )),
+        ValueRef::Blob(_) => Err(Error::invalid("정수가 아닙니다: 바이트 값")),
     }
 }
 
 /// `connection.ExecuteScalar<int>` — `COUNT(*)` 를 32비트로.
 fn scalar_i32(connection: &Connection, sql: &str) -> Result<i32> {
-    let value = connection.query_row(sql, [], |r| {
-        Ok(crate::storage::status::scalar_i64(r.get_ref(0)?))
-    })?;
+    let value = connection.query_row(sql, [], |r| Ok(scalar_i64(r.get_ref(0)?)))?;
     i32::try_from(value)
-        .map_err(|_| Error::invalid("Value was either too large or too small for an Int32."))
+        .map_err(|_| Error::invalid("정수 범위를 벗어났습니다."))
 }
 
-/// Dapper 의 `(string)row.X` — 글은 글, NULL 은 `None`. 다른 형이면 .NET 의 `InvalidCastException` 글.
+/// 칸을 `i64` 로 — 정수는 그대로, NULL 은 0, 실수는 반올림(짝수 쪽), 글은 수로 읽는다(못 읽으면 0).
+fn scalar_i64(value: ValueRef<'_>) -> i64 {
+    match value {
+        ValueRef::Integer(i) => i,
+        ValueRef::Real(d) => d.round_ties_even() as i64,
+        ValueRef::Text(t) => std::str::from_utf8(t)
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0),
+        ValueRef::Null | ValueRef::Blob(_) => 0,
+    }
+}
+
+/// 글 칸 — 글은 글, NULL 은 `None`. 다른 형이면 그 형을 대어 거절한다.
 pub(crate) fn cast_string(value: ValueRef<'_>) -> Result<Option<String>> {
     let type_name = match value {
         ValueRef::Null => return Ok(None),
         ValueRef::Text(t) => return Ok(Some(String::from_utf8_lossy(t).into_owned())),
-        ValueRef::Integer(_) => "System.Int64",
-        ValueRef::Real(_) => "System.Double",
-        ValueRef::Blob(_) => "System.Byte[]",
+        ValueRef::Integer(_) => "정수",
+        ValueRef::Real(_) => "실수",
+        ValueRef::Blob(_) => "바이트 값",
     };
-    Err(Error::invalid(format!(
-        "Unable to cast object of type '{type_name}' to type 'System.String'."
-    )))
+    Err(Error::invalid(format!("글이 아닙니다: {type_name}")))
 }
 
 fn object(entries: Vec<(&str, Value)>) -> Value {
@@ -1158,9 +1154,9 @@ fn money(amount: Option<Decimal>) -> Value {
 mod tests {
     use super::*;
 
-    /// .NET 8 실측(`TryParseExact(t + " +09:00", …)`).
+    /// 옛 판이 읽던 결과와 맞춘 값이다(실측).
     #[test]
-    fn reads_dates_like_dotnet() {
+    fn reads_dates_as_kst() {
         let ok = |t: &str| kst_local(t).map(|l| l.second_text());
         assert_eq!(ok("2026/09/20").as_deref(), Some("2026-09-20T00:00:00"));
         assert_eq!(ok("2026-09-20").as_deref(), Some("2026-09-20T00:00:00"));
@@ -1212,11 +1208,11 @@ mod tests {
         assert_eq!(to_int32(V::Null).unwrap(), 0);
         assert_eq!(
             to_int32(V::Text(b"3.0")).unwrap_err().to_string(),
-            "The input string '3.0' was not in a correct format."
+            "정수가 아닙니다: 3.0"
         );
         assert_eq!(
             to_int32(V::Integer(3_000_000_000)).unwrap_err().to_string(),
-            "Value was either too large or too small for an Int32."
+            "정수 범위를 벗어났습니다."
         );
     }
 }

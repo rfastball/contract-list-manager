@@ -1,14 +1,14 @@
-//! 수집 매핑(C# `Erp/Mapping.cs`) — 매핑 레코드와 그 읽기·검증·판, 원천 JSON 을 업무 표의 행으로 옮기기, 매핑 저장.
+//! 수집 매핑 — 매핑 레코드와 그 읽기·검증·판, 원천 JSON 을 업무 표의 행으로 옮기기, 매핑 저장.
 //!
-//! SQL 식별자와 변환 종류는 프로그램이 허용한다. 매핑 파일은 실행 코드가 아니다 — 기본 매핑(`mapping.json`, C# 의 내장
-//! 자원과 같은 파일)의 목적지 목록이 곧 수집 허용 목록이다.
+//! SQL 식별자와 변환 종류는 프로그램이 허용한다. 매핑 파일은 실행 코드가 아니다 — 기본 매핑(`mapping.json`, 실행 파일에 실려 나간다)의
+//! 목적지 목록이 곧 수집 허용 목록이다.
 //!
-//! **판은 바이트로 정해진다.** `Mapping.Hash` 는 레코드를 `Mapping.Json`(Web + 들여쓰기 + 기본 인코더)으로 쓴 글의
+//! **판은 바이트로 정해진다.** 판은 레코드를 매핑 JSON 꼴(웹 옵션 + 들여쓰기 + 기본 인코더)로 쓴 글의
 //! SHA-256 이다. 레코드의 속성 차례·`null` 을 적는 자리·기본값이 그 글을 정하므로, 받은 JSON 은 그 꼴을 적은 표
 //! ([`FIELD_MAP`] 등)로 다시 세우고, 레코드는 그 차례로 다시 쓴다([`MappingSet::to_value`]). 들여쓰기의 줄바꿈은
-//! .NET 8 의 `Environment.NewLine` — Windows 에서 `\r\n` 이다(실측). 기본 매핑의 판은 시험이 C# 이 낸 값과 견준다.
+//! 언제나 `\r\n` 이다. 기본 매핑의 판은 시험이 옛 판이 낸 값과 견준다.
 //!
-//! **레코드의 칸은 C# 처럼 비어 있을 수 있다.** 역직렬화는 빠진 칸을 `null` 로 채우고 거절은 [`validate`] 의 몫이라,
+//! **레코드의 칸은 비어 있을 수 있다.** 역직렬화는 빠진 칸을 `null` 로 채우고 거절은 [`validate`] 의 몫이라,
 //! 그 사이의 값을 그대로 들고 다니려고 참조형 칸은 모두 `Option` 이다. 검증을 지난 매핑은 비지 않는다 — 걷는 쪽은
 //! `*_iter`·글 접근자로 읽는다.
 
@@ -28,7 +28,7 @@ use crate::text::{eq_ignore_case, is_blank, utf16_len};
 
 // ── 레코드의 꼴 ─────────────────────────────────────────────
 
-/// 레코드 자리의 꼴 — C# 레코드의 형과 같다.
+/// 레코드 자리의 꼴.
 enum Shape {
     Str,
     Int,
@@ -129,7 +129,7 @@ struct ShapeError {
     unknown: bool,
 }
 
-/// System.Text.Json 의 경로 한 단. 특별한 글자가 든 이름은 `['이름']` 이다.
+/// JSON 경로 한 단. 특별한 글자가 든 이름은 `['이름']` 이다.
 fn segment(path: &str, name: &str) -> String {
     const SPECIAL: &[char] = &[
         '.', ' ', '\'', '/', '"', '[', ']', '(', ')', '\t', '\n', '\r', '\u{c}', '\u{8}', '\\',
@@ -142,7 +142,7 @@ fn segment(path: &str, name: &str) -> String {
     }
 }
 
-/// 받은 JSON 을 `Mapping.Json` 으로 역직렬화했다가 다시 쓴 꼴로 세운다 — 모르는 속성은 거절하고
+/// 받은 JSON 을 매핑 JSON 꼴로 읽었다가 다시 쓴 꼴로 세운다 — 모르는 속성은 거절하고
 /// (`UnmappedMemberHandling.Disallow`), 이름은 대소문자를 가리지 않으며(같은 이름이 둘이면 뒤의 것), 빠진 속성은
 /// 생성자 기본값으로 채우고 속성은 레코드 차례로 놓는다. 멎으면 그 자리의 경로를 낸다 — 글의 차례로 처음 걸린 것이다.
 fn normalize_at(
@@ -291,7 +291,7 @@ fn list_value<T>(items: &Option<Vec<Option<T>>>, item: impl Fn(&T) -> Value) -> 
     }
 }
 
-/// C# `FieldMap` — 매핑의 칸 하나.
+/// 매핑의 칸 하나.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldMap {
     pub source: Option<String>,
@@ -332,7 +332,7 @@ impl FieldMap {
     }
 }
 
-/// C# `TableMap` — 원천 표 하나를 업무 표 하나로. 키가 비어 있으면 줄 차례가 곧 행이다.
+/// 원천 표 하나를 업무 표 하나로. 키가 비어 있으면 줄 차례가 곧 행이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableMap {
     pub source: Option<String>,
@@ -402,7 +402,7 @@ impl TableMap {
     }
 }
 
-/// C# `MappingScreen` — 수집하는 화면의 메뉴 번호(숫자 다섯)와 사람이 읽을 이름.
+/// 수집하는 화면의 메뉴 번호(숫자 다섯)와 사람이 읽을 이름.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MappingScreen {
     pub code: Option<String>,
@@ -426,7 +426,7 @@ impl MappingScreen {
     }
 }
 
-/// C# `MappingProfile` — 화면 하나를 읽는 규칙. `screen` 이 있는 프로필만이 수집하는 화면이다(ADR-037).
+/// 화면 하나를 읽는 규칙. `screen` 이 있는 프로필만이 수집하는 화면이다(ADR-037).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MappingProfile {
     pub id: Option<String>,
@@ -515,7 +515,7 @@ impl MappingProfile {
     }
 }
 
-/// C# `MappingSet(Version, Profiles)`.
+/// 매핑 한 벌 — 판과 프로필들.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MappingSet {
     pub version: i32,
@@ -533,7 +533,7 @@ impl MappingSet {
         self.profiles_iter().find(|p| p.id.as_deref() == Some(id))
     }
 
-    /// `Mapping.Json` 으로 쓴 꼴(JSON 값). [`hash`] 와 저장(`erp_mapping.json`)이 이것을 쓴다.
+    /// 매핑 JSON 꼴로 쓴 것(JSON 값). [`hash`] 와 저장(`erp_mapping.json`)이 이것을 쓴다.
     pub fn to_value(&self) -> Value {
         object([
             ("version", self.version.into()),
@@ -556,7 +556,7 @@ impl MappingSet {
     }
 }
 
-/// C# `MappedRow` — 업무 표의 행 하나. 머리는 `table` 이 종류 이름이고 `source_key` 가 빈 글이다.
+/// 업무 표의 행 하나. 머리는 `table` 이 종류 이름이고 `source_key` 가 빈 글이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MappedRow {
     pub table: String,
@@ -592,7 +592,7 @@ pub(crate) fn set_pair(pairs: &mut Pairs, key: &str, value: Option<String>) {
     }
 }
 
-/// C# `MappedDocument` — 원천 문서 하나를 옮긴 것.
+/// 원천 문서 하나를 옮긴 것.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MappedDocument {
     pub profile: String,
@@ -619,7 +619,7 @@ impl MappedDocument {
     }
 }
 
-/// `JsonSerializer.Deserialize<MappedDocument>(json, Mapping.Json)!.Rows` — 저장된 원천 문서(`erp_source`)의 행들.
+/// 저장된 원천 문서(`erp_source`)의 행들.
 pub(crate) fn stored_rows(json_text: &str) -> Result<Vec<MappedRow>> {
     let unreadable = || Error::invalid("저장된 원천 문서를 읽지 못했습니다.");
     let value = json::parse(json_text).map_err(|_| unreadable())?;
@@ -643,7 +643,7 @@ pub(crate) fn stored_rows(json_text: &str) -> Result<Vec<MappedRow>> {
 
 // ── 기본 매핑과 판 ─────────────────────────────────────────
 
-/// 실려 나가는 파일 — 이웃한 `mapping.json` 을 읽어 넣는다(C# 의 내장 자원 `Pclm.Core.Erp.mapping.json` 이던 파일).
+/// 실려 나가는 파일 — 이웃한 `mapping.json` 을 읽어 넣는다.
 const DEFAULT_MAPPING: &str = include_str!("mapping.json");
 
 fn defaults_ref() -> &'static MappingSet {
@@ -651,20 +651,20 @@ fn defaults_ref() -> &'static MappingSet {
     DEFAULTS.get_or_init(|| MappingSet::from_normalized(&defaults_value()))
 }
 
-/// `Mapping.Defaults()` 를 `Mapping.Json` 으로 쓴 꼴(JSON 값).
+/// 기본 매핑을 매핑 JSON 꼴로 쓴 것(JSON 값).
 pub(crate) fn defaults_value() -> Value {
-    // 실려 나가는 파일이라 읽지 못하면 C# 도 시작부터 실패한다. 시험(`default_revision_matches_csharp`)이 지킨다.
+    // 실려 나가는 파일이라 읽지 못하면 시작부터 실패한다. 시험(`default_revision_is_pinned`)이 지킨다.
     json::parse(DEFAULT_MAPPING)
         .and_then(|v| normalize(&v, &MAPPING_SET))
         .unwrap_or(Value::Null)
 }
 
-/// `Mapping.Defaults()` — 기본 매핑.
+/// 기본 매핑.
 pub fn defaults() -> MappingSet {
     defaults_ref().clone()
 }
 
-/// `Mapping.Hash` — `Mapping.Json` 꼴 글의 SHA-256, 대문자 16진. 들여 쓴 글의 줄바꿈은 C# `Mapping.HashText` 처럼
+/// 매핑 JSON 꼴 글의 SHA-256, 대문자 16진. 들여 쓴 글의 줄바꿈은
 /// 운영체제와 상관없이 `\r\n` 이다([`json::to_indented`]) — 파일에 적힌 판이 어디서 떠도 같아야 한다.
 pub fn hash(normalized: &Value) -> String {
     let text = json::to_indented(normalized, Encoder::Default);
@@ -674,7 +674,6 @@ pub fn hash(normalized: &Value) -> String {
         .collect()
 }
 
-/// `Mapping.Hash(mapping)`.
 pub fn revision(set: &MappingSet) -> String {
     hash(&set.to_value())
 }
@@ -683,14 +682,14 @@ pub fn revision(set: &MappingSet) -> String {
 
 const UNREADABLE: &str = "매핑 JSON 형식이 올바르지 않습니다.";
 
-/// `Mapping.Parse` — 사람이 지금 편집해 저장하는 매핑. 기본이 거둔 필드는 거절한다.
+/// 사람이 지금 편집해 저장하는 매핑. 기본이 거둔 필드는 거절한다.
 pub fn parse(json_text: &str) -> Result<MappingSet> {
     let value = normalize_text(json_text)?;
     validate(&value)?;
     Ok(value)
 }
 
-/// `Mapping.Read` — 작업자료에 저장한 매핑(`erp_mapping`). [`parse`] 에 더해 기본 매핑이 거둔 필드를 조용히 떨구고
+/// 작업자료에 저장한 매핑(`erp_mapping`). [`parse`] 에 더해 기본 매핑이 거둔 필드를 조용히 떨구고
 /// (ADR-043), 기본에 새로 더해진 대상이 편집본에 없으면 기본의 것으로 채운다.
 pub fn read(json_text: &str) -> Result<MappingSet> {
     let value = without_retired_fields(with_missing_fields(normalize_text(json_text)?));
@@ -698,7 +697,7 @@ pub fn read(json_text: &str) -> Result<MappingSet> {
     Ok(value)
 }
 
-/// `Mapping.Normalize` — 읽지 못하는 글은 .NET 의 영어 예외 대신 한국어 사유로 거절한다. 같은 키가 두 번 든 글도 읽을
+/// 읽지 못하는 글은 한국어 사유로 거절한다. 같은 키가 두 번 든 글도 읽을
 /// 수 없는 글이다(뒤 값을 조용히 고르지 않는다).
 fn normalize_text(json_text: &str) -> Result<MappingSet> {
     // 문법 검사를 겸한다 — 깨진 글·빈 글·너무 깊은 글은 여기서 거절된다.
@@ -715,7 +714,7 @@ fn normalize_text(json_text: &str) -> Result<MappingSet> {
     )))
 }
 
-/// `Mapping.Reason` — 문법은 맞는데 꼴이 틀린 글의 사유. 모르는 칸은 그 이름이 경로의 끝이다. 뿌리 자체가 틀리면
+/// 문법은 맞는데 꼴이 틀린 글의 사유. 모르는 칸은 그 이름이 경로의 끝이다. 뿌리 자체가 틀리면
 /// 경로가 `$` 뿐이라 형식 사유로 낸다.
 fn reason(e: ShapeError) -> Error {
     let path = match e.path.strip_prefix("$.") {
@@ -729,7 +728,7 @@ fn reason(e: ShapeError) -> Error {
     Error::invalid(format!("매핑의 ‘{path}’ 값 형식이 올바르지 않습니다."))
 }
 
-/// `Mapping.WithMissingFields` — 기본 매핑에 대상이 더해지기 전에 저장한 편집본에 빠진 필드·표를 기본의 것 그대로
+/// 기본 매핑에 대상이 더해지기 전에 저장한 편집본에 빠진 필드·표를 기본의 것 그대로
 /// 채운다(ADR-043 결정 2). 이미 있는 대상은 건드리지 않는다. 표는 기본의 자리 차례대로 끼운다.
 fn with_missing_fields(mut set: MappingSet) -> MappingSet {
     let Some(profiles) = set.profiles.as_mut() else {
@@ -783,7 +782,7 @@ fn with_missing_fields(mut set: MappingSet) -> MappingSet {
     set
 }
 
-/// `Mapping.WithoutRetiredFields` — 기본의 같은 프로필(같은 표)에 대상이 없는 필드를 뺀다. 그 필드만 걸던 선택자도
+/// 기본의 같은 프로필(같은 표)에 대상이 없는 필드를 뺀다. 그 필드만 걸던 선택자도
 /// 함께 떨군다. 모르는 프로필·표와 깨진 항목(null)은 그대로 둔다 — 거절은 [`validate`] 의 몫이다.
 fn without_retired_fields(mut set: MappingSet) -> MappingSet {
     let Some(profiles) = set.profiles.as_mut() else {
@@ -850,7 +849,7 @@ fn without_retired_fields(mut set: MappingSet) -> MappingSet {
     set
 }
 
-/// `Mapping.WithNewProfiles` — 기본 매핑에 프로필이 더해지기 전에 저장한 매핑에 빠진 프로필을 기본의 것 그대로 채운다.
+/// 기본 매핑에 프로필이 더해지기 전에 저장한 매핑에 빠진 프로필을 기본의 것 그대로 채운다.
 /// 자리는 기본 매핑의 순서를 따른다.
 fn with_new_profiles(mut set: MappingSet) -> MappingSet {
     let Some(profiles) = set.profiles.as_mut() else {
@@ -874,25 +873,39 @@ fn with_new_profiles(mut set: MappingSet) -> MappingSet {
     set
 }
 
-/// `Mapping.WithScreens` — 화면을 적기 전에 저장한 매핑(`screen` 이 없다)에 기본 매핑의 화면을 프로필 id 로 채운다.
+/// 화면이 없는 옛 매핑을 채우고, 같은 화면 번호의 이전 이름만 현재 이름으로 고친다.
 fn with_screens(mut set: MappingSet) -> MappingSet {
     let Some(profiles) = set.profiles.as_mut() else {
         return set;
     };
-    if profiles.iter().flatten().all(|p| p.screen.is_some()) {
-        return set;
-    }
     let defaults = defaults_ref();
     for p in profiles.iter_mut().flatten() {
+        let original = single(defaults.profiles_iter(), |d| d.id == p.id);
+        let previous_name = match p.id() {
+            "g2b-request-v1" => Some("조달요구 접수(목록형)"),
+            "g2b-request-b-v1" => Some("조달요구 접수 상세(일반용역)"),
+            "g2b-notice-a-v1" => Some("입찰공고 상세"),
+            "g2b-notice-a-service-v1" => Some("입찰공고 상세(일반용역)"),
+            "g2b-notice-b-v1" => Some("입찰공고상세조회(통합)"),
+            "g2b-contract-v1" => Some("계약 상세"),
+            _ => None,
+        };
         if p.screen.is_none() {
-            p.screen =
-                single(defaults.profiles_iter(), |d| d.id == p.id).and_then(|d| d.screen.clone());
+            p.screen = original.and_then(|d| d.screen.clone());
+        } else if let (Some(screen), Some(current), Some(previous)) = (
+            p.screen.as_mut(),
+            original.and_then(|d| d.screen.as_ref()),
+            previous_name,
+        ) && screen.code == current.code
+            && screen.name.as_deref() == Some(previous)
+        {
+            screen.name = current.name.clone();
         }
     }
     set
 }
 
-/// `SingleOrDefault(predicate)` — 맞는 것이 둘 이상이면 C# 은 던지지만 기본 매핑의 id·대상은 겹치지 않는다.
+/// 조건에 맞는 것 하나 — 맞는 것 가운데 첫 것을 돌려준다 — 기본 매핑의 id·대상은 겹치지 않는다.
 fn single<'a, T>(
     items: impl Iterator<Item = &'a T>,
     predicate: impl Fn(&T) -> bool,
@@ -942,7 +955,7 @@ fn check_path(path: Option<&str>) -> Result<()> {
     }
 }
 
-/// `Mapping.Validate` — 기본 매핑의 목적지 목록이 수집 허용 목록이다. 임의 DB 열·민감 필드를 더할 수 없다.
+/// 기본 매핑의 목적지 목록이 수집 허용 목록이다. 임의 DB 열·민감 필드를 더할 수 없다.
 pub fn validate(set: &MappingSet) -> Result<()> {
     let defaults = defaults_ref();
     let default_count = defaults.profiles.as_ref().map_or(0, Vec::len);
@@ -1105,12 +1118,12 @@ fn check_fields(fields: &[Option<FieldMap>], allowed: &[Option<FieldMap>]) -> Re
 
 // ── 원천 값 ─────────────────────────────────────────────
 
-/// `node.Deserialize<FieldMap>(Mapping.Json)`. JSON `null` 이면 `None`. 판올림 보정이 당시 매핑의 칸을 읽는다.
+/// 노드를 [`FieldMap`] 으로 읽는다. JSON `null` 이면 `None`. 판올림 보정이 당시 매핑의 칸을 읽는다.
 pub(crate) fn field_map(node: &Value) -> JsonResult<Option<FieldMap>> {
     Ok(FieldMap::from_normalized(&normalize(node, &FIELD_MAP)?))
 }
 
-/// `Mapping.At` 이 던지는 오류(C# `InvalidOperationException`) — 여러 분류 표에서 문서 전체 값을 꺼내려 했다.
+/// [`at`] 이 내는 오류 — 여러 분류 표에서 문서 전체 값을 꺼내려 했다.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AtError;
 
@@ -1122,8 +1135,8 @@ impl From<AtError> for Error {
     }
 }
 
-/// `Mapping.At` — 점으로 이은 경로를 따라 내려간다. 표(배열)의 `0` 은 원소가 꼭 하나일 때만 읽는다.
-/// 없는 자리는 `None`, JSON `null` 인 자리는 `Some(Null)` 이다(C# `TryGetProperty` 와 같다).
+/// 점으로 이은 경로를 따라 내려간다. 표(배열)의 `0` 은 원소가 꼭 하나일 때만 읽는다.
+/// 없는 자리는 `None`, JSON `null` 인 자리는 `Some(Null)` 이다.
 pub(crate) fn at<'a>(
     mut value: &'a Value,
     path: &str,
@@ -1148,7 +1161,7 @@ pub(crate) fn at<'a>(
     Ok(Some(value))
 }
 
-/// `Mapping.Text` — 글은 앞뒤 공백을 걷고, 그 밖의 값은 `JsonElement.ToString()` 꼴(수는 원문, 참거짓은
+/// 글은 앞뒤 공백을 걷고, 그 밖의 값은 JSON 값의 글 꼴(수는 원문, 참거짓은
 /// `True`/`False`, 객체·배열은 기본 인코더로 쓴 JSON)이다.
 pub(crate) fn text(value: Option<&Value>) -> Option<String> {
     match value? {
@@ -1161,7 +1174,7 @@ pub(crate) fn text(value: Option<&Value>) -> Option<String> {
     }
 }
 
-/// `Mapping.ConvertValue` 의 오류 — `필드 형식 오류: 원천 → 대상 (변환)`.
+/// 값 변환의 오류 — `필드 형식 오류: 원천 → 대상 (변환)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ConvertError(pub String);
 
@@ -1171,7 +1184,7 @@ impl From<ConvertError> for Error {
     }
 }
 
-/// `Mapping.ConvertValue` — 원천 글을 매핑의 변환으로 바꾼다. 빈 값(과 날짜의 `-`)은 `None`.
+/// 원천 글을 매핑의 변환으로 바꾼다. 빈 값(과 날짜의 `-`)은 `None`.
 pub fn convert_value(value: Option<&str>, f: &FieldMap) -> Result<Option<String>> {
     Ok(convert(value, f)?)
 }
@@ -1218,7 +1231,7 @@ pub(crate) fn convert(
     Ok(converted)
 }
 
-/// `decimal.Parse(s, AllowLeadingSign | AllowDecimalPoint, Invariant).ToString(Invariant)`.
+/// 앞 부호와 소수점만 받는 로케일 없는 십진 수 읽기, 다시 로케일 없는 글로.
 ///
 /// 소수부의 0 은 남는다(`1.50` → `1.50`), 정수부 앞의 0 은 걷힌다(`007` → `7`), 음의 0 은 부호가 없다(실측).
 /// 소수 자리는 28 까지이고 넘는 자리는 짝수 쪽으로 반올림한다. 29 자리 최댓값을 넘으면 실패(OverflowException).
@@ -1284,7 +1297,7 @@ fn parse_decimal(s: &str) -> Option<String> {
     }
 }
 
-/// `int.Parse(s, Invariant)` — `NumberStyles.Integer`: 앞뒤 공백(`\t\n\v\f\r` 와 빈칸)과 앞 부호를 받는다.
+/// 로케일 없는 정수 읽기 — 앞뒤 공백(`\t\n\v\f\r` 와 빈칸)과 앞 부호를 받는다.
 fn parse_int(s: &str) -> Option<String> {
     let ws = |c: char| matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ');
     let t = s.trim_matches(ws);
@@ -1295,9 +1308,9 @@ fn parse_int(s: &str) -> Option<String> {
     t.parse::<i32>().ok().map(|n| n.to_string())
 }
 
-/// `DateTime.ParseExact(s, 형식들, Invariant, None)` 을 `yyyy-MM-dd`(날짜) 또는 `yyyy-MM-dd HH:mm:ss` 로.
+/// 정해진 형식 목록으로 `yyyy-MM-dd`(날짜) 또는 `yyyy-MM-dd HH:mm:ss` 로.
 ///
-/// 형식은 C# 의 목록과 같은 차례다. 두 자리 칸은 꼭 두 자리(`2026-1-5` 는 실패), `FFFFFFF` 는 0~7 자리(점 뒤가
+/// 형식은 이 목록의 차례로 시험한다. 두 자리 칸은 꼭 두 자리(`2026-1-5` 는 실패), `FFFFFFF` 는 0~7 자리(점 뒤가
 /// 비어도 된다), 공백은 받지 않는다(실측).
 fn parse_date(s: &str, date_only: bool) -> Option<String> {
     const FORMATS: [&str; 11] = [
@@ -1392,7 +1405,7 @@ fn ambiguous(source: &str) -> Error {
     Error::invalid(format!("대표 표를 하나로 확인하지 못했습니다: {source}"))
 }
 
-/// `Mapping.Table` — 출처가 가리키는 표의 행. `tables` 가 없거나 맞는 표가 없으면 거절한다.
+/// 출처가 가리키는 표의 행. `tables` 가 없거나 맞는 표가 없으면 거절한다.
 pub fn table<'a>(input: &'a Value, source: &str) -> Result<&'a [Value]> {
     if element::try_get(input, "tables")?.is_none() {
         return Err(Error::invalid("tables가 없습니다."));
@@ -1400,7 +1413,7 @@ pub fn table<'a>(input: &'a Value, source: &str) -> Result<&'a [Value]> {
     Ok(resolve(input, source)?.ok_or_else(|| ambiguous(source))?.1)
 }
 
-/// `Mapping.Resolve` — 출처가 가리키는 표 하나(표 이름과 행). 맞는 표가 없으면 `None`(그 표를 걷지 않은 문서다).
+/// 출처가 가리키는 표 하나(표 이름과 행). 맞는 표가 없으면 `None`(그 표를 걷지 않은 문서다).
 ///
 /// 와일드카드(`*접미사`)가 여러 표에 맞으면 빈 표를 버리고, 남은 것이 내용까지 같으면 앞의 것 하나로 본다 —
 /// 「미리보기」 창이 같은 첨부를 한 벌 더 싣는다. 모두 비었으면 앞의 빈 표다. 서로 다른 비지 않은 표가 둘 이상이면
@@ -1468,12 +1481,12 @@ fn sources(fields: &[&FieldMap]) -> Vec<String> {
         .collect()
 }
 
-/// `Mapping.Sanitize` — 원천 JSON 에서 매핑이 읽는 칸만 남긴다(수집 기록에 남길 사진). 고른 표 하나만 남긴다 — 걸러
+/// 원천 JSON 에서 매핑이 읽는 칸만 남긴다(수집 기록에 남길 사진). 고른 표 하나만 남긴다 — 걸러
 /// 담은 자료를 다시 읽어도 같은 표가 골라진다.
 pub fn sanitize(set: &MappingSet, profile: &str, input: &Value) -> Result<Value> {
     let p = set
         .profile(profile)
-        .ok_or_else(|| Error::invalid("Sequence contains no matching element"))?;
+        .ok_or_else(|| Error::invalid(format!("매핑에 없는 프로필입니다: {profile}")))?;
     let fields: Vec<&FieldMap> = p.fields_iter().collect();
     let mut point_keys: Vec<String> = sources(&fields)
         .into_iter()
@@ -1547,10 +1560,9 @@ fn pick(row: &Value, paths: &[String]) -> Result<Value> {
             }
             target = match slot {
                 Value::Object(map) => map,
-                other => {
+                _ => {
                     return Err(Error::InvalidOperation(format!(
-                        "The node must be of type 'JsonObject', but the node is of type '{}'.",
-                        node_kind(other)
+                        "매핑이 읽는 칸의 경로가 겹칩니다: {path}"
                     )));
                 }
             };
@@ -1560,20 +1572,12 @@ fn pick(row: &Value, paths: &[String]) -> Result<Value> {
     Ok(Value::Object(result))
 }
 
-fn node_kind(value: &Value) -> &'static str {
-    match value {
-        Value::Array(_) => "JsonArray",
-        Value::Object(_) => "JsonObject",
-        _ => "JsonValue",
-    }
-}
-
 // ── 옮기기 ─────────────────────────────────────────────
 
 /// 입찰공고 상세의 꼴(공고 A)을 읽는 프로필 — 일정 행을 세우는 후처리가 둘에 함께 걸린다.
 const NOTICE_A: [&str; 2] = ["g2b-notice-a-v1", "g2b-notice-a-service-v1"];
 
-/// `Mapping.Map` — 원천 문서를 업무 표의 행들로. 문서를 가르는 것은 번호·차수뿐이다 — 제목·표가 없으면 그 값을
+/// 원천 문서를 업무 표의 행들로. 문서를 가르는 것은 번호·차수뿐이다 — 제목·표가 없으면 그 값을
 /// 수집하지 않은 것으로 두고 기존 값을 건드리지 않는다.
 pub fn map(
     set: &MappingSet,
@@ -1611,7 +1615,7 @@ pub fn map(
             if !b.is_empty()
                 && b.bytes().all(|c| c.is_ascii_alphanumeric())
                 && (1..=3).contains(&s.chars().count())
-                && s.chars().all(dotnet_digit) =>
+                && s.chars().all(unicode_digit) =>
         {
             (b, s)
         }
@@ -1771,7 +1775,7 @@ pub fn map(
     })
 }
 
-/// `Mapping.Fields` — 머리(또는 표의 줄) 하나의 칸들. `tables.` 로 시작하는 출처는 문서의 뿌리에서 읽는다.
+/// 머리(또는 표의 줄) 하나의 칸들. `tables.` 로 시작하는 출처는 문서의 뿌리에서 읽는다.
 fn field_values(source: &Value, fields: &[&FieldMap], root: Option<&Value>) -> Result<Pairs> {
     let mut result: Pairs = Vec::new();
     for f in fields {
@@ -1794,7 +1798,7 @@ fn field_values(source: &Value, fields: &[&FieldMap], root: Option<&Value>) -> R
             {
                 continue;
             }
-            // C# 의 null + null 은 빈 글이다.
+            // null 과 null 을 이으면 빈 글이다.
             text_value = Some(format!(
                 "{}{}",
                 text_value.unwrap_or_default(),
@@ -1811,9 +1815,9 @@ fn numbered(b: &str, kind: &str) -> bool {
     let chars: Vec<char> = b.chars().collect();
     chars.len() == 13
         && matches!(chars[0], 'R' | 'T')
-        && chars[1..3].iter().all(|c| dotnet_digit(*c))
+        && chars[1..3].iter().all(|c| unicode_digit(*c))
         && chars[3..5].iter().collect::<String>() == kind
-        && chars[5..].iter().all(|c| dotnet_digit(*c))
+        && chars[5..].iter().all(|c| unicode_digit(*c))
 }
 
 /// `\A([RT]\d{2}[A-Z]{2}\d{8})\s*-\s*(\d{2,3})\z` — 번호와 차수가 한 칸에 든 화면.
@@ -1824,9 +1828,9 @@ fn split_numbered(text: &str) -> Option<(String, String)> {
     }
     let head = &chars[..13];
     if !(matches!(head[0], 'R' | 'T')
-        && head[1..3].iter().all(|c| dotnet_digit(*c))
+        && head[1..3].iter().all(|c| unicode_digit(*c))
         && head[3..5].iter().all(char::is_ascii_uppercase)
-        && head[5..].iter().all(|c| dotnet_digit(*c)))
+        && head[5..].iter().all(|c| unicode_digit(*c)))
     {
         return None;
     }
@@ -1838,15 +1842,15 @@ fn split_numbered(text: &str) -> Option<(String, String)> {
     while rest.first().is_some_and(|c| c.is_whitespace()) {
         rest = &rest[1..];
     }
-    if !(2..=3).contains(&rest.len()) || !rest.iter().all(|c| dotnet_digit(*c)) {
+    if !(2..=3).contains(&rest.len()) || !rest.iter().all(|c| unicode_digit(*c)) {
         return None;
     }
     Some((head.iter().collect(), rest.iter().collect()))
 }
 
-/// .NET 정규식의 `\d` — 유니코드 Nd(십진 숫자). .NET 정규식은 UTF-16 단위로 보므로 BMP 의 것만 맞는다(서로게이트 짝은
+/// 정규식의 `\d` — 유니코드 Nd(십진 숫자). 옛 판의 정규식은 UTF-16 단위로 보므로 BMP 의 것만 맞는다(서로게이트 짝은
 /// 숫자가 아니다). 블록마다 첫 글자(열 자씩).
-pub(crate) fn dotnet_digit(c: char) -> bool {
+pub(crate) fn unicode_digit(c: char) -> bool {
     const ZEROS: &[u32] = &[
         0x30, 0x660, 0x6F0, 0x7C0, 0x966, 0x9E6, 0xA66, 0xAE6, 0xB66, 0xBE6, 0xC66, 0xCE6, 0xD66,
         0xDE6, 0xE50, 0xED0, 0xF20, 0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
@@ -1859,7 +1863,7 @@ pub(crate) fn dotnet_digit(c: char) -> bool {
 
 // ── 매핑 저장 ─────────────────────────────────────────────
 
-/// C# `MappingStore` — 작업자료의 매핑 판들(`erp_mapping`). 활성 판이 없으면 기본 매핑이다.
+/// 작업자료의 매핑 판들(`erp_mapping`). 활성 판이 없으면 기본 매핑이다.
 pub struct MappingStore<'a> {
     database: &'a Database,
     env: &'a dyn Env,
@@ -2004,20 +2008,20 @@ pub(crate) fn active_in(c: &Connection) -> Result<MappingSet> {
 mod tests {
     use super::*;
 
-    /// C# `Mapping.Hash(Mapping.Defaults())` 의 실측값(scratch 콘솔, 지금의 `Erp/mapping.json`).
-    /// 매핑 파일을 고치면 이 값도 바뀐다 — 그때는 C# 에서 다시 떠서 고친다.
+    /// 기본 매핑의 판(지금의 `Erp/mapping.json`).
+    /// 매핑 파일을 고치면 이 값도 바뀐다 — 그때는 시험이 낸 새 값을 눈으로 확인한 뒤 고친다.
     #[test]
-    fn default_revision_matches_csharp() {
+    fn default_revision_is_pinned() {
         assert_eq!(
             hash(&defaults_value()),
-            "BCBF796437854FE6E3EB9224297B14A8100CE17AD501FCA5B489790D48F912D8"
+            "358DE971DD28E1B22D346A455826E0EB3DD23926E10BE3308CDA196380505FAC"
         );
         // 레코드로 읽었다가 다시 쓴 꼴도 같은 판이다.
         assert_eq!(
             revision(&defaults()),
-            "BCBF796437854FE6E3EB9224297B14A8100CE17AD501FCA5B489790D48F912D8"
+            "358DE971DD28E1B22D346A455826E0EB3DD23926E10BE3308CDA196380505FAC"
         );
-        // 판을 뜨는 글에 홀로 선 `\n` 이 없다 — 줄바꿈은 모두 `\r\n` 이다(C# `매핑의_판은_어느_운영체제에서나_같다`).
+        // 판을 뜨는 글에 홀로 선 `\n` 이 없다 — 줄바꿈은 모두 `\r\n` 이다.
         let text = json::to_indented(&defaults_value(), Encoder::Default);
         assert!(text.contains("\r\n"));
         assert!(
@@ -2026,9 +2030,9 @@ mod tests {
         );
     }
 
-    /// 기대값은 `decimal.Parse(…).ToString()` 실측.
+    /// 기대값은 옛 판에서 잰 값이다.
     #[test]
-    fn decimals_match_dotnet() {
+    fn decimals_keep_scale() {
         let cases = [
             ("1.50", Some("1.50")),
             ("-0", Some("0")),
@@ -2067,7 +2071,7 @@ mod tests {
     }
 
     #[test]
-    fn integers_match_dotnet() {
+    fn integers_trim_and_check_range() {
         assert_eq!(parse_int(" 5 ").as_deref(), Some("5"));
         assert_eq!(parse_int("+5").as_deref(), Some("5"));
         assert_eq!(parse_int("-0").as_deref(), Some("0"));
@@ -2077,7 +2081,7 @@ mod tests {
     }
 
     #[test]
-    fn dates_match_dotnet() {
+    fn dates_accept_fixed_forms() {
         let cases = [
             ("2026-1-5", None),
             ("2026-01-05", Some("2026-01-05 00:00:00")),
@@ -2108,7 +2112,7 @@ mod tests {
     }
 
     #[test]
-    fn regex_ports_match_dotnet() {
+    fn regex_ports_hold() {
         assert!(sensitive("giveActno"));
         assert!(sensitive("bankAccountNo"));
         assert!(!sensitive("accounting"));
@@ -2122,6 +2126,6 @@ mod tests {
             Some(("R26TA00000001".into(), "00".into()))
         );
         assert_eq!(split_numbered("R26TA00000001-0"), None);
-        assert!(dotnet_digit('٣') && dotnet_digit('９') && !dotnet_digit('a'));
+        assert!(unicode_digit('٣') && unicode_digit('９') && !unicode_digit('a'));
     }
 }

@@ -40,8 +40,8 @@ const streamFor = (sourceWords: Set<string>) => StreamLanguage.define<{ afterPip
   },
 });
 
-const flowStream = streamFor(new Set(["품목", "연결공고", "연결접수", "연결계약"]));
-const viewStream = streamFor(new Set(["접수", "공고", "계약"]));
+const flowStream = streamFor(new Set(["품목", "오늘", "연결공고", "연결접수", "연결계약"]));
+const viewStream = streamFor(new Set(["오늘", "접수", "공고", "계약"]));
 
 /** 흐름식 편집기의 재료: 하이라이트·완성·밑줄. 맞춤 뷰(<code>env.view</code>)면 문서 이름으로 읽고 완성한다. */
 export function flowExtensions(env: FlowEnv): Extension[] {
@@ -66,6 +66,7 @@ export function flowExtensions(env: FlowEnv): Extension[] {
       options = [
         ...(env.view ? [] : [{ label: "품목", type: "keyword", detail: "이 행의 품목" }]),
         ...Object.entries(words).filter(([k]) => env.linked[k as LinkKind]).map(([, w]) => ({ label: w, type: "keyword", detail: env.view ? "문서" : "연결 문서" })),
+        { label: "오늘", type: "keyword", detail: "오늘 날짜" },
         ...env.base.map(f => ({ label: ident(f), type: "variable", detail: "이 행의 열" })),
       ];
     } else if (pipe >= 0 && !inStep.trim()) {

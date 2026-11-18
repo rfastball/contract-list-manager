@@ -1,9 +1,9 @@
-//! 사람이 스스로 만드는 열 — C# `UserColumnTests` 전부.
+//! 사람이 스스로 만드는 열.
 //!
 //! 여기서 가장 조심하는 것은 **열 이름이 뷰 SQL 에 그대로 박힌다**는 점이다. 뷰는 앱이 열릴 때마다 다시 지어지므로,
 //! 깨진 이름 하나가 들어가면 그 뒤로 앱이 아예 뜨지 못한다.
 //!
-//! C# 의 `Store.UpsertNotice`·`UpsertContract` 는 [`Fixture`] 의 SQL 픽스처로 옮겼다. 값은 모두 지어낸 것이다.
+//! 공고·계약 업서트는 [`Fixture`] 의 SQL 픽스처로 한다. 값은 모두 지어낸 것이다.
 
 mod common;
 
@@ -22,11 +22,11 @@ fn s(items: &[&str]) -> Vec<String> {
     items.iter().map(|x| x.to_string()).collect()
 }
 
-/// `Assert.Throws<InvalidOperationException>` — 그 말을 낸다.
+/// 그 말을 낸다.
 fn invalid<T: std::fmt::Debug>(result: pclm_core::Result<T>) -> String {
     match result {
         Err(Error::InvalidOperation(message)) => message,
-        other => panic!("InvalidOperationException 을 바랐는데: {other:?}"),
+        other => panic!("Error::InvalidOperation 을 바랐는데: {other:?}"),
     }
 }
 
@@ -45,7 +45,7 @@ fn column(store: &Store, entity: &str, name: &str) -> UserColumnDefinition {
     found.into_iter().next().unwrap()
 }
 
-/// C# `ViewColumns` — `_database.OpenReadOnly()` 로 `PRAGMA table_info`.
+/// `_database.OpenReadOnly()` 로 `PRAGMA table_info`.
 fn view_columns(f: &Fixture, view: &str) -> Vec<String> {
     let c = f.database().open_read_only().unwrap();
     let mut statement = c
@@ -58,7 +58,7 @@ fn view_columns(f: &Fixture, view: &str) -> Vec<String> {
         .unwrap()
 }
 
-/// `ExecuteScalar()?.ToString() ?? ""` — 첫 줄 첫 칸, 없거나 NULL 이면 빈 글.
+/// 첫 줄 첫 칸, 없거나 NULL 이면 빈 글.
 fn scalar_text(c: &Connection, sql: &str) -> String {
     let mut statement = c.prepare(sql).unwrap();
     let mut rows = statement.query([]).unwrap();
@@ -69,12 +69,12 @@ fn scalar_text(c: &Connection, sql: &str) -> String {
             Sql::Integer(i) => i.to_string(),
             Sql::Real(d) => d.to_string(),
             Sql::Text(t) => t,
-            Sql::Blob(_) => "System.Byte[]".into(),
+            Sql::Blob(_) => "(바이너리)".into(),
         },
     }
 }
 
-/// Dapper `QuerySingle<string>` — 꼭 한 줄이고, NULL 이면 C# 은 null 을 내 `Assert.Equal("", null)` 이 실패한다.
+/// 꼭 한 줄을 글로 읽는다 — NULL 이면 시험이 멈춘다.
 fn single_text(c: &Connection, sql: &str) -> String {
     let mut statement = c.prepare(sql).unwrap();
     let mut rows = statement.query([]).unwrap();
@@ -87,13 +87,13 @@ fn single_text(c: &Connection, sql: &str) -> String {
         Sql::Integer(i) => i.to_string(),
         Sql::Real(d) => d.to_string(),
         Sql::Text(t) => t,
-        Sql::Blob(_) => "System.Byte[]".into(),
+        Sql::Blob(_) => "(바이너리)".into(),
     };
     assert!(rows.next().unwrap().is_none(), "줄이 둘 이상입니다: {sql}");
     value
 }
 
-/// C# `Cell` — `v_계약` 의 첫 줄 그 열.
+/// `v_계약` 의 첫 줄 그 열.
 fn cell(f: &Fixture, column: &str) -> String {
     let c = f.database().open_read_only().unwrap();
     scalar_text(&c, &format!("SELECT \"{column}\" FROM v_계약;"))
@@ -103,7 +103,6 @@ fn contract() -> EntityRef {
     EntityRef::new("contract", "R26TA98000707", "00")
 }
 
-/// C# `Put`.
 fn put(f: &Fixture) {
     f.contract(
         "R26TA98000707",
@@ -116,7 +115,6 @@ fn put(f: &Fixture) {
     );
 }
 
-/// C# `ColumnStep(Op, Fields, Text, Index)`.
 fn step(op: &str, fields: Option<&[&str]>, text: Option<&str>, index: Option<i32>) -> Value {
     json!({
         "op": op,
@@ -126,7 +124,7 @@ fn step(op: &str, fields: Option<&[&str]>, text: Option<&str>, index: Option<i32
     })
 }
 
-/// C# `Formula` — `ComputedColumn.Json`(웹 기본값: camelCase, null 도 적는다)으로 쓴 v1 가공식.
+/// `ComputedColumn.Json`(웹 기본값: camelCase, null 도 적는다)으로 쓴 v1 가공식.
 fn formula(steps: &[Value]) -> String {
     bridge_json(&json!({"version": 1, "id": "", "steps": steps}))
 }
@@ -144,19 +142,35 @@ fn with_items<R>(items: &[Vec<(&str, String)>], body: impl FnOnce(&[&[(&str, &st
 // ── 기본 열 ─────────────────────────────────────────────
 
 /// `기본_열은_자유_입력_둘뿐이다` — 미리 세워 주는 열은 종류마다 둘뿐이고, 모두 자유 입력이다.
-fn default_columns_case(entity_type: &str, first: &str) {
+fn default_columns_case(entity_type: &str, first: &str) -> Fixture {
     let f = Fixture::new("cols-default");
     let columns = f.store().user_columns(Some(entity_type)).unwrap();
 
     assert_eq!(names(&columns), s(&[first, "메모"]));
     assert!(columns.iter().all(|c| c.kind == "text"));
     assert!(columns.iter().all(|c| c.choices().is_empty()));
+    f
 }
 
 /// `기본_열은_자유_입력_둘뿐이다("contract", "진행상태")`
 #[test]
 fn default_columns_are_two_free_text_contract() {
-    default_columns_case("contract", "진행상태");
+    let first = default_columns_case("contract", "진행상태");
+
+    // 복사한 픽스처의 변경은 다음 시험으로 새지 않고, 생성 때 소비한 ID도 보존한다.
+    first.sql("DELETE FROM user_column;");
+    let second = Fixture::new("cols-isolation-second");
+    assert_eq!(
+        names(&second.store().user_columns(Some("contract")).unwrap()),
+        s(&["진행상태", "메모"])
+    );
+    assert!(first.store().user_columns(None).unwrap().is_empty());
+    let next_id = pclm_core::Env::new_id(first.env);
+    assert_eq!(next_id, pclm_core::Env::new_id(second.env));
+    assert_ne!(
+        Some(next_id),
+        second.scalar("SELECT dataset_id FROM pclm_file;")
+    );
 }
 
 /// `기본_열은_자유_입력_둘뿐이다("notice", "검토여부")`
@@ -182,29 +196,19 @@ fn request_can_get_columns() {
 }
 
 /// `통합_v2_가_쓰는_이름은_계약_열로_쓸_수_없다` — `v_통합` 에만 있는 이름과도 부딪히지 않는다.
-fn unified_name_case(name: &str) {
+#[test]
+fn unified_names_refused() {
     let f = Fixture::new("cols-unified");
-    let message = invalid(f.store().add_user_column("contract", name, "text", &[]));
-
-    assert!(message.contains("표가 이미 쓰는 이름입니다"), "{message}");
-}
-
-/// `통합_v2_가_쓰는_이름은_계약_열로_쓸_수_없다("요청명")`
-#[test]
-fn unified_names_refused_request_title() {
-    unified_name_case("요청명");
-}
-
-/// `통합_v2_가_쓰는_이름은_계약_열로_쓸_수_없다("접수번호")`
-#[test]
-fn unified_names_refused_request_number() {
-    unified_name_case("접수번호");
-}
-
-/// `통합_v2_가_쓰는_이름은_계약_열로_쓸_수_없다("접수수수료")`
-#[test]
-fn unified_names_refused_request_fee() {
-    unified_name_case("접수수수료");
+    for name in ["요청명", "접수번호", "접수수수료"] {
+        let result = f.store().add_user_column("contract", name, "text", &[]);
+        let Err(Error::InvalidOperation(message)) = result else {
+            panic!("{name}: {result:?}");
+        };
+        assert!(
+            message.contains("표가 이미 쓰는 이름입니다"),
+            "{name}: {message}"
+        );
+    }
 }
 
 /// `열을_더하면_표에_선다`
@@ -256,11 +260,8 @@ fn text_column_keeps_no_choices() {
 /// `판올림은_기본_열과_겹친_사용자_자료와_식의_원문을_보존한다` — 새 기본 열과 겹친 기존 입력·가공열은 이름과 값을
 /// 보존하고, 모호한 SQL/이미 배포된 참조는 검토 전 빈값으로 격리한다.
 fn migration_case(version: i32, old: &str, introduced: i32) {
-    let f = Fixture::new("cols-migrate");
+    let f = Fixture::empty("cols-migrate");
     let store = f.store();
-    for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(common::suffixed(&f.path, suffix));
-    }
     let moved = format!("{old}_사용자3");
     let sql_formula =
         |text: &str, id: &str| json!({"version": 2, "id": id, "source": "sql", "sql": text});
@@ -274,7 +275,7 @@ fn migration_case(version: i32, old: &str, introduced: i32) {
         {"id": "flow-id", "name": "값", "formula": linked},
         {"id": "view-sql-id", "name": "SQL값", "formula": sql_formula(&format!("SELECT 공고.{old}"), "sql-id")}]});
     {
-        // C# 처럼 외래키를 켜지 않은 맨 연결로 옛 판 파일을 짓는다. 단계는 하나씩 돌린다.
+        // 외래키를 켜지 않은 맨 연결로 옛 판 파일을 짓는다. 단계는 하나씩 돌린다.
         let c = Connection::open(&f.path).unwrap();
         c.execute_batch(schema::BASELINE).unwrap();
         for step in &schema::STEPS[..(version - schema::BASELINE_VERSION) as usize] {
@@ -473,15 +474,12 @@ fn migration_case(version: i32, old: &str, introduced: i32) {
 }
 
 /// `판올림은_글이_아닌_앞선_진단을_빈_것으로_여긴다` — 앞선 `migrationError.message` 가 글이 아니면(손으로 고친 파일)
-/// 없는 것처럼 여기고 새 진단만 적는다. 결과 글은 C# 시험과 같은 글자다.
+/// 없는 것처럼 여기고 새 진단만 적는다.
 #[test]
 fn migration_treats_non_string_previous_message_as_empty() {
     for message in ["5", "{\"a\":1}", "[1]", "true"] {
-        let f = Fixture::new("cols-migrate-message");
+        let f = Fixture::empty("cols-migrate-message");
         let store = f.store();
-        for suffix in ["", "-wal", "-shm"] {
-            let _ = std::fs::remove_file(common::suffixed(&f.path, suffix));
-        }
         let options = format!(
             "{{\"version\":2,\"id\":\"sql-id\",\"source\":\"sql\",\"sql\":\"SELECT 현재.재무관\",\
              \"migrationError\":{{\"message\":{message},\"original\":{{\"version\":2}}}}}}"
@@ -516,14 +514,11 @@ fn migration_treats_non_string_previous_message_as_empty() {
 
 /// `판올림은_겹친_키가_든_식과_보기를_읽지_못한_글로_두고_연다` — 판올림이 겹친 사용자 열을 읽는 식에 진단을 다는 자리는
 /// 같은 키가 두 번 든 식·맞춤 뷰 정의를 읽지 못한 글로 보아 그대로 둔다. 뒤의 값을 골라 진단을 달면 겹친 키가 조용히
-/// 지워지고 C# 과 갈린다. 겹치지 않은 식에는 진단이 선다.
+/// 지워진다. 겹치지 않은 식에는 진단이 선다.
 #[test]
 fn migration_leaves_formulas_and_views_with_duplicate_keys_alone() {
-    let f = Fixture::new("cols-migrate-dup");
+    let f = Fixture::empty("cols-migrate-dup");
     let store = f.store();
-    for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(common::suffixed(&f.path, suffix));
-    }
     let duplicated = "{\"version\":2,\"id\":\"sql-id\",\"source\":\"sql\",\"source\":\"sql\",\"sql\":\"SELECT 현재.재무관\"}";
     let plain =
         "{\"version\":2,\"id\":\"sql-2\",\"source\":\"sql\",\"sql\":\"SELECT 현재.재무관\"}";
@@ -573,16 +568,13 @@ fn migration_leaves_formulas_and_views_with_duplicate_keys_alone() {
 }
 
 /// `판올림은_객체가_아닌_보기_정의를_읽지_못한_글로_두고_연다` — 판올림이 겹친 사용자 열을 읽는 식에 진단을 다는 자리는
-/// 객체가 아닌 맞춤 뷰 정의(배열·글·수)를 읽지 못한 글로 보아 그대로 둔다. 예전에는 C# 의 `InvalidOperationException` 을
-/// 흉내 내 판올림 전체가 멈췄다.
+/// 객체가 아닌 맞춤 뷰 정의(배열·글·수)를 읽지 못한 글로 보아 그대로 둔다. 예전에는
+/// 판올림 전체가 멈췄다.
 #[test]
 fn migration_leaves_non_object_view_definitions_alone() {
     for view in ["[1]", "5", "\"x\""] {
-        let f = Fixture::new("cols-migrate-odd");
+        let f = Fixture::empty("cols-migrate-odd");
         let store = f.store();
-        for suffix in ["", "-wal", "-shm"] {
-            let _ = std::fs::remove_file(common::suffixed(&f.path, suffix));
-        }
         let plain =
             "{\"version\":2,\"id\":\"sql-2\",\"source\":\"sql\",\"sql\":\"SELECT 현재.재무관\"}";
         {
@@ -657,23 +649,6 @@ fn migration_preserves_user_data_v29_finance_officer() {
 
 // ── 이름·차례 ─────────────────────────────────────────────
 
-/// `이름을_바꾸면_적어_둔_값이_따라온다` — 값은 열 이름으로 매달려 있다.
-#[test]
-fn rename_carries_values() {
-    let f = Fixture::new("cols-rename");
-    let store = f.store();
-    put(&f);
-    store
-        .set_user_field(&contract(), "메모", Some("선금 신청함"))
-        .unwrap();
-
-    store
-        .update_user_column("contract", "메모", "비고", "text", &[])
-        .unwrap();
-
-    assert_eq!(cell(&f, "비고"), "선금 신청함");
-}
-
 /// `열을_지워도_값은_남고_다시_만들면_되살아난다`
 #[test]
 fn removed_column_values_survive_and_return() {
@@ -687,6 +662,42 @@ fn removed_column_values_survive_and_return() {
     store.remove_user_column("contract", "메모").unwrap();
     assert!(!view_columns(&f, "v_계약").contains(&"메모".to_string()));
 
+    store
+        .add_user_column("contract", "메모", "text", &[])
+        .unwrap();
+    assert_eq!(cell(&f, "메모"), "선금 신청함");
+}
+
+/// 지운 열의 값이 남은 이름으로는 바꾸지 않는다 — 남은 값과 부딪혀 SQLite 오류가 나던 자리다.
+/// 아무것도 바뀌지 않고, 빈 이름으로는 그대로 바뀐다.
+#[test]
+fn rename_onto_removed_column_values_refused() {
+    let f = Fixture::new("cols-rename-orphan");
+    let store = f.store();
+    put(&f);
+    store
+        .set_user_field(&contract(), "메모", Some("선금 신청함"))
+        .unwrap();
+    store.remove_user_column("contract", "메모").unwrap();
+    store
+        .add_user_column("contract", "비고", "text", &[])
+        .unwrap();
+    store
+        .set_user_field(&contract(), "비고", Some("검수 끝"))
+        .unwrap();
+
+    let message = invalid(store.update_user_column("contract", "비고", "메모", "text", &[]));
+    assert!(
+        message.contains("지운 열의 값이 그 이름으로 남아 있습니다: 메모"),
+        "{message}"
+    );
+    assert_eq!(cell(&f, "비고"), "검수 끝");
+    assert!(!view_columns(&f, "v_계약").contains(&"메모".to_string()));
+
+    store
+        .update_user_column("contract", "비고", "참고", "text", &[])
+        .unwrap();
+    assert_eq!(cell(&f, "참고"), "검수 끝");
     store
         .add_user_column("contract", "메모", "text", &[])
         .unwrap();
@@ -718,63 +729,38 @@ fn moving_reorders_view_columns() {
 // ── 막아야 하는 것 ───────────────────────────────────
 
 /// `따옴표가_든_이름은_막는다` — 따옴표가 든 이름은 뷰 정의를 깨뜨리고, 한 번 들어가면 그 뒤로 앱이 뜨지 못한다.
-fn quoted_name_case(name: &str) {
+#[test]
+fn quoted_names_refused() {
     let f = Fixture::new("cols-quote");
-    invalid(f.store().add_user_column("contract", name, "text", &[]));
+    for name in ["메모'", "메모\"", "메모\\", "메모', 1) AS x, (SELECT 1"] {
+        let result = f.store().add_user_column("contract", name, "text", &[]);
+        assert!(
+            matches!(&result, Err(Error::InvalidOperation(_))),
+            "{name}: {result:?}"
+        );
 
-    // 막았으니 뷰는 멀쩡하다 — 다시 지어도 터지지 않아야 한다.
-    f.database().refresh_views().unwrap();
-    assert!(!view_columns(&f, "v_계약").contains(&name.to_string()));
-}
-
-/// `따옴표가_든_이름은_막는다("메모'")`
-#[test]
-fn quoted_name_refused_single_quote() {
-    quoted_name_case("메모'");
-}
-
-/// `따옴표가_든_이름은_막는다("메모\"")`
-#[test]
-fn quoted_name_refused_double_quote() {
-    quoted_name_case("메모\"");
-}
-
-/// `따옴표가_든_이름은_막는다("메모\\")`
-#[test]
-fn quoted_name_refused_backslash() {
-    quoted_name_case("메모\\");
-}
-
-/// `따옴표가_든_이름은_막는다("메모', 1) AS x, (SELECT 1")`
-#[test]
-fn quoted_name_refused_injection() {
-    quoted_name_case("메모', 1) AS x, (SELECT 1");
+        // 막았으니 뷰는 멀쩡하다 — 다시 지어도 터지지 않아야 한다.
+        f.database()
+            .refresh_views()
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(
+            !view_columns(&f, "v_계약").contains(&name.to_string()),
+            "{name}"
+        );
+    }
 }
 
 /// `표가_이미_쓰는_이름은_막는다` — 겹치는 이름은 SQLite 가 조용히 `이름:1` 로 바꾼다.
-fn taken_name_case(name: &str) {
+#[test]
+fn taken_names_refused() {
     let f = Fixture::new("cols-taken");
-    let message = invalid(f.store().add_user_column("contract", name, "text", &[]));
-
-    assert!(message.contains(name), "{message}");
-}
-
-/// `표가_이미_쓰는_이름은_막는다("계약금액")`
-#[test]
-fn taken_name_refused_contract_amount() {
-    taken_name_case("계약금액");
-}
-
-/// `표가_이미_쓰는_이름은_막는다("계약건명")`
-#[test]
-fn taken_name_refused_contract_title() {
-    taken_name_case("계약건명");
-}
-
-/// `표가_이미_쓰는_이름은_막는다("공고명")` — 통합 뷰에서 부딪힌다.
-#[test]
-fn taken_name_refused_notice_title_in_unified() {
-    taken_name_case("공고명");
+    for name in ["계약금액", "계약건명", "공고명"] {
+        let result = f.store().add_user_column("contract", name, "text", &[]);
+        let Err(Error::InvalidOperation(message)) = result else {
+            panic!("{name}: {result:?}");
+        };
+        assert!(message.contains(name), "{name}: {message}");
+    }
 }
 
 /// `이미_있는_열_이름은_막는다`
@@ -841,39 +827,6 @@ fn contract_and_notice_counted_separately() {
 
     assert!(names(&store.user_columns(Some("contract")).unwrap()).contains(&"검토여부".into()));
     assert!(names(&store.user_columns(Some("notice")).unwrap()).contains(&"검토여부".into()));
-}
-
-// ── 후보 목록 표기 ───────────────────────────────────
-// 세로줄로 나눈다. 개행으로 나누다 거짓 경고가 나던 자리라 시험으로 못 박는다.
-
-/// `후보를_세로줄로_나눈다`
-#[test]
-fn choices_split_on_bar() {
-    let column = UserColumnDefinition {
-        entity_type: "contract".into(),
-        field_name: "진행상태".into(),
-        kind: "choice".into(),
-        options: Some("준비|투찰|낙찰|계약|납품".into()),
-        sort_order: 10,
-    };
-
-    assert_eq!(
-        column.choices(),
-        s(&["준비", "투찰", "낙찰", "계약", "납품"])
-    );
-}
-
-/// `후보가_없으면_빈_목록`
-#[test]
-fn no_options_means_no_choices() {
-    let column = UserColumnDefinition {
-        entity_type: "contract".into(),
-        field_name: "메모".into(),
-        kind: "text".into(),
-        options: None,
-        sort_order: 10,
-    };
-    assert!(column.choices().is_empty());
 }
 
 // ── 가공열 ───────────────────────────────────
@@ -1095,21 +1048,6 @@ fn computed_column_handles_row_pick_count_empty_and_literals() {
     assert_eq!(cell(&f, "문자열"), "");
 }
 
-/// `잘못된_가공식은_저장하지_않는다`
-fn bad_formula_case(json: &str) {
-    let f = Fixture::new("cols-bad-formula");
-    let store = f.store();
-    invalid(store.save_computed_column("contract", "실패열", json, None));
-    assert!(
-        !store
-            .user_columns(None)
-            .unwrap()
-            .iter()
-            .any(|c| c.field_name == "실패열")
-    );
-    f.database().refresh_views().unwrap();
-}
-
 /// `고르기_검사는_본문_읽기와_같은_키를_본다` — v1 「고르기」 의 사전 검사는 본문 읽기(대소문자를 가리지 않고, 같은
 /// 이름이 여럿이면 뒤의 것)와 같은 키를 본다. 같은 키가 두 번 든 식은 맨 앞에서 형식 오류다.
 #[test]
@@ -1136,13 +1074,13 @@ fn pick_check_reads_the_same_keys_as_the_body() {
             "가공식 형식이 올바르지 않습니다.",
         ),
     ];
+    let f = Fixture::new("cols-pick-keys");
+    let store = f.store();
     for (json, message) in cases {
         match computed_column::parse_for("contract", json) {
             Err(Error::InvalidOperation(m)) => assert_eq!(m, message, "{json}"),
             other => panic!("{json}: {other:?}"),
         }
-        let f = Fixture::new("cols-pick-keys");
-        let store = f.store();
         assert!(
             store
                 .save_computed_column("contract", "실패열", json, None)
@@ -1154,7 +1092,8 @@ fn pick_check_reads_the_same_keys_as_the_body() {
                 .user_columns(None)
                 .unwrap()
                 .iter()
-                .any(|c| c.field_name == "실패열")
+                .any(|c| c.field_name == "실패열"),
+            "{json}"
         );
     }
     // 대소문자가 다른 키로 적은 v1 도 고른 필드가 있으면 그대로 읽힌다.
@@ -1165,36 +1104,33 @@ fn pick_check_reads_the_same_keys_as_the_body() {
     .unwrap();
 }
 
-/// `잘못된_가공식은_저장하지_않는다` — 없는 필드를 고른다.
+/// `잘못된_가공식은_저장하지_않는다` — 없는 필드, 행목록 잇기, 0번째 행, 잘못된 v2 꼴을 거절한다.
 #[test]
-fn bad_formula_unknown_pick_field() {
-    bad_formula_case(
+fn bad_formulas_are_not_saved() {
+    let f = Fixture::new("cols-bad-formula");
+    let store = f.store();
+    for json in [
         r#"{"version":1,"steps":[{"op":"pick","fields":["없는필드"]},{"op":"count"}]}"#,
-    );
-}
-
-/// `잘못된_가공식은_저장하지_않는다` — 행목록을 바로 잇는다.
-#[test]
-fn bad_formula_join_rows() {
-    bad_formula_case(r#"{"version":1,"steps":[{"op":"join","text":","}]}"#);
-}
-
-/// `잘못된_가공식은_저장하지_않는다` — 0번째 행.
-#[test]
-fn bad_formula_at_zero() {
-    bad_formula_case(r#"{"version":1,"steps":[{"op":"at","index":0},{"op":"get","text":"품명"}]}"#);
-}
-
-/// `잘못된_가공식은_저장하지_않는다` — v2 인데 `steps` 꼴.
-#[test]
-fn bad_formula_v2_with_steps() {
-    bad_formula_case(r#"{"version":2,"steps":[{"op":"count"}]}"#);
-}
-
-/// `잘못된_가공식은_저장하지_않는다` — 없는 필드를 찍는다.
-#[test]
-fn bad_formula_unknown_format_field() {
-    bad_formula_case(
+        r#"{"version":1,"steps":[{"op":"join","text":","}]}"#,
+        r#"{"version":1,"steps":[{"op":"at","index":0},{"op":"get","text":"품명"}]}"#,
+        r#"{"version":2,"steps":[{"op":"count"}]}"#,
         r#"{"version":1,"steps":[{"op":"format","text":"{없는필드}"},{"op":"join"}]}"#,
-    );
+    ] {
+        let result = store.save_computed_column("contract", "실패열", json, None);
+        assert!(
+            matches!(&result, Err(Error::InvalidOperation(_))),
+            "{json}: {result:?}"
+        );
+        assert!(
+            !store
+                .user_columns(None)
+                .unwrap()
+                .iter()
+                .any(|c| c.field_name == "실패열"),
+            "{json}"
+        );
+        f.database()
+            .refresh_views()
+            .unwrap_or_else(|error| panic!("{json}: {error}"));
+    }
 }

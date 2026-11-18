@@ -40,7 +40,7 @@ const 한번에넘길사슬 = 5;
 type 초점칸 = {
   /**
    * 이 칸의 id. <b>사슬 키가 아니라 그 칸의 본번호</b>로 짓는다 — 사슬 키는 있는 것의 본번호를
-   * 이어 만든 이름이라(<code>Outline.cs</code> 의 <code>Key</code>) 공고 하나가 뒤늦게 들어오는
+   * 이어 만든 이름이라(<code>storage/outline.rs</code> 의 <code>key</code>) 공고 하나가 뒤늦게 들어오는
    * 것만으로 바뀐다. 그 이름으로 id 를 지으면 <code>aria-activedescendant</code> 가 가리키던
    * 자리가 다시 그린 뒤 없는 id 가 되어, 낭독기가 커서를 놓친다. 아직 안 들어온 칸에는
    * 본번호가 없으니 그때만 사슬 키를 빌린다.
@@ -204,7 +204,7 @@ export function Outline({ tree, onSetup, onOpen, state = initialOutlineState, on
           className="grid-find"
           type="search"
           aria-label="조달 흐름 검색"
-          placeholder="찾기 (Ctrl+F) — 요청명·공고명·계약건명·번호·상대자"
+          placeholder="찾기 (Ctrl+F)"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen({}); setCursor({ row: 0, col: 0 }); }}
           // 지우기만 하고 초점을 두고 오면 손이 찾기 칸에 갇힌다 — 화살표가 아무 데도 닿지
@@ -238,9 +238,6 @@ export function Outline({ tree, onSetup, onOpen, state = initialOutlineState, on
         {found.chains.length === 0 ? (
           <div className="empty-state">
             <h2>{tree.chains.length === 0 ? "등록된 조달 자료가 없습니다" : "검색 결과가 없습니다"}</h2>
-            <p>{tree.chains.length > 0
-              ? "다른 검색어로 찾아보세요."
-              : "왼쪽 메뉴의 나라장터에서 브라우저 확장을 설치하거나 JSON 파일을 가져오세요."}</p>
             {tree.chains.length === 0
               ? onSetup && <button className="action primary" onClick={onSetup}>나라장터 열기</button>
               : <button className="action" onClick={() => { setQuery(""); search.current?.focus(); }}>검색 지우기</button>}

@@ -73,6 +73,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
   const [opened, setOpened] = useState(0);
   const [pending, setPending] = useState<{ run: () => void } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [warning, setWarning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [codeDrafts, setCodeDrafts] = useState<Record<string, FlowCodeDraft>>({});
@@ -90,6 +91,9 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
   const codeIssue = draft?.columns.find(c => codeDrafts[c.id]?.problem);
   const codeProblem = codeIssue ? codeDrafts[codeIssue.id].problem : "";
   const dirty = !!draft && (current !== baseline || !!codeProblem);
+  /** 패널이 문서를 채울 때 읽는 「문서 서식」 — 고치기 전에 한 번 묻고, 지우지 않는다(설정에서 처음 상태로 되돌린다). */
+  const managed = !!draft?.id && !!views?.find(v => v.id === draft.id)?.managed;
+  const locked = readOnly;
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   const fold = draft?.contracts === "fold";
   // 표본은 그 뷰의 줄에서 고른다 — 줄은 모으기와 담긴 문서 종류가 정한다. 이름·차례가 바뀌어도 다시 찾지 않는다.
@@ -118,7 +122,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
     else run();
   }
   function change(patch: Partial<Draft>) {
-    if (!draft || readOnly) return;
+    if (!draft || locked) return;
     setDraft({ ...draft, ...patch }); setError(""); setNotice("");
   }
   const setColumns = (columns: Col[]) => change({ columns });
@@ -259,18 +263,18 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
   const others = (views ?? []).filter(v => v.id !== draft?.id).map(v => v.name.toLocaleLowerCase());
   const total = preview?.total ?? context?.total ?? null;
   const reason = !draft ? ""
-    : !draft.name.trim() ? "보기 이름을 적으세요."
-    : others.includes(draft.name.trim().toLocaleLowerCase()) ? `‘${draft.name.trim()}’ 보기가 이미 있습니다.`
+    : !draft.name.trim() ? "뷰 이름을 적으세요."
+    : others.includes(draft.name.trim().toLocaleLowerCase()) ? `‘${draft.name.trim()}’ 뷰가 이미 있습니다.`
     : !draft.columns.length ? "열을 하나 이상 추가하세요."
     : names.size ? `이름이 비었거나 겹치는 열이 ${names.size}개 있습니다.`
     : emptyCount ? `식을 정하지 않은 열이 ${emptyCount}개 있습니다.`
-    : codeIssue ? `‘${codeIssue.name.trim() || "이름 없는 열"}’ 열의 흐름식을 고치세요. ${codeProblem}`
+    : codeIssue ? `‘${codeIssue.name.trim() || "이름 없는 열"}’ 열의 흐름식을 고치세요.`
     : brokenCount ? `식이 깨진 열이 ${brokenCount}개 있습니다.`
     : "";
-  const canSave = !readOnly && !busy && !!draft && !reason && (dirty || !draft.id);
+  const canSave = !locked && !busy && !!draft && !reason && (dirty || !draft.id);
 
   async function save(): Promise<boolean> {
-    if (!draft || busy || readOnly) return false;
+    if (!draft || busy || locked) return false;
     if (reason) { setError(`저장할 수 없습니다. ${reason}`); return false; }
     setBusy(true); setError("");
     try {
@@ -281,7 +285,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
       // 열 id 는 저장을 지나도 같다 — 어느 후보에서 왔는지도 이어 쥔다(저장 꼴에는 싣지 않는다).
       const kept = origins;
       if (saved) { open(fromView(saved)); setOrigins(kept); }
-      setNotice(`‘${name}’ 보기를 저장했습니다.`);
+      setNotice(`‘${name}’ 뷰를 저장했습니다.`);
       return true;
     } catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }
@@ -296,7 +300,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
     });
   }
   function toggle(c: Candidate, on: boolean) {
-    if (!draft || readOnly) return;
+    if (!draft || locked) return;
     if (on) {
       const col: Col = { id: newId(), name: uniqueName(c.name, draft.columns, docWord[c.link]), formula: { version: 2, id: "", source: "flow", flow: structuredClone(c.flow) } };
       setColumns([...draft.columns, col]); setSelected(col.id); setOrigins(o => ({ ...o, [col.id]: c.key }));
@@ -306,7 +310,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
     if (at >= 0) setColumns(draft.columns.filter((_, i) => i !== at));
   }
   function addComputed() {
-    if (!draft || readOnly) return;
+    if (!draft || locked) return;
     const col: Col = { id: newId(), name: "", formula: null };
     setColumns([...draft.columns, col]); setSelected(col.id); setEditing(col.id);
   }
@@ -334,28 +338,28 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
       const list = await call<UserView[]>("deleteUserView", draft.id);
       setViews(list); setDeleting(false);
       open(list[0] ? fromView(list[0]) : null);
-      setNotice(`‘${name}’ 보기를 지웠습니다.`);
+      setNotice(`‘${name}’ 뷰를 지웠습니다.`);
     } catch (e) { setError((e as Error).message); setDeleting(false); }
     finally { setBusy(false); }
   }
 
   const heading = <>
-    <header className="top uv-top">
-      <div className="page-heading"><h1>{draft?.name.trim() || (draft ? "보기 만들기" : "내 보기")}</h1><p>{tableMode ? "저장한 열 구성으로 접수·공고·계약 자료를 봅니다." : "접수·공고·계약에서 필요한 열을 모으고, 사용할 이름을 정하세요."}</p></div>
+    {/* 열을 편집하는 동안은 편집기에 자리를 준다 — 제목은 눈에서만 숨기고 h1 은 남긴다. */}
+    <header className={`top uv-top${editingCol ? " sr-only" : ""}`}>
+      <div className="page-heading"><h1>{draft?.name.trim() || (draft ? "뷰 만들기" : "뷰")}</h1></div>
     </header>
-    {readOnly && <p className="column-context">열람 중이라 보기를 고칠 수 없습니다.</p>}
+    {readOnly && <p className="column-context">열람 중이라 뷰를 고칠 수 없습니다.</p>}
   </>;
 
   if (views === null) return <div className="column-manager uv-page">{heading}<div className="uv-status">
     {listError ? <div role="alert" className="column-context-error">{listError}<button className="action" onClick={() => setListRetry(n => n + 1)}>다시 불러오기</button></div>
-      : <p role="status" className="column-hint">보기를 불러오는 중…</p>}
+      : <p role="status" className="column-hint">뷰를 불러오는 중…</p>}
   </div></div>;
 
   if (!draft) return <div className="column-manager uv-page">{heading}
-    <section className="uv-empty" aria-label="보기 없음">
-      <h2>아직 보기가 없습니다</h2>
-      <p>서식이 받을 열을 고르면 한 건에 한 줄씩 자료가 섭니다. 접수·공고·계약의 열을 섞어 담아도 같은 조달 건끼리 앱이 잇습니다.</p>
-      {!readOnly && <button type="button" className="action primary" onClick={newView}><Icon name="plus" />보기 만들기</button>}
+    <section className="uv-empty" aria-label="뷰 없음">
+      <h2>아직 뷰가 없습니다</h2>
+      {!readOnly && <button type="button" className="action primary" onClick={newView}><Icon name="plus" />뷰 만들기</button>}
       {notice && <p className="column-notice" role="status">{notice}</p>}
     </section>
   </div>;
@@ -365,56 +369,53 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
 
   return <div className="column-manager uv-page">{heading}<div className={`uv${editingCol ? " is-editing" : ""}${tableMode ? " is-table" : ""}${showList ? "" : " without-list"}`}>
     <header className="uv-head">
-      {showList && <label className="uv-picker"><span className="sr-only">보기 고르기</span>
+      {showList && <label className="uv-picker"><span className="sr-only">뷰 고르기</span>
         {/* 좁은 창에서 뷰 보기 대신 선다. 지금 뷰의 이름은 옆의 이름 칸이 보이므로 여기서는 되풀이하지 않는다. */}
-        <select aria-label="보기 고르기" value="" disabled={busy} onChange={e => {
+        <select aria-label="뷰 고르기" value="" disabled={busy} onChange={e => {
           const v = e.target.value;
           if (v === "__new") { newView(); return; }
           const view = views.find(x => x.id === v);
           if (view && view.id !== draft.id) navigate(() => open(fromView(view)));
         }}>
-          <option value="" disabled hidden>{views.length ? `보기 ${views.length}개` : "내 보기 없음"}</option>
+          <option value="" disabled hidden>{views.length ? `뷰 ${views.length}개` : "뷰 없음"}</option>
           {views.map(v => <option key={v.id} value={v.id} disabled={v.id === draft.id}>{v.name}{v.id === draft.id ? " (지금)" : ""}</option>)}
-          {!readOnly && <option value="__new">+ 보기 만들기</option>}
+          {!readOnly && <option value="__new">+ 뷰 만들기</option>}
         </select></label>}
       <div className="uv-title">
         {!tableMode && <label className={`uv-name${draft.name.trim() ? "" : " is-unnamed"}`}>
-          <span>보기 이름</span>
-          <input ref={nameInput} aria-label="보기 이름" value={draft.name} placeholder="보기 이름을 입력하세요" maxLength={40} disabled={readOnly || busy}
+          <span>뷰 이름</span>
+          <input ref={nameInput} aria-label="뷰 이름" value={draft.name} placeholder="뷰 이름을 입력하세요" maxLength={40} disabled={locked || busy}
             size={Math.max(18, Math.min(24, draft.name.length + 1))} onChange={e => change({ name: e.target.value })} /></label>}
         <span className="uv-meta">
-          <span>{hasContract && !fold ? "한 줄 = 계약" : "한 줄 = 조달 건"}</span>
+          {!tableMode && hasContract
+            ? <select aria-label="계약이 여럿인 건" value={draft.contracts} disabled={locked || busy} onChange={e => setContracts(e.target.value as UserViewContracts)}>
+              <option value="split">한 줄 = 계약</option>
+              <option value="fold">한 줄 = 조달 건</option>
+            </select>
+            : <span>{hasContract && !fold ? "한 줄 = 계약" : "한 줄 = 조달 건"}</span>}
           {!tableMode && total !== null && <span className="uv-total">· {total.toLocaleString("ko-KR")}건</span>}
         </span>
       </div>
       <div className="uv-actions">
         {!tableMode && brokenCount > 0 && <span className="cm-state is-error"><Icon name="alert" size={14} />깨진 식 {brokenCount}</span>}
-        <span className={`cm-state${dirty ? " is-dirty" : ""}`}>{!draft.id ? "저장 전" : dirty ? "변경됨" : "저장됨"}</span>
-        {tableMode ? !readOnly && <button type="button" className="action" onClick={() => setTableMode(false)}>보기 편집</button>
+        {draft.id && dirty && <span className="cm-state is-dirty">변경됨</span>}
+        {draft.id && !readOnly && !managed && <button type="button" className="action quiet uv-delete" aria-label="뷰 지우기" disabled={busy} onClick={() => setDeleting(true)}>지우기</button>}
+        {tableMode ? !readOnly && <button type="button" className="action" onClick={() => { if (managed) setWarning(true); else setTableMode(false); }}>뷰 편집</button>
           : <>
             {draft.id && <button type="button" className="action" disabled={busy} onClick={() => navigate(() => open(savedDraft.current))}>표로 돌아가기</button>}
             {!draft.id && !readOnly && <button type="button" className="action" disabled={busy} onClick={() => { if (dirty) setDeleting(true); else void remove(); }}>취소</button>}
             {!editingCol && <button ref={drawerToggle} type="button" className="action uv-collect-toggle" aria-expanded={drawer} onClick={() => drawer ? closeDrawer() : openDrawer()}><Icon name="plus" />열 추가</button>}
-            {!readOnly && <button type="button" className="icon-button danger" aria-label="보기 지우기" disabled={busy} onClick={() => setDeleting(true)}><Icon name="trash" /></button>}
-            {!readOnly && <button type="button" className="action primary" disabled={!canSave} aria-describedby={reason ? "uv-reason" : undefined} onClick={() => void save()}>저장</button>}
+            {!locked && <button type="button" className="action primary" disabled={!canSave} aria-describedby={reason ? "uv-reason" : undefined} onClick={() => void save()}>저장</button>}
           </>}
       </div>
       <p className="column-notice" role="status">{busy ? "처리 중…" : notice}</p>
     </header>
-    {!tableMode && hasContract && <div className="uv-contracts">
-      <span className="uv-contracts-label">계약이 여럿인 건 <span className="uv-contracts-count">(이 자료에 {(context?.manyContracts ?? 0).toLocaleString("ko-KR")}건)</span></span>
-      <div className="seg" role="group" aria-label="계약이 여럿인 건">
-        <button type="button" aria-pressed={!fold} disabled={readOnly || busy} onClick={() => setContracts("split")}>계약마다 한 줄</button>
-        <button type="button" aria-pressed={fold} disabled={readOnly || busy} onClick={() => setContracts("fold")}>조달 건마다 한 줄</button>
-      </div>
-      {fold && <p className="column-hint uv-contracts-hint">계약 값은 ‘, ’로 이어 붙입니다. 금액도 합산하지 않고 각각 표시합니다.</p>}
-    </div>}
-    {!tableMode && (error || reason) && <p id="uv-reason" className={`uv-reason${error ? " is-error" : ""}`} role={error ? "alert" : undefined}>
+    {(error || (!tableMode && reason)) && <p id="uv-reason" className={`uv-reason${error ? " is-error" : ""}`} role={error ? "alert" : undefined}>
       <Icon name="alert" size={14} />{error || `저장할 수 없습니다. ${reason}`}</p>}
 
     <div className="uv-body">
-      {showList && <nav className="uv-list" aria-label="내 보기">
-        <p className="cm-count">보기 <span>{views.length}</span></p>
+      {showList && <nav className="uv-list" aria-label="뷰">
+        <p className="cm-count">뷰 <span>{views.length}</span></p>
         <ul className="cm-rows">
           {views.map(v => {
             const now = draft.id === v.id;
@@ -427,17 +428,17 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
             </button></li>;
           })}
           {!draft.id && <li><button type="button" className="cm-row uv-view" aria-current="true">
-            <span className="cm-name">{draft.name.trim() || "새 보기"}</span><span className="cm-tail">저장 전</span></button></li>}
+            <span className="cm-name">{draft.name.trim() || "새 뷰"}</span><span className="cm-tail">저장 전</span></button></li>}
         </ul>
-        {!readOnly && <button type="button" className="action quiet uv-new" disabled={busy} onClick={newView}><Icon name="plus" />보기 만들기</button>}
+        {!readOnly && <button type="button" className="action quiet uv-new" disabled={busy} onClick={newView}><Icon name="plus" />뷰 만들기</button>}
       </nav>}
 
       <div className="uv-main">
-        {tableMode ? <section className="uv-table" aria-label="보기 결과">
-          {Object.keys(views.find(v => v.id === draft.id)?.broken ?? {}).length > 0 && <p className="uv-reason is-error" role="alert">깨진 식의 값은 빈 칸으로 표시합니다.{!readOnly && " 보기 편집에서 식을 확인하세요."}</p>}
+        {tableMode ? <section className="uv-table" aria-label="뷰 결과">
+          {Object.keys(views.find(v => v.id === draft.id)?.broken ?? {}).length > 0 && <p className="uv-reason is-error" role="alert">깨진 식의 값은 빈 칸으로 표시합니다.</p>}
           {sheetError ? <div className="empty-state" role="alert"><h2>자료를 읽지 못했습니다</h2><p>{sheetError}</p><button className="action" onClick={() => setSheetRetry(n => n + 1)}>다시 읽기</button></div>
             : !sheet ? <div className="empty-state" role="status">자료를 읽는 중…</div>
-            : !sheet.rows.length ? <div className="empty-state"><h2>이 보기에 표시할 자료가 없습니다</h2><p>자료를 수집하거나 보기의 열 구성을 확인하세요.</p></div>
+            : !sheet.rows.length ? <div className="empty-state"><h2>이 뷰에 표시할 자료가 없습니다</h2></div>
             : <Grid sheet={sheet} columns={[]} keyColumn={sheet.columns[0] ?? ""} identityColumns={sheet.columns}
               onEdit={async () => {}} onCorrect={async () => {}} />}
         </section> : editingCol ? <section className="uv-editor" aria-label="열 편집" onKeyDown={e => {
@@ -446,13 +447,12 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
           e.preventDefault(); closeEditor();
         }}>
           <nav className="uv-crumbs" aria-label="경로">
-            <button type="button" className="action quiet uv-crumb-back" onClick={closeEditor}><Icon name="back" />{draft.name.trim() || "새 보기"}</button>
+            <button type="button" className="action quiet uv-crumb-back" onClick={closeEditor}><Icon name="back" />{draft.name.trim() || "새 뷰"}</button>
             <Icon name="chevron" size={14} />
             <span>열 편집</span>
-            <span className="column-hint uv-crumb-hint">Esc 돌아가기</span>
           </nav>
           <label className="uv-column-name">열 이름
-            <input ref={columnNameInput} className="text" aria-label="열 이름" value={editingCol.name} placeholder="예: 계약 금액 모음" maxLength={40} disabled={readOnly || busy}
+            <input ref={columnNameInput} className="text" aria-label="열 이름" value={editingCol.name} placeholder="예: 계약 금액 모음" maxLength={40} disabled={locked || busy}
               onChange={e => patchColumn(editingCol.id, { name: e.target.value })} />
           </label>
           {names.get(editingCol.id) && <p className="uv-row-error"><Icon name="alert" size={14} /><span>{names.get(editingCol.id)}</span></p>}
@@ -462,7 +462,7 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
               const next = { ...previous };
               if (buffer) next[editingCol.id] = buffer; else delete next[editingCol.id];
               return next;
-            })} userView sampleKeys={traceKeys} formula={editingCol.formula} context={context} env={env} readOnly={readOnly || busy}
+            })} userView sampleKeys={traceKeys} formula={editingCol.formula} context={context} env={env} readOnly={locked || busy}
               onChange={(formula: FormulaV2 | null) => patchColumn(editingCol.id, { formula })}
               onSuggestName={name => { if (!editingCol.name.trim()) patchColumn(editingCol.id, { name: uniqueName(name, draft.columns, "") }); }} />
           </div>
@@ -475,13 +475,12 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
               {contextStatus}
               {previewError && !sampleError && <div role="alert" className="column-context-error">미리보기를 계산하지 못했습니다: {previewError}
                 <button className="action" onClick={() => setPreviewRetry(n => n + 1)}>다시 계산</button></div>}
-              {draft.columns.length ? <RecordScript columns={draft.columns} states={states} selected={selected} readOnly={readOnly}
+              {draft.columns.length ? <RecordScript columns={draft.columns} states={states} selected={selected} readOnly={locked}
                 focusOnMount={returning} onFocused={() => setReturning(false)} onSelect={setSelected} onOpen={id => { setSelected(id); setEditing(id); }}
                 onRename={(id, name) => patchColumn(id, { name })} onRemove={id => setColumns(draft.columns.filter(c => c.id !== id))} onMove={move} />
-                : <div className="uv-empty-record"><h2>열이 없습니다</h2><p>오른쪽 열 목록에서 체크하면 차례대로 여기에 섭니다.</p></div>}
+                : <div className="uv-empty-record"><h2>열이 없습니다</h2></div>}
               <div className="uv-record-foot">
-                {!readOnly && <button type="button" className="action quiet" disabled={busy} onClick={addComputed}><Icon name="plus" />식으로 만들기</button>}
-                <p className="column-hint">↑↓ 고르기 · Alt+↑↓ 옮기기 · F2 이름 · Delete 빼기 · Enter 식 열기</p>
+                {!locked && <button type="button" className="action quiet" disabled={busy} onClick={addComputed}><Icon name="plus" />식으로 만들기</button>}
               </div>
             </div>
           </section>}
@@ -491,14 +490,14 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
         if (e.key !== "Escape" || e.defaultPrevented || !drawer) return;
         e.preventDefault(); closeDrawer();
       }}>
-        {env ? <Collect groups={groups} included={included} readOnly={readOnly}
+        {env ? <Collect groups={groups} included={included} readOnly={locked}
           values={pickValues && pickValues.for === pickPayload + sampleKey ? pickValues.values : null}
           onToggle={toggle} onClose={closeDrawer} /> : <div className="uv-collect-body">{contextStatus}</div>}
       </div>}
     </div>
 
-    {pending && <Modal label="저장하지 않은 보기 변경" onClose={() => { if (!busy) setPending(null); }}>
-      <h2>저장하지 않은 변경이 있습니다</h2><p>{draft.name.trim() ? `‘${draft.name.trim()}’ 보기의 ` : ""}변경을 저장하고 이동할까요?</p>
+    {pending && <Modal label="저장하지 않은 뷰 변경" onClose={() => { if (!busy) setPending(null); }}>
+      <h2>저장하지 않은 변경이 있습니다</h2><p>{draft.name.trim() ? `‘${draft.name.trim()}’ 뷰의 ` : ""}변경을 저장하고 이동할까요?</p>
       {reason && !error && <p className="column-hint" id="uv-pending-reason">지금은 저장할 수 없습니다. {reason}</p>}
       {error && <p className="warn" role="alert">{error}</p>}
       <div className="column-controls"><button className="action" disabled={busy} onClick={() => setPending(null)}>계속 편집</button>
@@ -506,16 +505,22 @@ export function UserViews({ readOnly, showList = true, initialViewId, onViewsCha
         <button className="action primary" disabled={busy || !!reason} title={reason || undefined} aria-describedby={reason && !error ? "uv-pending-reason" : undefined}
           onClick={async () => { const next = pending.run; if (await save()) { setPending(null); next(); } }}>저장 후 이동</button></div>
     </Modal>}
-    {deleting && (draft.id ? <Modal label="보기 지우기 확인" onClose={() => { if (!busy) setDeleting(false); }}>
-      <h2>‘{draft.name.trim()}’ 보기를 지울까요?</h2>
-      <p>이 보기를 쓰는 서식은 u_{draft.name.trim()} 를 더 찾지 못합니다.</p>
-      <p className="column-hint">자료는 그대로 두고 보기의 구성만 지웁니다. 되돌릴 수 없습니다.</p>
+    {warning && <Modal label="문서 서식 고치기" onClose={() => setWarning(false)}>
+      <h2>문서 서식 고치기</h2><p>이 뷰를 고치면 확장 프로그램에서 만드는 문서에 값이 다르게 들어갈 수 있습니다.</p>
+      <p>편집한 뒤 원래 상태로 되돌리려면 설정의 「문서 서식 처음 상태로…」 를 누르세요.</p>
+      <div className="column-controls"><button className="action" onClick={() => setWarning(false)}>취소</button>
+        <button className="action primary" onClick={() => { setWarning(false); setTableMode(false); }}>고치기</button></div>
+    </Modal>}
+    {deleting && (draft.id ? <Modal label="뷰 지우기 확인" onClose={() => { if (!busy) setDeleting(false); }}>
+      <h2>‘{draft.name.trim()}’ 뷰를 지울까요?</h2>
+      <p>이 뷰를 쓰는 서식은 u_{draft.name.trim()} 를 더 찾지 못합니다.</p>
+      <p className="column-hint">뷰의 구성만 지우며 되돌릴 수 없습니다.</p>
       <div className="column-controls"><button className="action" disabled={busy} onClick={() => setDeleting(false)}>취소</button>
-        <button className="action danger" disabled={busy} onClick={() => void remove()}>보기 지우기</button></div>
-    </Modal> : <Modal label="만들던 보기 버리기 확인" onClose={() => setDeleting(false)}>
+        <button className="action danger" disabled={busy} onClick={() => void remove()}>뷰 지우기</button></div>
+    </Modal> : <Modal label="만들던 뷰 버리기 확인" onClose={() => setDeleting(false)}>
       {/* 저장 전이라 지울 보기도, 그것을 찾지 못할 서식도 없다 — 버리는 것은 이 화면에서 만들던 이름과 열뿐이다. */}
-      <h2>만들던 보기를 버릴까요?</h2>
-      <p>저장하지 않은 {draft.name.trim() ? `‘${draft.name.trim()}’ 의 ` : ""}이름과 열 구성을 버리고 {views[0] ? `‘${views[0].name}’ 보기로 돌아갑니다.` : "돌아갑니다."}</p>
+      <h2>만들던 뷰를 버릴까요?</h2>
+      <p>저장하지 않은 {draft.name.trim() ? `‘${draft.name.trim()}’ 의 ` : ""}이름과 열 구성을 버리고 {views[0] ? `‘${views[0].name}’ 뷰로 돌아갑니다.` : "돌아갑니다."}</p>
       <div className="column-controls"><button className="action" onClick={() => setDeleting(false)}>계속 만들기</button>
         <button className="action danger" onClick={() => void remove()}>버리기</button></div>
     </Modal>)}

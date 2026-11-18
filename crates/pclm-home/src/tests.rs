@@ -1,4 +1,4 @@
-//! C# `HomeTests` 의 호스트 몫(쪽지 읽기·호스트의 묶기·출처·잠금)과 저장의 잠금 안 대상 확인을 옮긴 것. 시작은
+//! 호스트 몫(쪽지 읽기·호스트의 묶기·출처·잠금)과 저장의 잠금 안 대상 확인의 시험. 시작은
 //! `home_tests.rs`, 바꾸는 사이의 경합은 `switch_tests.rs` 에 있다.
 //! 값은 모두 지어낸 것이다.
 
@@ -10,7 +10,7 @@ use pclm_core::erp::capture::{CaptureInput, ErpCapture};
 use pclm_core::erp::mapping;
 use pclm_core::storage::pclm_file;
 use pclm_core::{Access, Database, PclmRole};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::*;
 
@@ -40,7 +40,7 @@ fn work(path: &Path) -> String {
     pclm_file::inspect(path).dataset_id.unwrap()
 }
 
-/// 창이 쓰는 쪽지와 같은 꼴(C# `Home.WriteConfig` — 들여 쓴 JSON). 호스트 쪽 크레이트에는 쓰는 길이 없어 시험이 짓는다.
+/// 창이 쓰는 쪽지와 같은 꼴(들여 쓴 JSON). 호스트 쪽 크레이트에는 쓰는 길이 없어 시험이 짓는다.
 fn write_config(home: &Home, workfile: &Path, dataset_id: &str) {
     std::fs::create_dir_all(home.directory()).unwrap();
     let text = serde_json::to_string_pretty(&json!({
@@ -132,17 +132,17 @@ fn 호스트는_쪽지가_가리키는_지금_판의_작업자료만_연다() {
         "연결된 자료가 바뀌었습니다. 메인 프로그램을 다시 실행하세요."
     );
 
-    let submission = root.join("제출.pclm");
+    let backup = root.join("받은.pclm");
     pclm_file::snapshot(
         &Database::new(&path, Access::Read),
-        &submission,
-        PclmRole::SUBMISSION,
+        &backup,
+        PclmRole::BACKUP,
         false,
         &SystemEnv,
     )
     .unwrap();
-    let submission_id = pclm_file::inspect(&submission).dataset_id.unwrap();
-    write_config(&home, &submission, &submission_id);
+    let backup_id = pclm_file::inspect(&backup).dataset_id.unwrap();
+    write_config(&home, &backup, &backup_id);
     assert!(home.open_bound().is_err());
 
     let missing = root.join("없음").join("계약자료.pclm");
@@ -195,7 +195,7 @@ fn 홈은_한_번에_하나만_쥔다() {
     assert!(home.try_lock(Duration::ZERO).unwrap().is_none());
     let upper = format!(
         "{}\\",
-        dotnet::to_upper_invariant(&home.directory().to_string_lossy())
+        paths::to_upper_invariant(&home.directory().to_string_lossy())
     );
     assert!(
         Home::new(upper)
@@ -214,7 +214,7 @@ fn 홈은_한_번에_하나만_쥔다() {
 
 #[test]
 fn 잠금_이름은_폴더의_대문자_지문이다() {
-    // C# 의 Convert.ToHexString(SHA256(UTF8("C:\TEMP\계약")), 0, 16) — 실측값.
+    // SHA-256(UTF-8("C:\TEMP\계약")) 의 앞 16바이트를 16진 대문자로 — 옛 판이 낸 실측값.
     let home = Home::new(r"c:\temp\계약\").unwrap();
     assert_eq!(home.directory(), Path::new(r"c:\temp\계약"));
     let key = home
@@ -238,10 +238,7 @@ fn 자동_수집_설정은_홈의_파일에_통째로_쓴다() {
     let root = Root::new();
     let home = Home::new(root.join("홈")).unwrap();
     assert_eq!(auto_capture::read(&home), AutoCapturePreferences::default());
-    let preferences = AutoCapturePreferences {
-        enabled: true,
-        name: "홍길동".into(),
-    };
+    let preferences = AutoCapturePreferences { enabled: true };
     auto_capture::write(&home, &preferences).unwrap();
     assert_eq!(auto_capture::read(&home), preferences);
     let names: Vec<_> = std::fs::read_dir(home.directory())
@@ -249,15 +246,9 @@ fn 자동_수집_설정은_홈의_파일에_통째로_쓴다() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(names, ["auto-capture.json"]);
-    let long = AutoCapturePreferences {
-        enabled: true,
-        name: "가".repeat(201),
-    };
-    assert!(auto_capture::write(&home, &long).is_err());
-    assert_eq!(auto_capture::read(&home), preferences);
 }
 
-// ── 잠금 안의 대상 확인(ADR-032, C# WorkfileSwitchTests) ─────────────────
+// ── 잠금 안의 대상 확인(ADR-032) ─────────────────
 
 fn snapshot(base: &str) -> CaptureInput {
     let mut input = CaptureInput::new(
@@ -274,16 +265,12 @@ fn snapshot(base: &str) -> CaptureInput {
     input
 }
 
-/// 확장 호스트가 이 파일에 저장할 요청. 공고 하나, 충돌 없음.
-fn capture_request(path: &Path, home: &Home, dataset_id: &str, base: &str) -> Value {
+/// 확장 호스트가 이 파일에 저장할 것 — 입력과 그 지문. 공고 하나, 충돌 없음.
+fn capture_request(path: &Path, home: &Home, base: &str) -> (CaptureInput, String) {
     let host = ErpCapture::new(path, &SystemEnv).with_destination(home);
     let input = snapshot(base);
     let preview = host.inspect(&input).unwrap();
-    json!({
-        "protocolVersion": 2, "requestId": "00000000-0000-0000-0000-0000000000aa", "method": "capture",
-        "params": { "datasetId": dataset_id, "snapshot": input.to_value(),
-            "captureId": "00000000-0000-0000-0000-0000000000bb", "baseToken": preview.base_token, "choices": {} },
-    })
+    (input, preview.base_token)
 }
 
 fn count(path: &Path, table: &str) -> i64 {
@@ -302,24 +289,28 @@ fn 저장은_쪽지가_다른_파일을_가리키면_거절하고_쓰지_않는�
     let current = root.join("작업.pclm");
     let id = work(&current);
     write_config(&home, &current, &id);
-    let request = capture_request(&current, &home, &id, "R26BK00000002");
+    let (input, token) = capture_request(&current, &home, "R26BK00000002");
 
     let other = root.join("다른 작업자료.pclm");
     let other_id = work(&other);
     write_config(&home, &other, &other_id);
     let host = ErpCapture::new(&current, &SystemEnv).with_destination(&home);
-    let reply = host.dispatch(&request, false);
-    assert_eq!(reply["ok"], false);
-    assert!(
-        reply["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("저장 대상이 바뀌었습니다")
-    );
+    let save = || {
+        host.save(
+            &input,
+            Some(&token),
+            Some("00000000-0000-0000-0000-0000000000bb"),
+            &Vec::new(),
+        )
+    };
+    let Err(pclm_core::Error::InvalidOperation(message)) = save() else {
+        panic!("거절해야 한다");
+    };
+    assert!(message.contains("저장 대상이 바뀌었습니다"));
     assert_eq!(count(&current, "erp_capture"), 0);
 
     // 쪽지가 이 파일로 돌아오면 같은 자료가 들어간다.
     write_config(&home, &current, &id);
-    assert_eq!(host.dispatch(&request, false)["ok"], true);
+    save().unwrap();
     assert_eq!(count(&current, "erp_capture"), 1);
 }

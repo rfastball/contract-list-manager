@@ -2,12 +2,15 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Vqq8ybBbhBd/sVOlEGOc2iYacMENJHe6zhn9TJ0rkFxJ3ak2cRG3KDkSUNi65AMzbh57bSSstaNK8TYMry902WqcKGB3pnW37g8VjEJrhbzMJBU5iW9JQWQ0fmR/DuwW+37eKukxaED8wk7EmV6IhQguuFPm9mJIcJJa51qNRdSHaI5cwnjrUn/TOHLYlwg9YKbPhcJOEEzG7GCOtPE0MulZt1JNvKThpnLURD8r9dHs7x1o2PPSvYs4fMXR2C0oFTS34XwM3rOQF3aAl013FxyVnWz8UOYTSFbQG6DJyvpHGiG0Trl8T0hzMMKHKWiLvbABAadL3FWNYNc8gmRbQIDAQAB",
   "name": "계약 목록 — 나라장터 연결",
-  "version": "0.10.2",
-  "description": "나라장터 화면을 계약 목록 앱에 이어 줍니다. 앱에서 직접 가져오거나 설정한 조건으로 자동 저장하고, 현재 화면은 엑셀로 내보낼 수 있습니다.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "description": "나라장터 화면을 계약 목록 앱에 이어 줍니다. 앱에서 직접 가져오거나 설정한 조건으로 자동 저장하고, 현재 화면은 엑셀로 내보내며, 계약 목록에 저장된 값으로 서식을 채워 문서를 만듭니다.",
   "permissions": [
     "scripting",
     "nativeMessaging",
-    "storage"
+    "storage",
+    "sidePanel",
+    "downloads"
   ],
   "host_permissions": [
     "https://www.g2b.go.kr/*"
@@ -16,11 +19,12 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "계약 목록"
   },
-  "options_ui": {
-    "page": "options.html",
-    "open_in_tab": true
+  "side_panel": {
+    "default_path": "panel/panel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

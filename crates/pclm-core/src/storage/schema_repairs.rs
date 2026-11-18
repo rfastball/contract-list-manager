@@ -1,9 +1,7 @@
-//! 배포된 자료의 입증된 원천값과 열 이름을 같은 판올림 트랜잭션에서 복구한다(C# `Storage/SchemaRepairs.cs`).
+//! 배포된 자료의 입증된 원천값과 열 이름을 같은 판올림 트랜잭션에서 복구한다.
 //!
-//! C# 은 줄마다 `try { … } catch (JsonException or InvalidOperationException or FormatException) { }` 로 그 줄을
-//! 건너뛴다 — 저장된 JSON 이 기대와 다른 꼴이면 보정하지 않는다는 뜻이다. 여기서는 그 셋을 [`Skip`] 하나로 모으고,
-//! SQL 오류와 겹친 키만 판올림 전체를 멈춘다(C# 에서도 `SqliteException` 과, 같은 키가 두 번 든 객체를 열 때의
-//! `ArgumentException` 은 잡히지 않는다 — [`parse_node`]).
+//! 줄마다 저장된 JSON 이 기대와 다른 꼴(깨진 글·다른 모양·읽을 수 없는 값)이면 그 줄을 건너뛴다 — 보정하지
+//! 않는다는 뜻이다. 그 셋은 [`Skip`] 하나로 모으고, SQL 오류와 겹친 키만 판올림 전체를 멈춘다([`parse_node`]).
 
 use std::collections::HashSet;
 
@@ -19,7 +17,7 @@ use crate::storage::user_view_builder;
 use crate::storage::views;
 use crate::text::{cmp_ordinal, eq_ignore_case, ignore_case_key, utf16_len, utf16_prefix};
 
-/// 줄 하나를 보정하다 만난 일. `Skip` 은 C# 이 잡아 넘기는 예외, `Fatal` 은 판올림을 멈추는 오류다.
+/// 줄 하나를 보정하다 만난 일. `Skip` 은 잡아 넘기는 일, `Fatal` 은 판올림을 멈추는 오류다.
 enum Step {
     Skip,
     Fatal(Error),
@@ -51,14 +49,14 @@ impl From<rusqlite::Error> for Step {
     }
 }
 
-/// `JsonNode.Parse(text)` 와 그 노드 읽기. 깨진 글은 C# 처럼 그 줄을 건너뛰고([`Step::Skip`]), 같은 키가 두 번 든 글은
-/// 판올림을 멈춘다 — C# 의 `JsonNode` 는 그런 객체를 열 때 `ArgumentException` 을 던지고 위의 catch 는 그것을 잡지 않는다.
+/// 저장된 JSON 읽기. 깨진 글은 그 줄을 건너뛰고([`Step::Skip`]), 같은 키가 두 번 든 글은
+/// 판올림을 멈춘다.
 /// serde_json 은 겹친 키를 뒤 값으로 접어 읽으므로, 두면 Rust 만 뒤 값으로 보수하고 v32 에서는 수집 기록을 접어 다시 쓴다.
 fn parse_node(text: &str) -> std::result::Result<Value, Step> {
     let value = json::parse(text)?;
     match json::first_duplicate_key(text) {
         Some(key) => Err(Step::Fatal(Error::Argument(format!(
-            "An item with the same key has already been added. Key: {key} (Parameter 'propertyName')"
+            "같은 열쇠가 두 번 들었습니다: {key}"
         )))),
         None => Ok(value),
     }
@@ -73,7 +71,7 @@ fn settle<T>(result: std::result::Result<T, Step>) -> Result<Option<T>> {
     }
 }
 
-/// `rows?.AsArray().FirstOrDefault(r => (string?)r?["table"] == "notice")` — 수집 기록의 공고 머리 줄.
+/// 수집 기록의 공고 머리 줄 — `rows` 에서 `table` 이 `notice` 인 줄.
 fn notice_head(document: Option<&Value>) -> std::result::Result<Option<&Value>, Step> {
     let Some(rows) = json::as_array(index(document, "rows")?)? else {
         return Ok(None);
@@ -87,7 +85,7 @@ fn notice_head(document: Option<&Value>) -> std::result::Result<Option<&Value>, 
     Ok(None)
 }
 
-/// `.AsArray().SingleOrDefault(pred)` — 둘 이상이면 C# 은 `InvalidOperationException` 이다.
+/// 조건에 맞는 원소 하나 — 없으면 `None`, 둘 이상이면 [`Step::Skip`] 이다.
 fn single<'a>(
     items: Option<&'a Vec<Value>>,
     mut pred: impl FnMut(Option<&'a Value>) -> std::result::Result<bool, Step>,
@@ -137,7 +135,7 @@ pub(crate) fn upgrade32(c: &Connection) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
-    // C# 은 매번 기본 매핑과 그 판을 짓는다. 줄이 없으면 쓸 데가 없어 여기서는 줄이 있을 때만 짓는다.
+    // 기본 매핑과 그 판은 줄이 있을 때만 짓는다 — 줄이 없으면 쓸 데가 없다.
     let defaults = mapping::defaults_value();
     let default_revision = mapping::hash(&defaults);
     for (base, seq, value, document) in rows {
@@ -353,7 +351,7 @@ fn proves_legacy_officer(
         let Some(source_value) = mapping::at(raw, source)? else {
             continue; // 이 수집에서는 그 칸을 읽지 않았다.
         };
-        // C# 의 && 차례 그대로 — 앞이 거짓이면 뒤의 꺼내기(던질 수 있다)를 하지 않는다.
+        // && 차례 그대로 — 앞이 거짓이면 뒤의 꺼내기(던질 수 있다)를 하지 않는다.
         return Ok(source == "fncrNm"
             && node_string(index(Some(field), "transform")?)?.unwrap_or("text") == "text"
             && index(Some(field), "secondarySource")?.is_none()
@@ -492,7 +490,7 @@ fn repair_formula_readers(
             continue;
         };
         // 같은 키가 두 번 든 식(손으로 고친 파일)은 읽지 못한 글이라 그대로 둔다 — 뒤의 값을 골라 진단을 달면 겹친 키가
-        // 조용히 지워지고, C# 은 그 식을 건너뛴다. 그런 식은 뷰를 지을 때 깨진 열로 선다.
+        // 조용히 지워진다. 그런 식은 뷰를 지을 때 깨진 열로 선다.
         if json::has_duplicate_keys(&options) {
             continue;
         }
@@ -515,7 +513,7 @@ fn repair_formula_readers(
         if json::has_duplicate_keys(&view.definition) {
             continue;
         }
-        // 객체가 아닌 정의(배열·글·수)도 읽지 못한 글이다 — 예전에는 C# 처럼 오류를 내 판올림이 멈췄다.
+        // 객체가 아닌 정의(배열·글·수)도 읽지 못한 글이다 — 예전에는 오류를 내 판올림이 멈췄다.
         let Some(Value::Array(columns)) = user_view_builder::columns_of(&mut definition) else {
             continue;
         };

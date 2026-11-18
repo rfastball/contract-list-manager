@@ -1,11 +1,11 @@
-//! 비켜 둔 옛 실행 파일 치우기(C# `Erp/Executable.cs` 의 `OldExecutables`, ADR-035). 창이 켜질 때 부른다.
+//! 비켜 둔 옛 실행 파일 치우기(ADR-035). 창이 켜질 때 부른다.
 //!
 //! 이름은 `<이름>.old.exe` 또는 `<이름>.old-<숫자>.exe` 하나로 정한다 — 스크립트는 `계약목록.old-yyyyMMddHHmmss.exe` 로 비키고,
 //! 사람은 `계약목록.old.exe` 처럼 바꾸면 된다. 아직 쓰는 중이면(브라우저의 호스트가 쥐고 있다) 다음 번으로 미룬다.
 
 use std::path::Path;
 
-use pclm_home::dotnet;
+use pclm_home::paths;
 
 /// 배포물의 이름. 사람이 exe 이름을 바꿔 써도 이 이름의 옛 것은 치운다.
 pub const SHIPPED_STEM: &str = "계약목록";
@@ -13,8 +13,8 @@ pub const SHIPPED_STEM: &str = "계약목록";
 /// 그 이름(`stem`)의 옛 exe 인가 — `\A{stem}\.old(-\d+)?\.exe\z`, 대소문자를 가리지 않는다. 다른 프로그램의 `*.old.exe` 는
 /// 건드리지 않는다.
 pub fn is_old(file_name: &str, stem: &str) -> bool {
-    let name = dotnet::to_upper_invariant(file_name);
-    let Some(rest) = name.strip_prefix(&dotnet::to_upper_invariant(stem)) else {
+    let name = paths::to_upper_invariant(file_name);
+    let Some(rest) = name.strip_prefix(&paths::to_upper_invariant(stem)) else {
         return false;
     };
     let Some(rest) = rest.strip_prefix(".OLD") else {
@@ -33,7 +33,7 @@ pub fn is_old(file_name: &str, stem: &str) -> bool {
 pub fn sweep(directory: &Path, stems: &[&str]) -> usize {
     let mut names: Vec<&str> = Vec::new();
     for stem in stems.iter().copied().filter(|s| !s.is_empty()) {
-        if !names.iter().any(|n| dotnet::eq_ignore_case(n, stem)) {
+        if !names.iter().any(|n| paths::eq_ignore_case(n, stem)) {
             names.push(stem);
         }
     }
@@ -56,7 +56,7 @@ pub fn sweep(directory: &Path, stems: &[&str]) -> usize {
     removed
 }
 
-/// 창이 켜질 때(C# `SweepAround`): 이 exe 옆과 홈에서 이 exe 이름 · 배포물 이름의 옛 것을 치운다.
+/// 창이 켜질 때: 이 exe 옆과 홈에서 이 exe 이름 · 배포물 이름의 옛 것을 치운다.
 pub fn sweep_around(process_path: Option<&Path>, home_directory: &Path) {
     let stem = process_path
         .and_then(Path::file_stem)
@@ -127,7 +127,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// C# `ExtensionPresenceTests.비켜_둔_옛_exe_는_이름이_맞는_것만_치우고_쓰는_중인_것은_미룬다` — 브라우저의 호스트가 쥐고 있는
+    /// 브라우저의 호스트가 쥐고 있는
     /// 것은 다음 번으로 미루고, 다른 프로그램의 `*.old.exe` · 숫자가 아닌 꼬리 · 다른 확장자는 건드리지 않는다.
     #[cfg(windows)]
     #[test]

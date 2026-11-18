@@ -271,24 +271,22 @@ export function ColumnManager(props: Props) {
               else if (e.key === "Backspace" && !choiceText && draft.choices.length) change({ choices: draft.choices.slice(0, -1) });
             }} onBlur={() => choiceText && addChoices(choiceText)} />
         </div></div>}
-      {draft.kind === "choice" && <p className="column-hint">쉼표나 Enter로 후보를 나눕니다. 후보에서 빼도 이미 입력한 값은 남습니다.</p>}
+      {draft.kind === "choice" && <p className="column-hint">쉼표나 Enter로 후보를 나눕니다.</p>}
       {(draft.kind === "date" || draft.kind === "number") && <p className="column-hint">{draft.kind === "date" ? "2026/09/20처럼 적습니다." : "164,872,340처럼 적습니다."} 적은 그대로 문서에 찍힙니다.</p>}
     </fieldset>
     <section className="column-result" aria-label="목록 미리보기">
       <h3>목록 미리보기</h3>
       {contextStatus}
       {data && <>
-        <p className="column-hint">{draft.previousName ? "이미 입력한 값은 그대로 유지됩니다." : "새 열은 사용자 열 맨 뒤에 붙습니다. 저장한 뒤 목록의 칸에 직접 입력하세요."}</p>
         <div className="column-data-scroll"><table><thead><tr><th>{data.columns[0]}</th><th>{titleColumns[target]}</th>
           <th className="column-result-new">{draft.name || "새 열 이름"}</th></tr></thead>
           <tbody>{data.rows.slice(0, 3).map((r, i) => <tr key={i}><td>{r[data.columns[0]]}</td><td>{r[titleColumns[target]] || "—"}</td>
             <td className="column-result-new">{draft.previousName && draft.savedMode === ":" ? r[draft.previousName] || <span className="blank-mark">빈 값</span> : sampleInput || <span className="blank-mark">저장 후 입력</span>}</td></tr>)}</tbody></table></div>
-        {!data.rows.length && <p className="column-hint">아직 수집된 자료가 없습니다. 열을 먼저 만들어 둘 수 있습니다.</p>}
+        {!data.rows.length && <p className="column-hint">수집된 자료가 없습니다.</p>}
         {!readOnly && <label className="sample-input">입력해 보기{draft.kind === "choice"
           ? <select aria-label="입력해 보기" value={sampleInput} onChange={e => setSampleInput(e.target.value)}><option value="">골라 보세요</option>{draft.choices.map(c => <option key={c}>{c}</option>)}</select>
           : <input aria-label="입력해 보기" className="text" value={sampleInput} placeholder="예: 홍길동" onChange={e => setSampleInput(e.target.value)} />}
-          <small>미리보기에만 쓰고 저장하지 않습니다.</small></label>}
-        <p className="column-hint">저장한 뒤 목록에서 칸을 두 번 누르거나 F2를 눌러 입력합니다. 여러 행에 한꺼번에 넣으려면 「같은 값 입력」을 쓰세요.</p>
+        </label>}
       </>}
     </section>
   </div>;
@@ -303,7 +301,7 @@ export function ColumnManager(props: Props) {
       </div>
       <p className="column-notice" role="status">{busy ? "처리 중…" : notice}</p>
     </header>
-    {fromIntegrated && <p className="column-context">통합에는 계약의 사용자 열만 표시됩니다. 공고·접수 열은 해당 목록에서 확인하세요.</p>}
+    {fromIntegrated && <p className="column-context">통합에는 계약의 사용자 열만 표시됩니다.</p>}
     {readOnly && <p className="column-context">열람 중이라 열 정의를 바꿀 수 없습니다.</p>}
 
     <div className={`cm-body${draft ? " is-editing" : ""}`}>
@@ -326,7 +324,7 @@ export function ColumnManager(props: Props) {
         </ul>
         {!visible.length && <div className="column-empty">
           {q ? <><p>「{q}」에 맞는 열이 없습니다.</p><button className="action" onClick={() => setQuery("")}>검색 지우기</button></>
-            : <p>{labels[entity]}에 사용자 열이 없습니다.{readOnly ? "" : " 아래에서 새 열을 만드세요."}</p>}
+            : <p>{labels[entity]}에 사용자 열이 없습니다.</p>}
         </div>}
         {!readOnly && <div className="cm-new">
           <span className="cm-op" aria-hidden="true"><Icon name="plus" size={14} /></span>
@@ -348,16 +346,11 @@ export function ColumnManager(props: Props) {
       <div className="cm-main">
         {!draft ? <div className="cm-empty">
           <h2>열을 고르거나 새로 만드세요</h2>
-          <dl className="cm-syntax">
-            <div><dt className="code">담당자 : 글</dt><dd>사람이 값을 채우는 입력열</dd></div>
-            <div><dt className="code">품명 모음 = 품목 |&gt; …</dt><dd>품목·이 행의 열·연결 문서에서 값을 계산하는 가공열</dd></div>
-          </dl>
           {!readOnly && <div className="cm-empty-actions">
             <button type="button" className="action" disabled={busy} onClick={() => create(":", "")}><span className="code">:</span> 입력열 만들기</button>
             <button type="button" className="action" disabled={busy} onClick={() => create("=", "")}><span className="code">=</span> 가공열 만들기</button>
           </div>}
           <details className="column-existing"><summary><Icon name="chevron" />기본 열과 첫 문서의 값 보기</summary>
-            <p className="column-hint">{labels[target]} 목록의 기본 열과 사용자 열입니다. 값은 목록 화면에서 고치세요.</p>
             {contextStatus}
             {data && <div className="column-data-scroll"><table><thead><tr><th>현재 열 이름</th><th>첫 문서의 값</th></tr></thead><tbody>{data.columns.map(c => <tr key={c}><th scope="row">{c}</th><td>{data.rows[0]?.[c] || "(빈 값)"}</td></tr>)}</tbody></table></div>}
           </details>
@@ -378,7 +371,7 @@ export function ColumnManager(props: Props) {
               {draft.mode === "=" && resultShape && <span className="cm-def-shape" title="결과 값 종류">{resultShape}</span>}
               {errorCount > 0 && <span className="cm-state is-error"><Icon name="alert" size={14} />오류 {errorCount}개</span>}
               {selected?.broken && !dirty && <span className="cm-state is-error" title={selected.broken}><Icon name="alert" size={14} />깨진 식</span>}
-              <span className={`cm-state${dirty ? " is-dirty" : ""}`}>{dirty ? "변경됨" : draft.previousName ? "저장됨" : "저장 전"}</span>
+              {draft.previousName && dirty && <span className="cm-state is-dirty">변경됨</span>}
               {selected && !readOnly && <div className="cm-menu" ref={menuRoot}>
                 <button type="button" className="icon-button" aria-label="열 메뉴" aria-haspopup="menu" aria-expanded={menu} disabled={busy} onClick={() => setMenu(m => !m)}><Icon name="more" /></button>
                 {menu && <div className="cm-menu-list" role="menu" aria-label="열 메뉴" onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); setMenu(false); } }}>
@@ -391,9 +384,8 @@ export function ColumnManager(props: Props) {
             </div>
           </div>
           {selected?.broken && selected.kind === "computed" && <p className="cm-broken" role="alert"><Icon name="alert" size={14} />
-            <span>저장된 식을 계산할 수 없어 이 열은 모든 행이 빈 값으로 나가고 있습니다. 이유: {selected.broken} 식을 고쳐 저장하면 다시 계산합니다.</span></p>}
+            <span>식을 계산할 수 없어 모든 행이 빈 값입니다. 이유: {selected.broken}</span></p>}
           {draft.previousName && draft.name.trim() !== draft.previousName && <p className="column-context">이 열을 이름으로 읽는 문서 양식은 새 이름으로 다시 연결해야 합니다.</p>}
-          {draft.entity === "contract" && !draft.previousName && <p className="column-hint cm-note">계약 열은 통합 목록에도 표시됩니다.</p>}
           <div className="cm-scroll">
             {inputEditor}
             {draft.mode === "=" && <>
@@ -405,7 +397,6 @@ export function ColumnManager(props: Props) {
           <footer className="column-save">
             {error && <p className="warn" role="alert">{error}</p>}
             <div className="column-controls">
-              <span className="column-hint">{readOnly ? "열람 중" : dirty ? "저장하면 목록에 반영됩니다." : draft.previousName ? "저장된 열입니다." : "저장 전에는 목록이 바뀌지 않습니다."}</span>
               <button className="action" disabled={busy} onClick={() => navigate(() => open(null))}>닫기</button>
               {!readOnly && <button className="action primary" disabled={busy || !!codeProblem || (!dirty && !!draft.previousName)} onClick={() => void save()}>저장</button>}
             </div>
@@ -424,22 +415,22 @@ export function ColumnManager(props: Props) {
     </Modal>}
     {removing && selected && <Modal label="열 제거 확인" onClose={() => { if (!busy) setRemoving(false); }}>
       <h2>‘{selected.fieldName}’ 열을 표에서 뺄까요?</h2>
-      <p>{selected.kind === "computed" ? "원본 자료는 그대로 남습니다. 이 열에 연결한 문서 양식은 더 이상 값을 받지 못하고, 같은 이름으로 다시 만들어도 식별자가 달라 다시 연결해야 합니다." : "입력한 값은 지우지 않습니다. 같은 이름으로 다시 만들면 그 값이 그대로 돌아옵니다."}</p>
-      {!!selected.viewReaders && <p className="cm-count-line">보기 <strong>{selected.viewReaders}곳</strong>이 이 열을 씁니다. 지우면 그 열은 식이 깨져 빈 값으로 나갑니다.</p>}
+      <p>{selected.kind === "computed" ? "이 열에 연결한 문서 양식은 값을 받지 못하게 됩니다. 같은 이름으로 다시 만들어도 다시 연결해야 합니다." : "입력한 값은 지우지 않습니다. 같은 이름으로 다시 만들면 그 값이 그대로 돌아옵니다."}</p>
+      {!!selected.viewReaders && <p className="cm-count-line">뷰 <strong>{selected.viewReaders}곳</strong>이 이 열을 씁니다. 지우면 그 열은 식이 깨져 빈 값으로 나갑니다.</p>}
       <div className="column-controls"><button className="action" disabled={busy} onClick={() => setRemoving(false)}>취소</button><button className="action danger" disabled={busy} onClick={() => void remove()}>열 제거</button></div>
     </Modal>}
     {converting && draft && <Modal label="열 성질 바꾸기 확인" onClose={() => { if (!busy) setConverting(null); }}>
       {converting === "=" ? <>
         <h2>‘{draft.previousName}’ 열을 가공열(=)로 바꿀까요?</h2>
-        <p>입력한 값은 <strong>지우지 않고 숨깁니다</strong>. 그동안은 식이 칸을 채우고, 나중에 값으로 굳히면 숨긴 값은 그때 계산된 값으로 바뀝니다.</p>
-        {plan ? <p className="cm-count-line">숨길 입력값 <strong>{plan.hidden.toLocaleString("ko-KR")}칸</strong> · 저장할 때 적용됩니다.</p>
+        <p>입력한 값은 <strong>지우지 않고 숨깁니다</strong>. 값으로 굳히면 숨긴 값은 계산된 값으로 바뀝니다.</p>
+        {plan ? <p className="cm-count-line">숨길 입력값 <strong>{plan.hidden.toLocaleString("ko-KR")}칸</strong></p>
           : !planError && <p className="column-hint" role="status">입력값을 세는 중…</p>}
       </> : <>
         <h2>‘{draft.previousName}’ 열의 값을 굳혀 입력열(:)로 바꿀까요?</h2>
-        <p>문서마다 최신 차수에서 계산된 값을 입력값으로 <strong>바로 씁니다</strong>. 식은 꺼 둔 채 남겨 두어 다시 켤 수 있습니다.</p>
+        <p>문서마다 계산된 값을 입력값으로 <strong>바로 씁니다</strong>. 식은 꺼 둔 채 남습니다.</p>
         {plan ? <ul className="cm-count-list">
-          <li>입력값을 쓸 문서: {plan.series.toLocaleString("ko-KR")}건 중 <strong>{plan.cells.toLocaleString("ko-KR")}건</strong> (계산값이 빈 문서는 비워 둡니다)</li>
-          <li>덮어쓰거나 지울 숨은 입력값: <strong>{plan.hidden.toLocaleString("ko-KR")}칸</strong> (식에 가려 있던 예전 값)</li>
+          <li>입력값을 쓸 문서: {plan.series.toLocaleString("ko-KR")}건 중 <strong>{plan.cells.toLocaleString("ko-KR")}건</strong></li>
+          <li>덮어쓰거나 지울 숨은 입력값: <strong>{plan.hidden.toLocaleString("ko-KR")}칸</strong></li>
         </ul> : !planError && <p className="column-hint" role="status">칸을 세는 중…</p>}
         {dirty && <p className="column-hint">저장하지 않은 식 변경이 있습니다. 먼저 저장하거나 버려야 굳힐 수 있습니다.</p>}
       </>}

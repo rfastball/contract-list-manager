@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BatchChange, Row, Sheet, SheetExport, UserColumn } from "./types";
 import { Modal } from "./Modal";
 import "../css/grid-work.css";
@@ -53,9 +53,7 @@ type Props = {
   /**
    * 줄 하나를 지운다. 무엇이 사라지는지 묻는 것은 바깥의 몫이다.
    *
-   * <p><b>없으면 단추를 그리지 않는다.</b> 모든 표의 줄이 지우는 개체인 것은 아니다 —
-   * 계획은 엑셀에서 오는 읽기 전용이라 여기서 지울 것이 없고, 지울 수 있는 것처럼 보이면
-   * 눌러 본 사람에게 다리가 "그런 접수·공고·계약이 없다" 고만 답한다.</p>
+   * <p><b>없으면 단추를 그리지 않는다.</b> 열람 창처럼 지울 수 없는 자리에서는 바깥이 넘기지 않는다.</p>
    */
   onDelete?: (rowKey: string) => void;
   onDeleteRows?: (rows: Row[]) => void;
@@ -65,6 +63,11 @@ type Props = {
 };
 
 type Sort = { column: string; dir: 1 | -1 };
+
+/** 보이는 줄 위아래로 더 달아 두는 줄 수. */
+const OVERSCAN = 20;
+/** 줄 높이를 재기 전 첫 그리기에 다는 줄 수 — 그려지기 전에 재어 곧 범위로 바뀐다. */
+const PROBE = 50;
 
 const quoteCell = (value: string) => /[\t\r\n"]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 
@@ -185,6 +188,35 @@ export function Grid({
   const here = useRef<HTMLTableCellElement>(null);
   useEffect(() => { if (initialQuery && focusQuery) search.current?.focus(); }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * 그리는 줄의 범위. 수천 줄 × 백 열을 다 달면 처음 그리기 · 탭 전환 · 정렬이 몇 초씩 걸려, 보이는 줄 근처만 달고
+   * 위아래는 빈 줄로 높이를 채운다. null 은 아직 재지 못한 첫 그리기, "all" 은 잴 수 없는 자리(배치가 없는 jsdom ·
+   * 가려진 채 선 표)라 다 단다. 줄 높이는 그린 줄에서 잰다 — 칸이 줄바꿈하지 않아 줄마다 같다.
+   */
+  const [span, setSpan] = useState<{ from: number; to: number; pitch: number } | "all" | null>(null);
+  const pitch = useRef(0);
+  const measure = useCallback(() => {
+    const box = board.current;
+    if (!box) return;
+    if (!box.clientHeight) { setSpan(s => s === null ? "all" : s); return; }
+    pitch.current ||= box.querySelector("tbody tr[aria-rowindex]")?.getBoundingClientRect().height ?? 0;
+    const h = pitch.current;
+    if (!h) return;
+    const from = Math.max(0, Math.floor(box.scrollTop / h) - OVERSCAN);
+    const to = Math.ceil((box.scrollTop + box.clientHeight) / h) + OVERSCAN;
+    setSpan(s => s !== null && s !== "all" && s.from === from && s.to === to && s.pitch === h ? s : { from, to, pitch: h });
+  }, []);
+  const frame = useRef(0);
+  const onScroll = () => { if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; measure(); }); };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  useEffect(() => {
+    const box = board.current;
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => { pitch.current = 0; measure(); });
+    watch.observe(box);
+    return () => watch.disconnect();
+  }, [measure]);
+
   useFindShortcut(search);
 
   const rows = useMemo(() => {
@@ -196,7 +228,13 @@ export function Grid({
     if (!sort) return found;
 
     // 열 전체에 같은 비교를 쓴다. 두 값마다 방식을 바꾸면 2 < 10 < 1a < 2가 된다.
-    const numeric = sheet.rows.every(r => !r[sort.column] || asNumber(r[sort.column]) !== null);
+    // 값의 절반 넘게 수로 읽히면 수의 열이다 — 수로 읽히지 않는 값(「-」·「미정」)은 방향과 상관없이 수 뒤에 글로 선다.
+    let filled = 0, parsed = 0;
+    for (const r of sheet.rows) {
+      const v = r[sort.column];
+      if (v) { filled++; if (asNumber(v) !== null) parsed++; }
+    }
+    const numeric = parsed * 2 > filled;
 
     // 원본을 건드리지 않으려고 베껴서 세운다.
     return [...found].sort((a, b) => {
@@ -208,7 +246,10 @@ export function Grid({
       if (!x) return 1;
       if (!y) return -1;
 
-      const cmp = numeric ? asNumber(x)! - asNumber(y)! : x.localeCompare(y, "ko");
+      const p = numeric ? asNumber(x) : null;
+      const q = numeric ? asNumber(y) : null;
+      if ((p === null) !== (q === null)) return p === null ? 1 : -1;
+      const cmp = p !== null && q !== null ? p - q : x.localeCompare(y, "ko");
       return cmp * sort.dir;
     });
   }, [sheet, query, sort]);
@@ -271,6 +312,17 @@ export function Grid({
   useEffect(() => {
     here.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [at, cursor.col]);
+
+  // 그려지기 전에 잰다 — 다 단 표를 한 번 그린 뒤 줄이지 않는다. 찾기로 줄이 줄어 굴린 자리가 당겨져도 다시 잰다.
+  useLayoutEffect(measure, [measure, rows]);
+  // 열 너비는 단 줄의 값으로 정해져, 굴릴 때 열이 좁아졌다 넓어졌다 하지 않게 본 너비 아래로 줄이지 않는다.
+  const widths = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    if (span === null || span === "all") return;
+    const heads = [...(board.current?.querySelectorAll<HTMLElement>("thead th[aria-colindex]") ?? [])];
+    const seen = heads.map((th, ci) => Math.max(widths.current.get(sheet.columns[ci]) ?? 0, th.getBoundingClientRect().width));
+    heads.forEach((th, ci) => { widths.current.set(sheet.columns[ci], seen[ci]); th.style.minWidth = `${seen[ci]}px`; });
+  }, [span, rows, sheet.columns]);
   useEffect(() => { setExplain(e => e && (e.id !== cursor.id || e.col !== cursor.col) ? null : e); }, [cursor.id, cursor.col]);
 
   /** 화면에 보이는 자리로 커서를 옮긴다 — 옮긴 뒤로는 그 자리의 줄을 붙든다. */
@@ -522,6 +574,71 @@ export function Grid({
     setSort(s => s?.column !== c ? { column: c, dir: 1 } : s.dir > 0 ? { column: c, dir: -1 } : null);
   };
 
+  const acts: CellActs = {
+    select(e, ri, ci) { if (dragMoved.current) { dragMoved.current = false; return; } chooseCell(ri, ci, e.shiftKey); },
+    pointerDown(e, ri, ci) {
+      if (e.button !== 0 || e.pointerType === "touch" || editing !== null || saving || pending) return;
+      e.preventDefault(); dragging.current = true; dragMoved.current = false; chooseCell(ri, ci, e.shiftKey);
+    },
+    pointerEnter(e, ri, ci) { if (dragging.current && e.buttons === 1) { dragMoved.current = true; chooseCell(ri, ci, true); } },
+    open(value) { if (!saving) { clearSelection(); setDraft(value); } },
+    explain(ri, ci) { clearSelection(); go(ri, ci); setExplain({ id: 신원(rows[ri]), col: ci }); },
+    type: setDraft,
+    save(value, move) {
+      void commit(value);
+      // 「아래」 는 누른 순간 화면에서 바로 아래에 있던 줄이다. 그 줄을 붙들므로,
+      // 정렬 중에 저장해 고친 줄이 다른 자리로 옮겨 가도 커서는 그 줄에 남는다 —
+      // 저장 뒤의 같은 번호를 쓰면 그사이 밀려 올라온 다른 줄에 선다.
+      if (move === "down") go(at + 1, cursor.col);
+      else if (move === "right") go(at, cursor.col + 1);
+      else if (move === "left") go(at, cursor.col - 1);
+      board.current?.focus();
+    },
+    cancel() { setDraft(null); board.current?.focus(); },
+    check(ri, checked, extend) { chooseRow(ri, checked, extend); },
+    checkAll() { selectAllRows(true); },
+  };
+  // 칸마다 새 함수를 내리면 키 하나에 표의 모든 칸이 다시 그려진다 — 늘 같은 함수를 내리고, 그것이 지금 상태를 읽는다.
+  const latest = useRef(acts);
+  latest.current = acts;
+  const on = useMemo<CellActs>(() => ({
+    select: (e, ri, ci) => latest.current.select(e, ri, ci),
+    pointerDown: (e, ri, ci) => latest.current.pointerDown(e, ri, ci),
+    pointerEnter: (e, ri, ci) => latest.current.pointerEnter(e, ri, ci),
+    open: (value) => latest.current.open(value),
+    explain: (ri, ci) => latest.current.explain(ri, ci),
+    type: (value) => latest.current.type(value),
+    save: (value, move) => latest.current.save(value, move),
+    cancel: () => latest.current.cancel(),
+    check: (ri, checked, extend) => latest.current.check(ri, checked, extend),
+    checkAll: () => latest.current.checkAll(),
+  }), []);
+
+  const note = useMemo<Note | null>(() => explain && {
+    id: explain.id,
+    col: explain.col,
+    line: formulaLine(definitions.get(sheet.columns[explain.col])),
+    onFix: onManageColumns ? () => { setExplain(null); onManageColumns(sheet.columns[explain.col]); } : undefined,
+    onClose: () => { setExplain(null); board.current?.focus(); },
+  }, [explain, definitions, sheet.columns, onManageColumns]);
+
+  /** 달 줄 번호와 그 사이를 채울 빈 줄. 커서 줄은 범위 밖이어도 단다 — 커서를 따라 굴리고, 편집 상자를 붙들어 둔다. */
+  const shownRows = (): (number | { from: number; height: number })[] => {
+    if (span === "all") return rows.map((_, ri) => ri);
+    const from = span === null ? 0 : Math.min(span.from, last);
+    const to = Math.min(span === null ? PROBE : span.to, last);
+    const picked = [...(at < from ? [at] : []), ...Array.from({ length: to - from + 1 }, (_, i) => from + i), ...(at > to ? [at] : [])];
+    if (span === null) return picked;
+    const out: (number | { from: number; height: number })[] = [];
+    let next = 0;
+    for (const ri of picked) {
+      if (ri > next) out.push({ from: next, height: (ri - next) * span.pitch });
+      out.push(ri); next = ri + 1;
+    }
+    if (next <= last) out.push({ from: next, height: (last + 1 - next) * span.pitch });
+    return out;
+  };
+
   return (
     <div className="grid-wrap">
       <div className="grid-toolbar">
@@ -554,7 +671,6 @@ export function Grid({
           <div className="grid-export-options">
             <button className="action quiet" disabled={exportBusy || !rows.length} onClick={() => { closeExport(); void exportRows(rows); }}>검색 결과 {rows.length}행 내보내기</button>
             <button className="action quiet" disabled={exportBusy || !selectedRows.length} onClick={() => { closeExport(); void exportRows(selectedRows); }}>선택한 {selectedRows.length}행 내보내기</button>
-            <span className="hint">현재 표와 정렬 순서로 저장합니다. 전체 자료는 설정의 「자료 관리」에서 내보냅니다.</span>
           </div>
         </details>}
       </div>
@@ -586,7 +702,7 @@ export function Grid({
       {batchError && !pending && <p className="grid-message" role="alert">{batchError}</p>}
       {notice && noticeShown && <p className="grid-message grid-notice" aria-hidden="true">{notice}</p>}
       {notice && <span className="sr-only" role="status">{notice}</span>}
-      <div className="grid-board" ref={board} tabIndex={0} onKeyDown={onKeyDown}
+      <div className="grid-board" ref={board} tabIndex={0} onKeyDown={onKeyDown} onScroll={onScroll}
         role={rows.length ? "grid" : undefined} aria-label={rows.length ? "자료 목록" : undefined}
         aria-rowcount={rows.length ? rows.length + 1 : undefined} aria-colcount={rows.length ? sheet.columns.length + 1 : undefined}
         aria-multiselectable={rows.length ? true : undefined} aria-describedby={`${gridId}-keys`}
@@ -604,7 +720,7 @@ export function Grid({
           } catch (error) { setBatchError((error as Error).message); }
         }}>
         {rows.length === 0 ? (
-          <div className="empty-state"><h2>검색 결과가 없습니다</h2><p>다른 검색어로 찾아보세요.</p>
+          <div className="empty-state"><h2>검색 결과가 없습니다</h2>
             <button className="action" onClick={() => { setQuery(""); clearSelection(); search.current?.focus(); }}>검색 지우기</button>
           </div>
         ) : <table className="grid" role="presentation">
@@ -638,61 +754,25 @@ export function Grid({
             </tr>
           </thead>
           <tbody role="rowgroup">
-            {rows.map((r, ri) => (
-              // 신원으로 키를 단다 — 자리 번호를 섞으면 줄이 옮길 때마다 새로 태어나 편집 상자가 끊긴다.
-              <tr key={신원(r)} role="row" aria-rowindex={ri + 2} aria-selected={selected.has(신원(r))} className={selected.has(신원(r)) ? "row-selected" : undefined}>
-                <td className="row-check" role="gridcell"><input type="checkbox" tabIndex={-1} aria-label={`${이름(r)} 행 선택`} checked={selected.has(신원(r))} disabled={saving}
-                  onChange={() => {}}
-                  onClick={e => chooseRow(ri, e.currentTarget.checked, e.shiftKey)}
-                  onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); selectAllRows(true); } }} /></td>
-                {sheet.columns.map((c, ci) => {
-                  const current = !heading && ri === at && ci === cursor.col;
-                  return (
-                    <Cell
-                      key={c}
-                      id={`${gridId}-row-${ri}-${ci}`}
-                      label={`${c}, ${ri + 1}행 ${이름(r)}`}
-                      colIndex={ci + 2}
-                      cellRef={current ? here : undefined}
-                      value={r[c] ?? ""}
-                      editable={editable.has(c) && 매달린다(r)}
-                      correctable={correctable.has(c) && 매달린다(r)}
-                      original={sheet.overrides[r[keyColumn]]?.[c]}
-                      definition={definitions.get(c)}
-                      current={current}
-                      inRange={!!anchor && ri >= bounds.top && ri <= bounds.bottom && ci >= bounds.left && ci <= bounds.right}
-                      pinned={ci === 0}
-                      draft={current ? editing : null}
-                      saving={current && saving}
-                      onSelect={e => { if (dragMoved.current) { dragMoved.current = false; return; } chooseCell(ri, ci, e.shiftKey); }}
-                      onPointerDown={e => { if (e.button !== 0 || e.pointerType === "touch" || editing !== null || saving || pending) return;
-                        e.preventDefault(); dragging.current = true; dragMoved.current = false; chooseCell(ri, ci, e.shiftKey); }}
-                      onPointerEnter={e => { if (dragging.current && e.buttons === 1) { dragMoved.current = true; chooseCell(ri, ci, true); } }}
-                      onOpen={() => { if (!saving) { clearSelection(); setDraft(r[c] ?? ""); } }}
-                      onExplain={definitions.get(c)?.kind === "computed" ? () => { clearSelection(); go(ri, ci); setExplain({ id: 신원(r), col: ci }); } : undefined}
-                      note={explain && explain.id === 신원(r) && explain.col === ci ? {
-                        line: formulaLine(definitions.get(c)),
-                        onFix: onManageColumns ? () => { setExplain(null); onManageColumns(c); } : undefined,
-                        onClose: () => { setExplain(null); board.current?.focus(); },
-                      } : undefined}
-
-                      onDraft={setDraft}
-                      onCommit={(value, move) => {
-                        void commit(value);
-                        // 「아래」 는 누른 순간 화면에서 바로 아래에 있던 줄이다. 그 줄을 붙들므로,
-                        // 정렬 중에 저장해 고친 줄이 다른 자리로 옮겨 가도 커서는 그 줄에 남는다 —
-                        // 저장 뒤의 같은 번호를 쓰면 그사이 밀려 올라온 다른 줄에 선다.
-                        if (move === "down") go(at + 1, cursor.col);
-                        else if (move === "right") go(at, cursor.col + 1);
-                        else if (move === "left") go(at, cursor.col - 1);
-                        board.current?.focus();
-                      }}
-                      onCancel={() => { setDraft(null); board.current?.focus(); }}
-                    />
-                  );
-                })}
-              </tr>
-            ))}
+            {shownRows().map(ri => {
+              if (typeof ri !== "number") return <tr key={`gap-${ri.from}`} aria-hidden="true"><td colSpan={sheet.columns.length + 1} style={{ height: ri.height, padding: 0, border: 0, background: "none" }} /></tr>;
+              const r = rows[ri];
+              const id = 신원(r);
+              const current = !heading && ri === at;
+              const inRange = !!anchor && ri >= bounds.top && ri <= bounds.bottom;
+              return (
+                // 신원으로 키를 단다 — 자리 번호를 섞으면 줄이 옮길 때마다 새로 태어나 편집 상자가 끊긴다.
+                <GridRow
+                  key={id} r={r} ri={ri} name={이름(r)} gridId={gridId} columns={sheet.columns}
+                  editable={editable} correctable={correctable} definitions={definitions}
+                  attached={매달린다(r)} overrides={sheet.overrides[r[keyColumn]]}
+                  selected={selected.has(id)} saving={saving}
+                  curCol={current ? cursor.col : -1} draft={current ? editing : null}
+                  rangeLeft={inRange ? bounds.left : -1} rangeRight={inRange ? bounds.right : -1}
+                  note={note?.id === id ? note : undefined} here={here} on={on}
+                />
+              );
+            })}
           </tbody>
         </table>}
       </div>
@@ -714,7 +794,7 @@ export function Grid({
       {pending && <Modal label="일괄 변경 검토" onClose={() => { if (!saving) { setPending(null); setBatchError(""); } }} className="batch-review"
         fallbackFocus={() => board.current}>
         <h2>{pending.length}셀 변경 검토</h2>
-        <p>아래 변경을 한 번에 저장합니다. 입력열은 전체 차수에, 수집값 정정은 선택한 차수에 적용합니다.</p>
+        <p>입력열은 전체 차수에, 수집값 정정은 선택한 차수에 적용합니다.</p>
         {skipped > 0 && <p className="hint">계약이 없는 {skipped}행은 건너뜁니다.</p>}
         <div className="batch-preview"><table><thead><tr><th>자료 번호</th><th>열</th><th>현재 값</th><th>변경 값</th></tr></thead><tbody>
           {pending.slice(0, 50).map(c => <tr key={`${c.rowKey}:${c.field}`}><td>{c.rowKey}</td><td>{c.field}</td><td>{c.original || "빈 값"}</td><td>{c.operation === "revert" ? "수집 원래 값" : c.value || "빈 값"}</td></tr>)}
@@ -728,7 +808,90 @@ export function Grid({
   );
 }
 
+/** 칸이 부르는 일. 늘 같은 함수라 칸의 memo 를 깨지 않는다 — 어느 칸인지는 (ri, ci) 로 넘긴다. */
+type CellActs = {
+  select: (event: React.MouseEvent, ri: number, ci: number) => void;
+  pointerDown: (event: React.PointerEvent, ri: number, ci: number) => void;
+  pointerEnter: (event: React.PointerEvent, ri: number, ci: number) => void;
+  open: (value: string) => void;
+  /** 가공열 칸 — 편집 대신 안내를 연다. */
+  explain: (ri: number, ci: number) => void;
+  type: (value: string) => void;
+  save: (value: string, move?: "down" | "right" | "left") => void;
+  cancel: () => void;
+  check: (ri: number, checked: boolean, extend: boolean) => void;
+  checkAll: () => void;
+};
+
+/** 가공열 안내가 열린 칸(줄 신원과 열 번호)과 그 내용. */
+type Note = { id: string; col: number; line: string; onFix?: () => void; onClose: () => void };
+
+type RowProps = {
+  r: Row;
+  ri: number;
+  name: string;
+  gridId: string;
+  columns: string[];
+  editable: Set<string>;
+  correctable: Set<string>;
+  definitions: Map<string, UserColumn>;
+  /** 고친 값이 매달릴 레코드가 있는 줄인가. */
+  attached: boolean;
+  overrides?: Record<string, string>;
+  selected: boolean;
+  saving: boolean;
+  /** 커서가 이 줄에 있으면 그 열 번호, 없으면 -1. */
+  curCol: number;
+  draft: string | null;
+  /** 범위 선택이 이 줄을 덮으면 그 열 범위, 아니면 -1. */
+  rangeLeft: number;
+  rangeRight: number;
+  note?: Note;
+  here: React.Ref<HTMLTableCellElement>;
+  on: CellActs;
+};
+
+/** 표의 한 줄. 받는 것이 모두 그대로면 다시 그리지 않는다 — 커서가 옮겨도 닿은 두 줄만 다시 그린다. */
+const GridRow = memo(function GridRow({
+  r, ri, name, gridId, columns, editable, correctable, definitions, attached, overrides,
+  selected, saving, curCol, draft, rangeLeft, rangeRight, note, here, on,
+}: RowProps) {
+  return (
+    <tr role="row" aria-rowindex={ri + 2} aria-selected={selected} className={selected ? "row-selected" : undefined}>
+      <td className="row-check" role="gridcell"><input type="checkbox" tabIndex={-1} aria-label={`${name} 행 선택`} checked={selected} disabled={saving}
+        onChange={() => {}}
+        onClick={e => on.check(ri, e.currentTarget.checked, e.shiftKey)}
+        onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); on.checkAll(); } }} /></td>
+      {columns.map((c, ci) => (
+        <Cell
+          key={c}
+          ri={ri}
+          ci={ci}
+          id={`${gridId}-row-${ri}-${ci}`}
+          label={`${c}, ${ri + 1}행 ${name}`}
+          colIndex={ci + 2}
+          cellRef={ci === curCol ? here : undefined}
+          value={r[c] ?? ""}
+          editable={editable.has(c) && attached}
+          correctable={correctable.has(c) && attached}
+          original={overrides?.[c]}
+          definition={definitions.get(c)}
+          current={ci === curCol}
+          inRange={ci >= rangeLeft && ci <= rangeRight}
+          pinned={ci === 0}
+          draft={ci === curCol ? draft : null}
+          saving={ci === curCol && saving}
+          note={note?.col === ci ? note : undefined}
+          on={on}
+        />
+      ))}
+    </tr>
+  );
+});
+
 type CellProps = {
+  ri: number;
+  ci: number;
   id: string;
   label: string;
   colIndex: number;
@@ -744,21 +907,13 @@ type CellProps = {
   pinned?: boolean;
   draft: string | null;
   saving: boolean;
-  onSelect: (event: React.MouseEvent) => void;
-  onPointerDown?: (event: React.PointerEvent) => void;
-  onPointerEnter?: (event: React.PointerEvent) => void;
-  onOpen: () => void;
-  /** 가공열 칸 — 편집 대신 안내를 연다. */
-  onExplain?: () => void;
-  note?: { line: string; onFix?: () => void; onClose: () => void };
-  onDraft: (value: string) => void;
-  onCommit: (value: string, move?: "down" | "right" | "left") => void;
-  onCancel: () => void;
+  note?: Note;
+  on: CellActs;
 };
 
-function Cell({
-  id, label, colIndex, cellRef, value, editable, correctable, original, definition, current, inRange, pinned, draft, saving,
-  onSelect, onPointerDown, onPointerEnter, onOpen, onExplain, note, onDraft, onCommit, onCancel,
+const Cell = memo(function Cell({
+  ri, ci, id, label, colIndex, cellRef, value, editable, correctable, original, definition, current, inRange, pinned, draft, saving,
+  note, on,
 }: CellProps) {
   const open = editable || correctable;
 
@@ -804,13 +959,13 @@ function Cell({
         ref={cellRef}
         className={classes || undefined}
         title={original === undefined ? undefined : `수정한 셀 · 원래 값: ${original || "(빈 값)"}`}
-        onClick={onSelect}
-        onPointerDown={onPointerDown}
-        onPointerEnter={onPointerEnter}
-        onDoubleClick={open ? onOpen : onExplain}
+        onClick={e => on.select(e, ri, ci)}
+        onPointerDown={e => on.pointerDown(e, ri, ci)}
+        onPointerEnter={e => on.pointerEnter(e, ri, ci)}
+        onDoubleClick={open ? () => on.open(value) : definition?.kind === "computed" ? () => on.explain(ri, ci) : undefined}
       >
         <div ref={shownRef} className={shown}>{value || "—"}</div>
-        {note && <FormulaNote {...note} />}
+        {note && <FormulaNote line={note.line} onFix={note.onFix} onClose={note.onClose} />}
         {/* 커서가 선 칸이 잘렸으면 전체를 칸 위에 펼친다. 글자를 골라 베낄 수 있게 두되,
             그 누름이 칸의 편집으로 번지지 않게 막는다. */}
         {clipped && (
@@ -830,10 +985,10 @@ function Cell({
 
   return (
     <td id={id} role="gridcell" aria-colindex={colIndex} aria-label={label} aria-selected={!!inRange} ref={cellRef} className={classes}>
-      <Editor label={label} draft={draft} definition={definition} onDraft={onDraft} onCommit={onCommit} onCancel={onCancel} />
+      <Editor label={label} draft={draft} definition={definition} onDraft={on.type} onCommit={on.save} onCancel={on.cancel} />
     </td>
   );
-}
+});
 
 /**
  * 편집 중인 한 칸. 편집이 시작될 때 새로 태어나고 끝나면 사라지므로,
@@ -845,7 +1000,9 @@ function Cell({
  */
 function Editor({
   label, draft, definition, onDraft, onCommit, onCancel,
-}: Pick<CellProps, "label" | "draft" | "definition" | "onDraft" | "onCommit" | "onCancel"> & { draft: string }) {
+}: Pick<CellProps, "label" | "definition"> & {
+  draft: string; onDraft: CellActs["type"]; onCommit: CellActs["save"]; onCancel: CellActs["cancel"];
+}) {
   const settled = useRef(false);
 
   const finish = (value: string, move?: "down" | "right" | "left") => {
@@ -911,7 +1068,7 @@ function FormulaNote({ line, onFix, onClose }: { line: string; onFix?: () => voi
     <div className="grid-formula-note" role="dialog" aria-label="가공열 안내"
       onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
-      <p>이 칸은 식이 채웁니다. 값을 바꾸려면 식을 고치세요.</p>
+      <p>이 칸은 식이 채웁니다.</p>
       {line && <code>= {line}</code>}
       <div className="grid-formula-actions">
         {onFix && <button ref={fix} type="button" className="action primary" onClick={onFix}>식 고치기</button>}

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { FlowEnv, LinkKind, Shape } from "./ast";
 import { checkFlow } from "./check";
@@ -36,8 +37,6 @@ function input(doc: Doc): EvalInput {
 }
 
 describe("공유 사례표", () => {
-  it("사례가 스물다섯을 넘는다", () => expect(cases.length).toBeGreaterThanOrEqual(25));
-
   it.each(cases.map(c => [c.name, c] as const))("%s", (_, c) => {
     const formula = toV2(c.formula);
     if (c.migrated) expect(formula).toEqual(c.migrated);

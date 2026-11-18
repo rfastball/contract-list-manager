@@ -20,6 +20,12 @@ $resolvedExe = (Resolve-Path -LiteralPath $ExePath).Path
 if ([IO.Path]::GetExtension($resolvedExe) -ne '.exe') { throw '빌드한 계약목록.exe 경로를 지정하세요.' }
 if ($Development) {
     $devExe = Join-Path (Split-Path -Parent $resolvedExe) 'pclm-erp-dev.exe'
+    # 상시 연결 호스트가 사본을 쥐고 있으면 덮어쓰지 못한다 — 이름을 바꿔 비킨다(run.ps1 의 Move-HeldFiles 와 같은 꼴,
+    # 다음 빌드가 .old- 를 치운다). 호스트는 제 exe 가 비켜진 것을 보고 떠나고 확장이 새 사본으로 다시 붙는다.
+    if (Test-Path -LiteralPath $devExe) {
+        try { [IO.File]::Open($devExe, 'Open', 'ReadWrite', 'None').Dispose() }
+        catch { Move-Item -LiteralPath $devExe -Destination ($devExe -replace '\.exe$', ".old-$(Get-Date -Format yyyyMMddHHmmss).exe") }
+    }
     Copy-Item -LiteralPath $resolvedExe -Destination $devExe -Force
     $resolvedExe = $devExe
 }

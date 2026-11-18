@@ -1,4 +1,4 @@
-//! 오류. C# 의 예외 갈래를 하나의 열거로 옮긴다 — 부르는 쪽(창·명령줄·문서나르미)이 갈래로 가른다.
+//! 오류. 갈래를 하나의 열거로 둔다 — 부르는 쪽(창·명령줄·문서나르미)이 갈래로 가른다.
 
 use std::fmt;
 
@@ -7,15 +7,15 @@ use crate::storage::pclm_file::PclmFileError;
 /// 이 크레이트의 오류.
 #[derive(Debug)]
 pub enum Error {
-    /// SQLite 가 낸 오류(C# `SqliteException`).
+    /// SQLite 가 낸 오류.
     Sqlite(rusqlite::Error),
-    /// 파일 오류(C# `IOException`·`FileNotFoundException`). 이미 있는 자리에 짓지 않을 때도 이것이다.
+    /// 파일 오류. 이미 있는 자리에 짓지 않을 때도 이것이다.
     Io(std::io::Error),
-    /// 할 수 없는 일(C# `InvalidOperationException`). 글은 C# 과 같은 사람 말이다.
+    /// 할 수 없는 일. 글은 사람이 읽는 말이다.
     InvalidOperation(String),
-    /// 잘못된 인자(C# `ArgumentException`).
+    /// 잘못된 인자.
     Argument(String),
-    /// 열지 않기로 한 파일(C# `PclmFileException`).
+    /// 열지 않기로 한 파일.
     PclmFile(PclmFileError),
 }
 

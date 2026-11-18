@@ -1,6 +1,6 @@
 //! 로컬 시각 — 저장은 UTC(`"O"`)인데 사람이 읽는 날짜(수집 기록의 「오늘」, 투영의 「고친 날」)는 로컬이다.
 //!
-//! C# 은 `DateTime.ToLocalTime()` 으로 이 기계의 시간대를 그 자리에서 읽었다. 이 크레이트는 시간대를 스스로 읽지 않는다 —
+//! 이 크레이트는 이 기계의 시간대를 스스로 읽지 않는다 —
 //! 부르는 쪽이 [`LocalZone`] 으로 넣는다(시험은 고정 오프셋을 넣는다).
 
 /// UTC 순간 하나에서 그 순간의 로컬 오프셋(초). 일광 절약 시간이 있는 시간대도 순간마다 답한다.
@@ -92,18 +92,18 @@ impl LocalDateTime {
     }
 }
 
-/// 로컬 날짜·시각을 UTC 의 `"O"` 표기로(`DateTime.SpecifyKind(local, Local).ToUniversalTime().ToString("O")`). 오프셋은
-/// 그 로컬 시각을 UTC 로 읽은 순간의 것으로 근사한다 — 일광 절약 전환의 한 시간 안에서만 C# 과 갈릴 수 있다.
+/// 로컬 날짜·시각을 UTC 의 `"O"` 표기로. 오프셋은
+/// 그 로컬 시각을 UTC 로 읽은 순간의 것으로 근사한다 — 일광 절약 전환의 한 시간 안에서만 실제 시계와 갈릴 수 있다.
 pub fn to_utc_text(local: LocalDateTime, zone: &dyn LocalZone) -> String {
     let naive = local.unix_seconds();
     let utc = LocalDateTime::from_unix(naive - zone.offset_seconds(naive), local.ticks);
     format!("{}.{:07}Z", utc.second_text(), utc.ticks)
 }
 
-/// 저장된 시각을 로컬로(`DateTime.TryParse(…, RoundtripKind)` 뒤 `ToLocalTime`). 오프셋이 없는 시각은 UTC 로 읽는다 — C# 의
-/// 두 자리(`Mirror.LocalDay`·`CaptureLog.Local`)가 모두 그렇게 한다. 읽지 못하면 `None`.
+/// 저장된 시각을 로컬로. 오프셋이 없는 시각은 UTC 로 읽는다 — 두 자리(투영의 「고친 날」·수집 기록의 「오늘」)가 모두
+/// 그렇게 한다. 읽지 못하면 `None`.
 ///
-/// `DateTime.TryParse` 는 훨씬 너그럽다. 여기서는 앱이 쓰는 꼴만 읽는다 — `yyyy-MM-dd`, 뒤에 `T` 또는 공백과 `HH:mm[:ss[.f…]]`,
+/// 일반적인 날짜 읽기보다 좁다. 앱이 쓰는 꼴만 읽는다 — `yyyy-MM-dd`, 뒤에 `T` 또는 공백과 `HH:mm[:ss[.f…]]`,
 /// 그 뒤에 `Z` 나 `±HH:mm`.
 pub fn parse_to_local(stored: Option<&str>, zone: &dyn LocalZone) -> Option<LocalDateTime> {
     let (seconds, ticks) = parse_utc(stored?.trim())?;

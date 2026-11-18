@@ -1,7 +1,7 @@
-//! 창의 몸가짐(C# `Storage/WindowPrefs.cs`) — 이 컴퓨터에서 창을 어떻게 다룰지. 홈의 `window.json`
+//! 창의 몸가짐 — 이 컴퓨터에서 창을 어떻게 다룰지. 홈의 `window.json`
 //! ([`crate::Home::window_prefs_path`])에 적는다.
 //!
-//! **자료가 아니라 자리의 것이다.** 작업자료의 설정에 두면 제출본·작업자료 바꾸기를 따라 남의 컴퓨터로 건너가고,
+//! **자료가 아니라 자리의 것이다.** 작업자료의 설정에 두면 그 파일을 따라 남의 컴퓨터로 건너가고,
 //! 쪽지에 두면 밖에 내놓은 약속(dataset-contract §1)이 커진다.
 //!
 //! 읽기는 **너그럽다** — 없거나 깨졌으면 기본값(모두 꺼짐)으로 선다. 쓰기는 쪽지처럼 임시 파일에 쓴 뒤 바꿔치기한다.
@@ -12,9 +12,9 @@ use std::path::Path;
 use pclm_core::erp::{parse_json, wire};
 use serde_json::{Map, Value};
 
-use crate::dotnet;
+use crate::paths;
 
-/// C# `WindowPrefs`.
+/// 창의 몸가짐.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WindowPrefs {
     /// 닫기(X)를 눌러도 끝내지 않고 알림 영역에 둔다.
@@ -24,31 +24,31 @@ pub struct WindowPrefs {
 }
 
 impl WindowPrefs {
-    /// 읽는다(C# `WindowPrefs.Read`). 실패하지 않는다 — 없거나 깨졌거나 못 읽으면 기본값이다.
+    /// 읽는다. 실패하지 않는다 — 없거나 깨졌거나 못 읽으면 기본값이다.
     ///
-    /// `JsonSerializer.Deserialize<WindowPrefs>` 의 뜻: 칸 이름은 대소문자를 가리고, 모르는 칸은 넘기고, 빠진 칸은 꺼짐,
+    /// 읽는 규칙: 칸 이름은 대소문자를 가리고, 모르는 칸은 넘기고, 빠진 칸은 꺼짐,
     /// 같은 칸이 둘이면 뒤의 것. 값은 `true`·`false` 만 받는다(글·수·`null` 은 깨진 것). 뿌리가 `null` 이면 기본값.
     pub fn read(path: &Path) -> WindowPrefs {
         if !path.is_file() {
             return WindowPrefs::default();
         }
-        dotnet::read_all_text(path)
+        paths::read_all_text(path)
             .ok()
             .and_then(|text| deserialize(&text))
             .unwrap_or_default()
     }
 
-    /// 쓴다(C# `WindowPrefs.Write`). 같은 폴더의 임시 파일에 쓴 뒤 이름을 바꾼다. 글은 C# 의 `JsonSerializer`
-    /// (`WriteIndented = true`)와 바이트까지 같다.
+    /// 쓴다. 같은 폴더의 임시 파일에 쓴 뒤 이름을 바꾼다. 글은 옛 판이 쓴 것(들여쓰기)과
+    /// 바이트까지 같다.
     pub fn write(&self, path: &Path) -> io::Result<()> {
-        let full = dotnet::full_path(path)?;
+        let full = paths::full_path(path)?;
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        dotnet::replace_file(path, &self.to_json())
+        paths::replace_file(path, &self.to_json())
     }
 
-    /// `JsonSerializer.Serialize(this, { WriteIndented = true })`.
+    /// 들여쓴 JSON 글.
     pub fn to_json(&self) -> String {
         let mut map = Map::new();
         map.insert("closeToTray".into(), Value::Bool(self.close_to_tray));
@@ -60,7 +60,7 @@ impl WindowPrefs {
     }
 }
 
-/// `None` 은 깨진 글(C# 의 `JsonException`). 뿌리 `null` 은 기본값.
+/// `None` 은 깨진 글. 뿌리 `null` 은 기본값.
 fn deserialize(text: &str) -> Option<WindowPrefs> {
     let map = match parse_json(text)? {
         Value::Null => return Some(WindowPrefs::default()),
@@ -79,7 +79,7 @@ fn deserialize(text: &str) -> Option<WindowPrefs> {
     Some(prefs)
 }
 
-/// C# `WindowPrefsTests`. 읽기가 **어떤 꼴에도 넘어지지 않고** 기본값(모두 꺼짐)으로 서는지, 쓴 것이 그대로 돌아오는지.
+/// 읽기가 **어떤 꼴에도 넘어지지 않고** 기본값(모두 꺼짐)으로 서는지, 쓴 것이 그대로 돌아오는지.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,7 +148,7 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["window.json"]);
-        // C# JsonSerializer(WriteIndented) 와 같은 바이트.
+        // 들여쓴 JSON 의 바이트.
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "{\r\n  \"closeToTray\": false,\r\n  \"trayNoticeShown\": true\r\n}"
@@ -179,7 +179,7 @@ mod tests {
         let (root, home) = fixture();
         let same = Home::new(format!(
             "{}\\",
-            crate::dotnet::to_upper_invariant(&home.directory().to_string_lossy())
+            crate::paths::to_upper_invariant(&home.directory().to_string_lossy())
         ))
         .unwrap();
         let other = Home::new(root.join("다른 홈")).unwrap();

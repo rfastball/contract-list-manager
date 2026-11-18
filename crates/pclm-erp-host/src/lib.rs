@@ -1,23 +1,23 @@
-//! 브라우저가 띄우는 native messaging 호스트 — C# `src/Pclm.App/Program.cs` 의 호스트 갈래와 같은 일을 한다.
+//! 브라우저가 띄우는 native messaging 호스트.
 //!
-//! 몸은 이 라이브러리의 [`run`] 이다. 따로 지은 `pclm-erp-host.exe`(동등성 계기가 쓴다)와 창 exe(`pclm-desktop`, 배포되는
-//! `계약목록.exe`)가 같은 것을 부른다 — 창 exe 는 UI 를 세우기 전에 [`is_host_launch`] 로 갈라 여기로 온다.
+//! 몸은 이 라이브러리의 [`run`] 이다. 창 exe(`pclm-desktop`, 배포되는 `계약목록.exe`)가 UI 를 세우기 전에
+//! [`is_host_launch`] 로 갈라 여기로 온다.
 //!
 //! ```text
-//! pclm-erp-host chrome-extension://<id>/ [--parent-window=…]   브라우저가 등록으로 띄운다
-//! pclm-erp-host --native-dev [--home <폴더>]                    손으로 띄운 개발 호스트(등록을 보지 않는다)
+//! 계약목록.exe chrome-extension://<id>/ [--parent-window=…]   브라우저가 등록으로 띄운다
+//! 계약목록.exe --native-dev [--home <폴더>]                    손으로 띄운 개발 호스트(등록을 보지 않는다)
 //! ```
 //!
-//! 실행 파일 이름이 `-erp-dev` 로 끝나면 개발 홈(`Pclm.Erp.Dev`)을 본다. `--home` 은 격리용이다 — C# 에는 없고 동등성 계기가
-//! 같은 홈을 두 구현에 보이려고 쓴다. 종료 코드: 0 정상, 1 틀·입출력 오류, 2 허락되지 않은 확장, 64 쓰는 법이 틀림.
+//! 실행 파일 이름이 `-erp-dev` 로 끝나면 개발 홈(`Pclm.Erp.Dev`)을 본다. `--home` 은 격리용이다. 종료 코드: 0 정상, 1 틀·입출력 오류, 2 허락되지 않은 확장, 64 쓰는 법이 틀림.
 //! stdout 에는 틀 지은 메시지 말고는 아무것도 쓰지 않는다.
 
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
+use pclm_bridge::{Os as _, SpecialFolder, WindowsOs, templates};
 use pclm_core::erp::capture::ErpCapture;
-use pclm_home::{Home, SystemEnv, dotnet, win};
+use pclm_home::{Home, SystemEnv, paths, win};
 use pclm_host::executable::{ExecutableIdentity, manifest_points_at};
 use pclm_host::presence::{self, Options};
 use pclm_host::status::HelloFiles;
@@ -27,7 +27,7 @@ use serde_json::Value;
 const ORIGIN_PREFIX: &str = "chrome-extension://";
 const NATIVE_DEV: &str = "--native-dev";
 
-/// C# `Program.Main` 의 첫 갈래 — 브라우저가 띄웠거나(`chrome-extension://…` 이 첫 인자) 손으로 띄운 개발 호스트(`--native-dev`)
+/// 브라우저가 띄웠거나(`chrome-extension://…` 이 첫 인자) 손으로 띄운 개발 호스트(`--native-dev`)
 /// 인가. 그러면 창·대화상자를 세우기 **전에** [`run`] 으로 간다.
 pub fn is_host_launch(args: &[String]) -> bool {
     args.first().is_some_and(|a| a.starts_with(ORIGIN_PREFIX))
@@ -42,7 +42,7 @@ pub fn run(mut args: Vec<String>) -> ExitCode {
     };
     let native_dev = args.iter().any(|a| a == NATIVE_DEV);
     let origin = args.first().filter(|a| a.starts_with(ORIGIN_PREFIX));
-    // C# 은 둘 다 없으면 창을 띄운다. 이 몸에는 창이 없다 — 창 exe 는 [`is_host_launch`] 로 미리 가른다.
+    // 둘 다 없으면 창을 띄울 일이다. 이 몸에는 창이 없다 — 창 exe 는 [`is_host_launch`] 로 미리 가른다.
     if origin.is_none() && !native_dev {
         return usage();
     }
@@ -85,6 +85,11 @@ pub fn run(mut args: Vec<String>) -> ExitCode {
     };
     // 상시 연결 인사는 작업자료를 열기 전에 serve 가 받는다 — 포트를 쥔 채 브라우저만큼 사는 호스트가 DB 를 쥐면 안 된다.
     let dispatch = |request: &Value| -> Value {
+        // 서식 폴더(ADR-049)는 작업자료와 상관없다 — 작업자료를 열지 않고 답한다.
+        if templates::is_request(request) {
+            let folder = templates::folder(&home, || WindowsOs.special_folder(SpecialFolder::Documents));
+            return templates::dispatch(folder, &WindowsOs, request);
+        }
         match home.open_bound() {
             Ok(database) => ErpCapture::new(database.path(), &SystemEnv)
                 .with_environment(environment)
@@ -117,11 +122,11 @@ fn take_home(args: &mut Vec<String>) -> Result<Option<String>, ()> {
 }
 
 fn usage() -> ExitCode {
-    eprintln!("쓰는 법: pclm-erp-host chrome-extension://<id>/ | --native-dev [--home <폴더>]");
+    eprintln!("쓰는 법: 계약목록.exe chrome-extension://<id>/ | --native-dev [--home <폴더>]");
     ExitCode::from(64)
 }
 
-/// `Path.GetFileNameWithoutExtension(Environment.ProcessPath)`.
+/// 실행 파일의 이름(확장자 없이).
 fn process_stem() -> String {
     std::env::current_exe()
         .ok()
@@ -129,7 +134,7 @@ fn process_stem() -> String {
         .unwrap_or_default()
 }
 
-/// C# 의 catch 가 내는 답과 같은 꼴 — `requestId` 는 요청이 객체이고 그 값이 글일 때만 싣는다.
+/// 실패에 내는 답 — `requestId` 는 요청이 객체이고 그 값이 글일 때만 싣는다.
 fn setup_required(request: &Value) -> Value {
     let request_id = request
         .as_object()
@@ -142,7 +147,7 @@ fn setup_required(request: &Value) -> Value {
     )
 }
 
-/// Chrome·Edge 의 등록 중 하나라도 이 exe 를 가리키는가(C# `Program.StillRegistered`). 하나도 읽히지 않으면 가리킨다고 친다.
+/// Chrome·Edge 의 등록 중 하나라도 이 exe 를 가리키는가. 하나도 읽히지 않으면 가리킨다고 친다.
 fn still_registered(host_name: &str) -> std::io::Result<bool> {
     let Ok(this) = std::env::current_exe() else {
         return Ok(true);
@@ -153,12 +158,12 @@ fn still_registered(host_name: &str) -> std::io::Result<bool> {
         let Some(manifest) = win::current_user_default_value(&key)? else {
             continue;
         };
-        // File.Exists — 빈 글·폴더·잘못된 경로는 없는 것으로 본다.
+        // 빈 글·폴더·잘못된 경로는 없는 것으로 본다.
         if manifest.is_empty() || !Path::new(&manifest).is_file() {
             continue;
         }
         seen = true;
-        if manifest_points_at(&dotnet::read_all_text(Path::new(&manifest))?, &this) {
+        if manifest_points_at(&paths::read_all_text(Path::new(&manifest))?, &this) {
             return Ok(true);
         }
     }
@@ -192,7 +197,7 @@ mod tests {
         assert_eq!(take_home(&mut args(&["--native-dev", "--home"])), Err(()));
     }
 
-    /// C# `Program.Main` 의 갈래 — 첫 인자가 확장 출처이거나 어디든 `--native-dev` 가 있으면 호스트다. 그 밖(파일 · 깃발)은 창.
+    /// 첫 인자가 확장 출처이거나 어디든 `--native-dev` 가 있으면 호스트다. 그 밖(파일 · 깃발)은 창.
     #[test]
     fn 호스트로_뜬_것만_가른다() {
         assert!(is_host_launch(&args(&[

@@ -1,10 +1,9 @@
-//! 가공식 v2 — 공유 사례표(`tests/flow-cases.json`, docs/column-management.md §11.7). C# `FlowCaseTests` 의 이식.
+//! 가공식 v2 — 공유 사례표(`tests/flow-cases.json`, docs/column-management.md §11.7).
 //!
-//! 화면의 vitest 와 C# xunit 이 같은 파일을 읽는다. 여기서는 Rust 꼴 검사와 SQL 컴파일러를 실제 SQLite 위에서 돌린다 —
-//! 셋 중 하나가 갈리면 그쪽이 붉어진다. 값은 모두 지어낸 것이다.
+//! 화면의 vitest 가 같은 파일을 읽는다. 여기서는 Rust 꼴 검사와 SQL 컴파일러를 실제 SQLite 위에서 돌린다 —
+//! 둘 중 하나가 갈리면 그쪽이 붉어진다. 값은 모두 지어낸 것이다.
 //!
-//! 문서는 C# 의 `Store.UpsertNotice`·`UpsertContract`·`UpsertRequest`(시험 픽스처 전용) 대신 행을 직접 넣는다 — 그
-//! 편집 API 는 다음 조각이다. 넣는 꼴은 C# 이 Microsoft.Data.Sqlite 로 묶는 꼴 그대로다: `DateTime` 은
+//! 문서는 행을 직접 넣는다. 넣는 꼴은 이렇다: 날짜·시각은
 //! `yyyy-MM-dd HH:mm:ss`, `decimal` 은 `0.0###…`(소수 한 자리 이상), `int` 는 INTEGER.
 
 mod common;
@@ -14,7 +13,7 @@ use pclm_core::Database;
 use pclm_core::storage::database::refresh;
 use pclm_core::storage::flow::Flow;
 use pclm_core::storage::flow_compiler::{self, SELF, Target};
-use pclm_core::storage::{pclm_file, schema, store};
+use pclm_core::storage::{schema, store};
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, params};
 use serde_json::{Map, Value};
@@ -55,7 +54,7 @@ fn key(doc: &Value) -> String {
     }
 }
 
-/// C# 의 `QuerySingle<string>` — 글은 그대로, 정수는 글로.
+/// 한 칸을 글로 읽는다 — 글은 그대로, 정수는 글로.
 fn text(value: Sql) -> Option<String> {
     match value {
         Sql::Null => None,
@@ -75,14 +74,14 @@ struct Db {
 fn fresh() -> Db {
     let temp = Temp::new("flow-cases");
     let path = temp.path("flow.pclm");
-    let database = pclm_file::create(&path, "work", &TestEnv::new()).unwrap();
+    let database = common::workfile(&path, &TestEnv::new());
     Db {
         _temp: temp,
         database,
     }
 }
 
-// ── 넣는 꼴(Microsoft.Data.Sqlite 의 묶음) ─────────────────────────
+// ── 넣는 꼴 ─────────────────────────
 
 /// `T(o, key)` — 빈 글은 NULL.
 fn t(o: &Value, key: &str) -> Option<String> {
@@ -311,7 +310,7 @@ fn seeded_documents_print_as_written_in_the_face_views() {
 
 // ── 사례 ─────────────────────────────────────────────
 
-/// 스키마 22 의 SQL 이 v1 을 옮긴 결과(`MigrateWithSchemaStep`). 세 벌(TS·C#·SQL)이 같은 v2 를 내야 한다.
+/// 스키마 22 의 SQL 이 v1 을 옮긴 결과(`MigrateWithSchemaStep`). 두 벌(TS·SQL)이 같은 v2 를 내야 한다.
 fn migrate_with_schema_step(v1: &str) -> String {
     let c = Connection::open_in_memory().unwrap();
     c.execute_batch("CREATE TABLE user_column (entity_type TEXT, field_name TEXT, kind TEXT, options TEXT, sort_order INTEGER);")
@@ -328,11 +327,11 @@ fn migrate_with_schema_step(v1: &str) -> String {
         .unwrap()
 }
 
-/// `사례(name)` 의 `migrated` 중 「세 벌이 같은 v2 를 낸다」 의 SQL 벌(`MigrateWithSchemaStep`).
+/// `사례(name)` 의 `migrated` 중 「두 벌이 같은 v2 를 낸다」 의 SQL 벌(`MigrateWithSchemaStep`).
 ///
-/// SQLite 3.54 는 스칼라 부질의를 지난 값의 JSON 하위형을 떨어뜨려, C# 의 v22 SQL 그대로면 `steps` 가 배열이 아니라 배열을
-/// 적은 **글**로 담긴다(3.53 은 넘긴다). Rust 의 v22.sql 은 그 부질의를 `json(…)` 으로 감싸 같은 값을 낸다 — 이 시험이 그것을
-/// 쥐고, 바이트로 같은지는 계기의 `migrate-v21` 이 C# 결과와 견준다.
+/// SQLite 3.54 는 스칼라 부질의를 지난 값의 JSON 하위형을 떨어뜨려, 감싸지 않으면 `steps` 가 배열이 아니라 배열을
+/// 적은 **글**로 담긴다(3.53 은 넘긴다). v22.sql 은 그 부질의를 `json(…)` 으로 감싸 같은 값을 낸다 — 이 시험이 그것을
+/// 쥔다.
 #[test]
 fn schema_22_migrates_v1_cases_like_flow() {
     let fixture = fixture();
@@ -447,10 +446,91 @@ fn every_case() {
     assert_eq!(cases(&fixture).len(), seen);
 }
 
-/// `사례를_가공열로_저장하면_뷰가_같은_값을_낸다` — 모든 사례를 실제 열로 저장하면 뷰가 같은 값을 낸다(감싼 뷰의 바깥 행
-/// `현재` 를 거친다). C# `Store.SaveComputedColumn` 대신 정의를 직접 넣고 뷰를 다시 짓는다 — 저장의 재검사는 다음 조각이다.
+/// 「오늘」 은 SQLite 의 `date('now', 'localtime')` 이다 — 날마다 달라 사례표에는 꼴만 박고 값은 여기서 그날과 대조한다.
+/// `[DBNum4]` 는 앱 함수(`한글금액`)를 부르므로 맞춤 뷰의 재료에서만 받는다.
 #[test]
-fn cases_saved_as_computed_columns_give_the_same_values_in_views() {
+fn today_and_korean_amount_follow_the_app_connection() {
+    let db = fresh();
+    let c = db.database.open_read_only().unwrap();
+    let value = |entity: &str,
+                 json: &str,
+                 env: Option<&pclm_core::storage::flow_check::FlowEnv>|
+     -> String {
+        let formula = Flow::parse(json).unwrap();
+        let expression =
+            flow_compiler::expression(entity, &formula, Target::Internal, env).unwrap();
+        c.query_row(&format!("SELECT {expression}"), [], |r| r.get(0))
+            .unwrap()
+    };
+    let today: String = c
+        .query_row("SELECT date('now', 'localtime')", [], |r| r.get(0))
+        .unwrap();
+    let (y, m, d) = (&today[..4], &today[5..7], &today[8..10]);
+    let flow = |source: &str, steps: &str| {
+        format!(
+            r#"{{"version":2,"id":"","source":"flow","flow":{{"from":{source},"steps":[{steps}]}}}}"#
+        )
+    };
+    assert_eq!(
+        value("contract", &flow(r#"{"kind":"today"}"#, ""), None),
+        today.replace('-', "/")
+    );
+    assert_eq!(
+        value(
+            "contract",
+            &flow(
+                r#"{"kind":"today"}"#,
+                r#"{"op":"format","text":"yyyy년 m월 d일"}"#
+            ),
+            None
+        ),
+        format!(
+            "{y}년 {}월 {}일",
+            m.trim_start_matches('0'),
+            d.trim_start_matches('0')
+        )
+    );
+
+    let view = Flow::env_for_view(&[]);
+    let korean = |text: &str, code: &str| {
+        value(
+            "",
+            &flow(
+                &format!(r#"{{"kind":"text","text":"{text}"}}"#),
+                &format!(r#"{{"op":"toNumber"}},{{"op":"format","text":"{code}"}}"#),
+            ),
+            Some(&view),
+        )
+    };
+    assert_eq!(korean("30,400,000", "[DBNum4]"), "삼천사십만");
+    assert_eq!(
+        korean("-1,234.9", "[DBNum4]원"),
+        "마이너스 일천이백삼십사원"
+    );
+    assert_eq!(korean("없음", "[DBNum4]"), "");
+    let refused = flow_compiler::expression(
+        "contract",
+        &Flow::parse(&flow(
+            r#"{"kind":"number","value":1}"#,
+            r#"{"op":"format","text":"[DBNum4]"}"#,
+        ))
+        .unwrap(),
+        Target::Internal,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("1단계: [DBNum4] 는 맞춤 뷰에서만 씁니다"),
+        "{refused}"
+    );
+}
+
+/// 계산 규칙 전부는 `every_case`가 본다. 여기서는 대표식으로 감싼 뷰의 `현재` 참조,
+/// 세 개체·통합·차수 뷰의 열 연결과 결과타입을 본다. 저장 API 대신 정의를 직접 넣는다.
+#[test]
+fn representative_computed_columns_keep_values_and_types_in_views() {
     let fixture = fixture();
     let db = fresh();
     seed(&db, &fixture);
@@ -458,9 +538,25 @@ fn cases_saved_as_computed_columns_give_the_same_values_in_views() {
     let mut saved = Vec::new();
     {
         let c = db.database.open().unwrap();
-        let mut i = 0;
-        for case in cases(&fixture).iter().filter(|c| c.get("final").is_some()) {
-            i += 1;
+        for (i, (name, kind)) in [
+            ("이름(번호) 나열 — 겹친 책상 한 줄이 빠진다", "text"),
+            ("개수 — 빈 목록은 0", "number"),
+            ("서식 — 번호가 빈 품목은 의자()", "text"),
+            ("만약 — 지금 값과 바깥 열을 한 조건에", "text"),
+            ("연결공고 필드 — 연결이 없으면 빈 값", "text"),
+            ("연결접수 품목", "text"),
+            ("접수의 연결계약 개수", "number"),
+            ("시각을 지닌 날짜 — 끝 글은 날짜만", "date"),
+            ("SQL 들여쓰기 — 글 안의 줄바꿈은 그대로", "text"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let case = cases(&fixture)
+                .iter()
+                .find(|c| c["name"] == name)
+                .unwrap_or_else(|| panic!("공유 사례가 없습니다: {name}"));
+            let i = i + 1;
             let entity = s(&case["entity"]);
             let column = format!("사례{i:02}");
             let mut formula = Flow::parse(&case["formula"].to_string()).unwrap();
@@ -476,6 +572,7 @@ fn cases_saved_as_computed_columns_give_the_same_values_in_views() {
                 column,
                 entity.to_string(),
                 case["final"].as_object().unwrap(),
+                kind,
             ));
         }
         let refreshed = refresh(&c).unwrap();
@@ -487,7 +584,7 @@ fn cases_saved_as_computed_columns_give_the_same_values_in_views() {
     }
 
     let c = db.database.open_read_only().unwrap();
-    for (column, entity, last) in &saved {
+    for (column, entity, last, _) in &saved {
         for (id, value) in *last {
             let doc = &docs[id];
             let views: &[(&str, &str)] = match entity.as_str() {
@@ -526,12 +623,15 @@ fn cases_saved_as_computed_columns_give_the_same_values_in_views() {
         .collect::<rusqlite::Result<_>>()
         .unwrap();
     assert_eq!(saved.len(), types.len());
-    for kind in ["number", "date", "text"] {
-        assert!(types.iter().any(|(_, t)| t == kind), "{kind}");
+    for (column, _, _, kind) in &saved {
+        assert!(
+            types.contains(&(column.clone(), kind.to_string())),
+            "{column}: {kind}, {types:?}"
+        );
     }
 }
 
-/// C# `계약_3000건_가공열_10개의_통합_조회_시간` — 계약 3,000건 × 가공열 10개(품목 나열·연결 필드 섞어)에서
+/// 계약 3,000건 × 가공열 10개(품목 나열·연결 필드 섞어)에서
 /// `SELECT * FROM v_통합` 시간(§11.7). 숫자는 표준 오류로 낸다. 10초를 넘으면 붉어진다 — 그 아래는 기계마다 다른 숫자라
 /// 막지 않는다.
 #[test]
@@ -611,7 +711,7 @@ fn unified_query_time_with_3000_contracts_and_10_computed_columns() {
         items(
             json!([{ "op": "get", "field": "품명" }, { "op": "distinct" }, { "op": "abbrev", "n": 1, "text": "{앞} 외 {나머지}종" }]),
         ),
-        items(json!([{ "op": "sum", "field": "금액" }, { "op": "thousands" }])),
+        items(json!([{ "op": "sum", "field": "금액" }, { "op": "format", "text": "#,##0" }])),
         items(json!([{ "op": "count" }])),
         items(
             json!([{ "op": "sort", "field": "단가", "dir": "desc" }, { "op": "first" }, { "op": "get", "field": "품명" }]),
